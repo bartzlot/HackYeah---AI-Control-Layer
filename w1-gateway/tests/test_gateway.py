@@ -226,3 +226,11 @@ def test_apply_redactions_multiple_and_overlap():
     r = [Redaction(part=0, start=0, end=1, replacement="A"), Redaction(part=0, start=4, end=6, replacement="B"),
          Redaction(part=0, start=5, end=7, replacement="C")]
     assert apply_redactions(["abcdefgh"], r) == ["AbcdCh"] or apply_redactions(["abcdefgh"], r)[0].startswith("Abc")
+
+
+def test_owned_upstream_clients_fail_fast_on_connect():
+    app = create_app(None, {"upstream_urls": {"local": "http://host.docker.internal:11434", "external": "http://cs:18200"}})
+    for kind in ("local", "external"):
+        t = app.state.upstreams[kind].timeout
+        assert t.connect == 5.0 and t.read == 120.0
+    assert str(app.state.upstreams["local"].base_url).startswith("http://host.docker.internal:11434")

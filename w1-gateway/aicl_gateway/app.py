@@ -110,7 +110,8 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
     clients: dict[str, httpx.AsyncClient] = dict(upstreams or {})
     for kind, url in cfg["upstream_urls"].items():
         if kind not in clients:
-            c = httpx.AsyncClient(base_url=url, timeout=cfg["upstream_timeout"])
+            # a dead upstream fails fast on connect; a slow local model still gets the long read timeout
+            c = httpx.AsyncClient(base_url=url, timeout=httpx.Timeout(cfg["upstream_timeout"], connect=5.0))
             clients[kind] = c
             owned.append(c)
 

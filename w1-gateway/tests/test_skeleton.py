@@ -212,3 +212,17 @@ def test_demo_agent_cli_needs_key_and_reports(monkeypatch, capsys):
     assert da.main(["--url", "http://127.0.0.1:9"]) == 2
     assert da.outcome_of(200, "REDACT") == "redacted" and da.outcome_of(429, None) == "blocked"
     assert da.outcome_of(200, "LOG") == "allowed" and da.outcome_of(200, "BLOCK") == "blocked"
+
+
+def test_entrypoint_reads_ollama_url_for_upstream_and_judge(tmp_path):
+    """Local Docker demo: gateway in a container, Ollama native on the Windows host."""
+    from aicl_core import engine as eng
+    url = "http://host.docker.internal:11434"
+    try:
+        app = create_app_from_env({"AICL_POLICY": str(POLICY), "AICL_OLLAMA_URL": url, "AICL_DATA_DIR": str(tmp_path),
+                                   "AICL_KEY_DEMO": DEMO_KEY}, start_reload=False)
+        assert str(app.state.upstreams["local"].base_url).rstrip("/") == url
+        assert app.state.judge.ollama_url == url and app.state.upstreams["local"].timeout.connect == 5.0
+        assert (tmp_path / "audit.jsonl").parent.is_dir()
+    finally:
+        eng.REGISTRY.pop("INJ-04", None)
