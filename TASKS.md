@@ -20,8 +20,8 @@ Cut order if late: loop guard -> CSV export (JSONL stays) -> judge as WARN-only.
 
 ## w2-core (A)
 - [x] T-201 [w2] (T1) policy engine + decide(): ruamel.yaml + pydantic load, 1 s polling reload, last-good on invalid, policy_version = sha256; control registry, action lattice, explain trace (control, rule, span), span redaction ([REDACTED_AWS_KEY], [PL_PESEL]) [5, 12] | deps: T-003 | claimed: w2/krzys13@seatA 2026-10-03T21:15Z | done: 2026-10-03T21:31Z
-- [~] T-202 [w2] (T1) detectors: secrets (AWS, GitHub, PEM, JWT, api_key=), PII with validators (PESEL checksum + date, IBAN mod-97, card Luhn, e-mail), destination matrix, injection signatures EN + PL with mention exception, rules engine over policy/rules/*.yaml with inline tests [5, 7, 11] | deps: T-201 | claimed: w2/krzys13@seatA 2026-10-03T21:31Z
-- [ ] T-203 [w2] (T1) tool_calls control: per-agent tool allowlist + argument rules (curl | sh, rm -rf, pickle.loads, trust_remote_code=True, foreign model pull) [9, 11] | deps: T-202
+- [x] T-202 [w2] (T1) detectors: secrets (AWS, GitHub, PEM, JWT, api_key=), PII with validators (PESEL checksum + date, IBAN mod-97, card Luhn, e-mail), destination matrix, injection signatures EN + PL with mention exception, rules engine over policy/rules/*.yaml with inline tests [5, 7, 11] | deps: T-201 | claimed: w2/krzys13@seatA 2026-10-03T21:31Z | done: 2026-10-03T21:43Z
+- [~] T-203 [w2] (T1) tool_calls control: per-agent tool allowlist + argument rules (curl | sh, rm -rf, pickle.loads, trust_remote_code=True, foreign model pull) [9, 11] | deps: T-202 | claimed: w2/krzys13@seatA 2026-10-03T21:43Z
 - [ ] T-204 [w2] (T1) test runner: pytest collects */cases/*.yaml, drives decide() and the gateway (ASGI + scripted cloud-sim), meta-test (each control has an allowed and a blocked case, incl. budget and exploits), `make test` -> reports/junit.xml [15] | deps: T-202
 
 ## w1-gateway (B)

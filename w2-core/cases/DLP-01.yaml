@@ -1,0 +1,44 @@
+schema: aicl-case/1
+control: DLP-01
+# Secrets. Synthetic only: AWS documented example keys, a fake JWT. GitHub tokens are generated at test time
+# (w2-core/tests/test_w2_detect.py) so no token-shaped string sits in the repo.
+cases:
+- id: S01
+  kind: positive
+  path: llm
+  input: {messages: [{role: user, content: "Review: import os; key = os.environ.get('API_KEY')"}]}
+  expect: {decision: ALLOW, findings: []}
+- id: S02
+  kind: negative
+  path: llm
+  setup: {destination: "qwen3.5:2b-q4_K_M"}
+  input: {messages: [{role: user, content: "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}]}
+  expect: {decision: REDACT, rule_ids: [AWS_KEY, AWS_SECRET], events: [SECRET_DETECTED],
+           redacted_contains: ["[REDACTED_AWS_KEY]", "[REDACTED_AWS_SECRET]"],
+           redacted_not_contains: ["AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI"]}
+- id: S03
+  kind: negative
+  path: llm
+  input: {messages: [{role: user, content: "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEAdemoNOTAREALKEY\n-----END RSA PRIVATE KEY-----"}]}
+  expect: {decision: REDACT, rule_ids: [PRIVATE_KEY], redacted_not_contains: "MIIEow"}
+- id: S04
+  kind: negative
+  path: llm
+  input: {messages: [{role: user, content: "call the API with Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJkZW1vLXVzZXIifQ.c2lnbmF0dXJlLWRlbW8tb25seQ"}]}
+  expect: {decision: REDACT, rule_ids: [JWT]}
+- id: S05
+  kind: negative
+  path: llm
+  input: {messages: [{role: user, content: "config: api_key = 'demo4f9a8b7c6d5e4f3a2b1c'"}]}
+  expect: {decision: REDACT, rule_ids: [API_KEY], redacted_not_contains: "demo4f9a8b7c6d5e4f3a2b1c"}
+- id: S06
+  kind: negative
+  path: llm
+  profile: strict
+  input: {messages: [{role: user, content: "my key AKIAIOSFODNN7EXAMPLE"}]}
+  expect: {decision: BLOCK, rule_ids: [AWS_KEY]}
+- id: S07
+  kind: negative
+  path: tool
+  input: {tool_calls: [{name: notes.add, arguments: {text: "backup AKIAIOSFODNN7EXAMPLE"}}]}
+  expect: {decision: BLOCK, rule_ids: [AWS_KEY]}

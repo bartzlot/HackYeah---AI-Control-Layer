@@ -125,10 +125,11 @@ def test_fail_typo_is_closed(engine, swap):
 
 
 def test_builtin_controls_survive_block_removal(engine):
+    e = ev("hello", agent_id="intruder", destination="local")
     pol = engine.policy.derive({"controls": {"ACCESS-01": None}})
-    assert engine.decide(ev(agent_id="intruder"), policy=pol).action == Action.BLOCK
+    assert engine.decide(e, policy=pol).action == Action.BLOCK
     pol = engine.policy.derive({"controls": {"ACCESS-01": {"mode": "off"}}})
-    assert engine.decide(ev(agent_id="intruder"), policy=pol).action != Action.BLOCK
+    assert engine.decide(e, policy=pol).action == Action.ALLOW
 
 
 def test_request_profile_can_only_tighten(engine):
