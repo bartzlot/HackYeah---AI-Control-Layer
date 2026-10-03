@@ -15,6 +15,20 @@ DEFAULT_MODELS: dict[str, dict[str, Any]] = {
 }
 
 
+def env_seconds(name: str, default: float) -> float:
+    """Positive number of seconds from the environment; a bad value fails at startup, naming the variable."""
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        v = float(raw)
+    except ValueError:
+        raise ValueError(f"{name}={raw!r} is not a number of seconds") from None
+    if not 0 < v < float("inf"):
+        raise ValueError(f"{name}={raw!r} must be a positive finite number of seconds")
+    return v
+
+
 def default_config() -> dict[str, Any]:
     return {
         # api key -> {"agent_id": str, "models": [tags] | None (all routable), "profile": str | None}
@@ -27,7 +41,8 @@ def default_config() -> dict[str, Any]:
         # credentials the gateway injects upstream (agent keys are never forwarded)
         "upstream_keys": {"local": None, "external": os.environ.get("AICL_UPSTREAM_KEY_EXTERNAL")},
         "audit_path": os.environ.get("AICL_AUDIT_PATH"),   # JSONL, None = bus only
-        "upstream_timeout": 120.0,
+        # seconds per upstream call; a local model on CPU needs minutes for a long answer
+        "upstream_timeout": env_seconds("AICL_UPSTREAM_TIMEOUT_S", 300.0),
         "session_header": "x-session-id",
         # BUD-01 (T-104). budgets = policy budgets.agents {agent_id: {tokens, usd, period: minute|hour|day|month}};
         # agents without an entry are uncapped. budget = policy budgets.{unpriced_model, ladder.warn_at}.
