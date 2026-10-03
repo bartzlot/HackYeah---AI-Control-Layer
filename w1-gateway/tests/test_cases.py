@@ -82,13 +82,13 @@ async def run_gateway_case(case: dict, control_off: bool, decide) -> dict:
     ext, loc = sim_app(Script(steps)), sim_app(Script(steps), {LOCAL: {"in": 0, "out": 0}})
     agent = POLICY_AGENT if decide is not None else AGENT   # the real policy denies unknown agents
     cfg = {"agents": {KEY: {"agent_id": agent, "profile": case.get("profile")}},
-           "budgets": {} if control_off or "budget" not in setup else {AGENT: setup["budget"]},
+           "budgets": {} if control_off or "budget" not in setup else {agent: setup["budget"]},
            "loop_limits": {"repeat_identical": 10_000 if control_off else 4}}
     ups = {"external": httpx.AsyncClient(transport=httpx.ASGITransport(app=ext), base_url="http://ext"),
            "local": httpx.AsyncClient(transport=httpx.ASGITransport(app=loc), base_url="http://loc")}
     app = create_app(decide, cfg, ups)
     if setup.get("spent") and not control_off:
-        app.state.ledger.record(AGENT, int(setup["spent"].get("tokens", 0)), float(setup["spent"].get("usd", 0.0)))
+        app.state.ledger.record(agent, int(setup["spent"].get("tokens", 0)), float(setup["spent"].get("usd", 0.0)))
     records = []
     app.state.bus.listeners.append(records.append)
     c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gw")
