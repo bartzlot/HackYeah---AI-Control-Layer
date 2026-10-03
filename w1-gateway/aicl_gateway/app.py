@@ -6,6 +6,7 @@ decisions enforceable (nothing leaves before it is checked).
 """
 from __future__ import annotations
 
+import asyncio
 import inspect
 import json
 import time
@@ -138,16 +139,22 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
 
     async def run_decide(event: Event) -> Decision | None:
         try:
-            d = decide_fn(event)
+            if inspect.iscoroutinefunction(decide_fn):
+                d = await decide_fn(event)
+            else:   # sync decide (w2 engine + local judge may wait on Ollama): keep the event loop free
+                d = await asyncio.to_thread(decide_fn, event)
             if inspect.isawaitable(d):
                 d = await d
             if not isinstance(d, Decision):
                 d = Decision.model_validate(d)
         except Exception:  # fail closed
             return None
+        upd = {}
         if not d.decision_id:
-            d = d.model_copy(update={"decision_id": uuid.uuid4().hex[:16]})
-        return d
+            upd["decision_id"] = uuid.uuid4().hex[:16]
+        if not d.degraded and any(f.detail.get("degraded") for f in d.findings):
+            upd["degraded"] = True    # e.g. INJ-04 judge timed out: its fail action applied
+        return d.model_copy(update=upd) if upd else d
 
     def authenticate(request: Request) -> tuple[str, dict] | None:
         auth = request.headers.get("authorization", "")

@@ -18,3 +18,11 @@
   to budgets needs a restart until the entrypoint re-applies them on reload).
 - One uvicorn worker only: open reservations live in process memory (the cap guarantee is per process).
 - Prompt repeats count toward the loop guard only with an `X-Session-Id`; tool-call repeats always count.
+
+## INJ-04 judge (T-106)
+- `aicl_gateway.judge.install(aicl_core.engine.register, ollama_url)` registers the judge with the w2 engine
+  after INJ-03; the entrypoint (T-901) must call it once at startup. Not registered = INJ-04 never runs.
+- [lead] policy.yaml `controls.INJ-04.judge.timeout_ms` is 1500; on the CPU VM qwen3.5:2b needs about 3000
+  (T-106 says 3 s, tune on the VM). The judge reads the value from the policy (default 3000 when absent).
+- The gateway now runs a sync decide() in a worker thread (asyncio.to_thread) so a judge call never blocks
+  the event loop; the judge itself allows one concurrent Ollama call (shared Ollama, NUM_PARALLEL 1).

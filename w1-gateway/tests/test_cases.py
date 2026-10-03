@@ -7,6 +7,8 @@ something).
 """
 from pathlib import Path
 
+import json
+
 import httpx
 import pytest
 import yaml
@@ -16,6 +18,7 @@ from cloud_sim import Script, create_app as sim_app
 
 CASES_DIR = Path(__file__).resolve().parents[1] / "cases"
 AGENT, KEY = "case-agent", "k-case"
+POLICY_AGENT = "analyst-agent"          # policy.yaml agent allowed on gpt-4o-mini
 LOCAL = "qwen3.5:2b-q4_K_M"
 
 
@@ -25,24 +28,63 @@ def load_cases():
         doc = yaml.safe_load(f.read_text(encoding="utf-8"))
         assert doc["schema"] == "aicl-case/1", f
         for c in doc["cases"]:
-            out.append((doc["control"], c))
+            out.append((doc["control"], {**c, "_runner": doc.get("runner", "gateway")}))
     return out
 
 
 CASES = load_cases()
 
 
+JUDGE_REPLIES = {"benign": ("benign", "none"), "suspicious": ("suspicious", "low"), "malicious": ("malicious", "high")}
+
+
+def judge_decide(case: dict, control_off: bool):
+    """runner judge-fake: w2 engine over policy.yaml with the INJ-04 judge (fake Ollama) registered after
+    INJ-03; control off = judge not registered. Returns (decide, judge calls list, cleanup)."""
+    from aicl_core import engine as eng
+    from aicl_gateway.judge import install
+    e = eng.Engine(Path(__file__).resolve().parents[2] / "policy" / "policy.yaml")
+    calls = []
+    if control_off:
+        return e.decide, calls, lambda: None
+    word = (case.get("setup") or {}).get("judge", "benign")
+
+    def fake(body, timeout):
+        calls.append(body)
+        if word == "timeout":
+            raise TimeoutError("fake judge timeout")
+        verdict, level = JUDGE_REPLIES[word]
+        return {"message": {"content": json.dumps({"prompt_injection": level, "data_exfiltration": "none",
+                                                   "jailbreak": "none", "tool_abuse": "none", "verdict": verdict})}}
+
+    install(eng.register, "http://unused", chat_fn=fake)
+    return e.decide, calls, lambda: eng.REGISTRY.pop("INJ-04", None)
+
+
 async def run_case(case: dict, control_off: bool = False) -> dict:
+    if case.get("_runner") == "judge-fake":
+        decide, calls, cleanup = judge_decide(case, control_off)
+        try:
+            got = await run_gateway_case(case, control_off, decide)
+        finally:
+            cleanup()
+        got["judge_called"] = bool(calls)
+        return got
+    return await run_gateway_case(case, control_off, None)
+
+
+async def run_gateway_case(case: dict, control_off: bool, decide) -> dict:
     setup, inp = case.get("setup") or {}, case["input"]
     repeat = int(setup.get("repeat", 1))
     steps = [{"tool_calls": setup["tool_calls"]} for _ in range(repeat)] if setup.get("tool_calls") else None
     ext, loc = sim_app(Script(steps)), sim_app(Script(steps), {LOCAL: {"in": 0, "out": 0}})
-    cfg = {"agents": {KEY: {"agent_id": AGENT}},
+    agent = POLICY_AGENT if decide is not None else AGENT   # the real policy denies unknown agents
+    cfg = {"agents": {KEY: {"agent_id": agent, "profile": case.get("profile")}},
            "budgets": {} if control_off or "budget" not in setup else {AGENT: setup["budget"]},
            "loop_limits": {"repeat_identical": 10_000 if control_off else 4}}
     ups = {"external": httpx.AsyncClient(transport=httpx.ASGITransport(app=ext), base_url="http://ext"),
            "local": httpx.AsyncClient(transport=httpx.ASGITransport(app=loc), base_url="http://loc")}
-    app = create_app(None, cfg, ups)
+    app = create_app(decide, cfg, ups)
     if setup.get("spent") and not control_off:
         app.state.ledger.record(AGENT, int(setup["spent"].get("tokens", 0)), float(setup["spent"].get("usd", 0.0)))
     records = []
@@ -59,6 +101,7 @@ async def run_case(case: dict, control_off: bool = False) -> dict:
     return {"status": r.status_code, "decision": r.headers.get("x-aicl-decision"),
             "retry_after": r.headers.get("retry-after"),
             "events": [x["event_type"] for x in records[n0:]],
+            "degraded": any(x.get("degraded") for x in records[n0:]),
             "upstream_called": len(ext.state.calls) + len(loc.state.calls) > calls_before}
 
 
@@ -73,6 +116,9 @@ def matches(case: dict, got: dict) -> list[str]:
             bad.append(f"event {ev} not in {got['events']}")
     if "upstream_called" in exp and got["upstream_called"] != exp["upstream_called"]:
         bad.append(f"upstream_called {got['upstream_called']} != {exp['upstream_called']}")
+    for k in ("judge_called", "degraded"):
+        if k in exp and got.get(k) != exp[k]:
+            bad.append(f"{k} {got.get(k)} != {exp[k]}")
     if exp.get("retry_after") and not (got["retry_after"] or "").isdigit():
         bad.append("missing Retry-After")
     return bad
