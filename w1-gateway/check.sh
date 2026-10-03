@@ -2,6 +2,5 @@
 # w1-gateway acceptance check. Exit 0 = piece green. Extend with every task (see TASKS.md).
 # Offline and deterministic: no Ollama, no network, no paid API.
 set -euo pipefail
-cd "$(dirname "$0")"
-echo "PHASE=0: w1-gateway has no checks yet"
-exit 1
+cd "$(dirname "$0")/.."
+uv run pytest -q w1-gateway/tests
