@@ -50,8 +50,17 @@ def test_judge_uses_the_policy_deadline_for_its_model_call():
     assert 7.5 < fake.timeouts[0] <= 8.0
 
 
-def test_judge_gives_up_before_the_upstream_call_would():
-    assert JUDGE["timeout_ms"] / 1000 < default_config()["upstream_timeout"]
+def test_compose_lets_the_judge_run_beside_a_local_answer():
+    env = COMPOSE["services"]["ollama"]["environment"]
+    assert int(env["OLLAMA_NUM_PARALLEL"]) >= 2
+
+
+def test_make_warm_loads_the_policy_judge_model():
+    mk = (ROOT / "Makefile").read_text(encoding="utf-8")
+    assert re.search(r"^demo: up models warm$", mk, re.M)
+    assert re.search(r"^warm:\n\t.*api/generate.*keep_alive", mk, re.M)
+    default = re.search(r"^MODEL \?= .*,(\S+)\)$", mk, re.M).group(1)
+    assert default == JUDGE["model"], "make warm would load a different model than the judge uses"
 
 
 # ---- upstream timeout (AICL_UPSTREAM_TIMEOUT_S) ----

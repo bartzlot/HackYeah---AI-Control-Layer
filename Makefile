@@ -1,9 +1,13 @@
-# AICL Makefile (lead). Targets: up down logs models test deploy
+# AICL Makefile (lead). Targets: demo up down logs models warm test deploy
 SHELL := /bin/bash
 GCP_VM ?= aicl-vm
 GCP_ZONE ?= europe-central2-a
+MODEL ?= $(or $(AICL_OLLAMA_MODEL),qwen3.5:2b-q4_K_M)
 
-.PHONY: up down logs models test deploy sync
+.PHONY: demo up down logs models warm test deploy sync
+
+# whole demo stack from zero: build + start, pull the model, load it so the first judge call is warm
+demo: up models warm
 sync:
 	uv sync
 
@@ -20,6 +24,10 @@ logs:
 models:
 	docker compose up -d ollama
 	docker compose --profile models run --rm ollama-pull
+
+# load the model into memory now (keep_alive 24h), from the aicl image on the compose network
+warm:
+	docker compose run --rm --no-deps cloud-sim python -c 'import json, urllib.request as u; u.urlopen(u.Request("http://ollama:11434/api/generate", json.dumps({"model": "$(MODEL)", "keep_alive": "24h"}).encode(), {"Content-Type": "application/json"}), timeout=900).read(); print("warm: $(MODEL)")'
 
 test: sync
 	uv run pytest -q --junitxml=reports/junit.xml
