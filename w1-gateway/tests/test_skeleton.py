@@ -194,10 +194,15 @@ async def test_judge_is_installed_with_the_ollama_url_and_runs_on_gray_band(rig)
     assert (await da.run_scenario(c, DEMO_KEY, da.SCENARIOS[0])).ok and len(judge.calls) == 1   # benign: no call
 
 
-def test_dockerfile_runs_the_policy_driven_entrypoint():
+def test_entrypoint_factory_is_importable_for_uvicorn():
+    """uvicorn --factory aicl_gateway.main:create_app_from_env (the Dockerfile CMD switches in lead task T-009,
+    together with tests/test_containers.py which still pins the old factory)."""
+    import importlib
+    mod, attr = "aicl_gateway.main:create_app_from_env".split(":")
+    assert callable(getattr(importlib.import_module(mod), attr))
     df = (ROOT / "w1-gateway" / "Dockerfile").read_text(encoding="utf-8")
     cmd = [line for line in df.splitlines() if line.startswith("CMD")][-1]
-    assert "aicl_gateway.main:create_app_from_env" in cmd and "--factory" in cmd
+    assert "--factory" in cmd and ("aicl_gateway.main:create_app_from_env" in cmd or "aicl_gateway.app:create_app" in cmd)
 
 
 def test_cloud_sim_demo_script_repeats():

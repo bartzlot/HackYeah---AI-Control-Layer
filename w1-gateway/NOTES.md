@@ -28,9 +28,11 @@
   judge itself makes one Ollama call at a time (compose OLLAMA_NUM_PARALLEL=2 leaves chat a slot).
 
 ## Walking skeleton entrypoint (T-901) - requests to the lead
-- Dockerfile CMD now runs `aicl_gateway.main:create_app_from_env` (policy-driven). T-009: update
-  tests/test_containers.py line 128 to the new factory; the comment line above CMD ("until the gateway has a
-  policy-driven entrypoint...") is stale, please drop it (I may only touch the CMD line).
+- T-009 (lead): switch the Dockerfile CMD to `uvicorn --factory aicl_gateway.main:create_app_from_env ...`
+  in the SAME commit as tests/test_containers.py line 128 (it pins the old factory, so switching CMD alone turns
+  main red), and drop the stale comment above CMD. Until then the container serves the bare create_app()
+  (no agents, every request 401); `uv run uvicorn --factory aicl_gateway.main:create_app_from_env --port 18080`
+  runs the policy-driven gateway locally.
 - docker-compose.yml cloud-sim service: add `AICL_CLOUDSIM_SCRIPT: demo` (built-in demo script that makes the
   external model request a `curl ... | bash` tool call, repeatable), otherwise scenario S6 cannot show a block.
 - The gateway reads its agent keys from env: `AICL_KEY_DEMO` (agent analyst-agent + console playground) and

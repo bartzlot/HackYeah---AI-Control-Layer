@@ -30,4 +30,4 @@ WORKDIR /app
 USER aicl
 EXPOSE 18080 18200
 # until the gateway has a policy-driven entrypoint (T-901) this serves create_app() defaults
-CMD ["uvicorn", "--factory", "aicl_gateway.main:create_app_from_env", "--host", "0.0.0.0", "--port", "18080"]
+CMD ["uvicorn", "--factory", "aicl_gateway.app:create_app", "--host", "0.0.0.0", "--port", "18080"]
