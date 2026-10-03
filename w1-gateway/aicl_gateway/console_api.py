@@ -287,7 +287,7 @@ def _csv_raw(r: dict[str, Any]) -> list[Any]:
             r.get("redaction_count", 0), (r.get("usage") or {}).get("usd", 0.0), r.get("policy_version")]
 
 
-LOOPBACK = {"127.0.0.1", "::1", "localhost"}
+LOOPBACK = {"127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost"}
 
 
 def is_local(request: Request) -> bool:

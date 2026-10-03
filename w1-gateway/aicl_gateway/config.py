@@ -33,7 +33,8 @@ def default_config() -> dict[str, Any]:
         # org USD budget); budget_usd overrides the policy budget; fixtures = preload demo records;
         # remote = serve the console (and the demo key) to non-loopback clients; host-only by default,
         # set it only on a firewalled demo host or inside docker behind a host-only port mapping
-        "console": {"demo_key": None, "fixtures": False, "budget_usd": None, "policy": None, "remote": False},
+        "console": {"demo_key": None, "fixtures": False, "budget_usd": None, "policy": None,
+                    "remote": os.environ.get("AICL_CONSOLE_REMOTE", "") == "1"},
     }
 
 
