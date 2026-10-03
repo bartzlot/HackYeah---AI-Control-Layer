@@ -21,7 +21,7 @@ from aicl_contracts import SCHEMA_CASE, Action, Decision, DestKind, Event, Part,
 from .policy import Policy, _plain
 from .redact import apply_redactions
 
-DEFAULT_AGENT = "analyst-agent"
+DEFAULT_AGENT = "analyst-agent"   # allowed both the local and the external model in policy.yaml
 # auto = decide() when the control is registered there, plus the gateway when the input is routable;
 # decide = decide() only; gateway = the real gateway only (gateway-enforced controls such as BUD-01);
 # judge-fake = the gateway with the INJ-04 judge installed over a fake Ollama (setup.judge pins its answer)
@@ -29,7 +29,7 @@ RUNNERS = ("auto", "decide", "gateway", "judge-fake")
 # every expect key either runner understands; anything else is a typo and fails the case
 EXPECT_KEYS = frozenset({"decision", "would_decision", "rule_ids", "controls", "findings", "events",
                          "redacted_contains", "redacted_not_contains", "http_status", "upstream_called", "retry_after",
-                         "upstream_body_contains", "upstream_body_not_contains", "judge_called", "degraded"})   # allowed both the local and the external model in policy.yaml
+                         "upstream_body_contains", "upstream_body_not_contains", "judge_called", "degraded"})
 
 
 @dataclass

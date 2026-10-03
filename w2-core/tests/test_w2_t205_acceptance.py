@@ -132,3 +132,9 @@ def test_decide_only_keys_flagged_on_gateway_only_runners():
            "upstream_called": True, "upstream_body": "", "content": "", "tool_calls": [], "retry_after": None,
            "judge_called": bool(case.expect.get("judge_called")), "degraded": bool(case.expect.get("degraded"))}
     assert any("cannot be checked by runner judge-fake" in b for b in check_gateway(case, got))
+
+
+def test_expect_key_sets_do_not_drift():
+    from aicl_core.cases import EXPECT_KEYS
+    from w2_gateway_driver import DECIDE_ONLY_KEYS, GATEWAY_KEYS
+    assert EXPECT_KEYS == GATEWAY_KEYS | DECIDE_ONLY_KEYS
