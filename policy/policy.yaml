@@ -98,6 +98,8 @@ destination_matrix:
 # ---------- 5. controls (what) ----------
 # Every enabled control needs test cases in <piece>/cases/<control>.yaml (one allowed, one blocked/redacted).
 controls:
+  KILL-01: {mode: enforce}   # emergency stop: emergency.kill_switch / killed_agents / killed_sessions -> BLOCK
+  ACCESS-01: {mode: enforce} # identity: agent must be in agents (else unknown_agent.action); model in agents.<id>.models
   DLP-01:                    # secrets (AWS, GitHub with CRC, private keys, high-entropy in context)
     mode: enforce
     action: {prompt: REDACT, tool_args: BLOCK, response: REDACT}
