@@ -23,6 +23,7 @@ event; parts left when it passes get the on_timeout action without a model call.
 from __future__ import annotations
 
 import hashlib
+from bisect import bisect_left
 import json
 import re
 import threading
@@ -174,23 +175,29 @@ class Judge:
     # -- control ----------------------------------------------------------------------------------
     @staticmethod
     def _enforced(f: Finding, ctx: Ctx) -> bool:
+        """Same rule as the engine: no policy block = enforced only for builtin controls (KILL-01, ACCESS-01)."""
+        from aicl_core.engine import BUILTIN
         pol = ctx.params.get("_policy")
+        if pol is None or not hasattr(pol, "mode_for"):
+            return True
         try:
-            return pol is None or pol.mode_for(f.control_id, ctx.profile) == "enforce"
-        except Exception:  # noqa: BLE001 - builtin controls without a policy block are enforced
+            if hasattr(pol, "control") and pol.control(f.control_id) is None:
+                return f.control_id in BUILTIN
+            return pol.mode_for(f.control_id, ctx.profile) == "enforce"
+        except Exception:  # noqa: BLE001
             return True
 
     def _gray_parts(self, event: Event, ctx: Ctx) -> dict[int, tuple[str, str, int]] | None:
         """part index -> (why, normalized view, focus offset in the view); None = event already blocked."""
-        prior = [f for f in ctx.params.get("_prior", []) if f.control_id != self.control_id and self._enforced(f, ctx)]
-        if any(f.action >= Action.BLOCK for f in prior):
-            return None                       # a veto already decides the event: no model call
-        views: dict[int, str] = {}
+        prior = [f for f in ctx.params.get("_prior", []) if f.control_id != self.control_id]
+        if any(f.action >= Action.BLOCK and self._enforced(f, ctx) for f in prior):
+            return None                       # an enforced veto already decides the event: no model call
+        views: dict[int, tuple[str, list[int]]] = {}
 
         def view(i: int) -> str:
             if i not in views:
-                views[i] = normalized_view(event.parts[i].text or "")[0]
-            return views[i]
+                views[i] = normalized_view(event.parts[i].text or "")
+            return views[i][0]
 
         out: dict[int, tuple[str, str, int]] = {}
         for f in prior:
@@ -199,16 +206,17 @@ class Judge:
             for sp in f.spans:
                 if 0 <= sp.part < len(event.parts) and sp.part not in out:
                     v = view(sp.part)
-                    focus = int(len(v) * sp.start / max(1, len(event.parts[sp.part].text)))
+                    focus = bisect_left(views[sp.part][1], sp.start)   # original offset -> view offset
                     out[sp.part] = (f"{f.control_id}/{f.rule_id} {f.action.name} below BLOCK", v, focus)
         for i, part in enumerate(event.parts):
             if i in out or (part.role == "system" and part.trusted):
                 continue
             if part.role == "assistant" and event.stage == Stage.PROMPT:
                 continue                      # earlier model turns: not attacker input on this hop
-            m = CUES.search(view(i))
-            if m:
-                out[i] = ("cue words without a signature match", view(i), m.start())
+            starts = [m.start() for m in CUES.finditer(view(i))]
+            if starts:   # centre on the densest cluster of cues, not on the first (decoy) word
+                focus = max(starts, key=lambda a: sum(1 for b in starts if abs(b - a) <= MAX_CHARS // 2))
+                out[i] = ("cue words without a signature match", view(i), focus)
         return out
 
     def evaluate(self, event: Event, ctx: Ctx) -> list[Finding]:
