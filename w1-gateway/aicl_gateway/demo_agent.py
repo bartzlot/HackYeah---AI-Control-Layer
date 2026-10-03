@@ -81,8 +81,12 @@ class Result:
 
 
 def outcome_of(status: int, decision: str | None) -> str:
-    if status >= 400 or decision == "BLOCK":
+    """A block is a policy verdict (BLOCK header, or the gateway's 403 / 413 / 429 denials); any other error
+    status (502 upstream down, 503 policy unavailable, 401 bad key) is an error, never a PASS."""
+    if decision == "BLOCK" or status in (403, 413, 429):
         return "blocked"
+    if status >= 400:
+        return "error"
     if decision == "REDACT":
         return "redacted"
     return "allowed"

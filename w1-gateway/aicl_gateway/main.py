@@ -160,8 +160,10 @@ def create_app_from_env(env: dict | None = None, *, upstreams: dict | None = Non
             try:
                 apply_policy(pol.raw)
             except Exception:  # noqa: BLE001 - keep the previous derived config, retry on the next request
-                log.exception("policy %s: re-deriving gateway config failed, keeping the previous one",
-                              pol.version[:12])
+                if seen.get("failed") != pol.version:     # one traceback per policy version, not per request
+                    seen["failed"] = pol.version
+                    log.exception("policy %s: re-deriving gateway config failed, keeping the previous one",
+                                  pol.version[:12])
                 return
             seen["version"] = pol.version
             log.info("policy %s applied: %d agent keys, %d models", pol.version[:12],

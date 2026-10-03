@@ -303,3 +303,21 @@ def test_public_demo_key_on_a_public_bind_warns(tmp_path, caplog):
         assert "public .env.example value" in caplog.text
     finally:
         eng.REGISTRY.pop("INJ-04", None)
+
+
+async def test_upstream_down_is_an_error_not_a_pass(tmp_path):
+    def down(request):
+        raise httpx.ConnectError("refused")
+    from aicl_core import engine as eng
+    try:
+        app = create_app_from_env({"AICL_POLICY": str(POLICY), "AICL_KEY_DEMO": DEMO_KEY, "AICL_DATA_DIR": str(tmp_path)},
+                                  upstreams={"local": httpx.AsyncClient(transport=httpx.MockTransport(down), base_url="http://o"),
+                                             "external": httpx.AsyncClient(transport=httpx.MockTransport(down), base_url="http://c")},
+                                  judge_chat=judge_reply(), start_reload=False)
+        c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gw")
+        r = await da.run_scenario(c, DEMO_KEY, da.SCENARIOS[5])               # S6 expects "blocked"
+        assert r.status == 502 and r.outcome == "error" and not r.ok
+    finally:
+        eng.REGISTRY.pop("INJ-04", None)
+    assert da.outcome_of(503, None) == "error" and da.outcome_of(401, None) == "error"
+    assert da.outcome_of(413, None) == "blocked" and da.outcome_of(503, "BLOCK") == "blocked"
