@@ -12,6 +12,8 @@ import zlib
 from dataclasses import dataclass, field
 from datetime import date
 
+from .util import normalized_view, view_span
+
 
 @dataclass(frozen=True)
 class Hit:
@@ -78,6 +80,11 @@ def find_secrets(text: str, github_crc: str = "prefer") -> list[Hit]:
                 score = 0.99 if ok else 0.8
             if typ == "API_KEY" and grp == 1:
                 if _PLACEHOLDER.match(val) or not (re.search(r"[A-Za-z]", val) and re.search(r"\d", val)):
+                    continue
+                if text[e:e + 1] in ("(", "["):          # code: token = get_token_v2(x), key = keys[0]
+                    continue
+                quoted = s > 0 and text[s - 1] in "\"'"
+                if not quoted and len(val) < 16:         # unquoted values must look like a real key
                     continue
                 score = 0.7
             hits.append(Hit(s, e, typ, val, score, {"priority": prio}))
@@ -153,8 +160,12 @@ def iban_ok(s: str) -> bool:
 
 
 _IBAN_RE = re.compile(r"(?<![A-Za-z0-9])[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?(?![A-Za-z0-9])")
-_PESEL_RE = re.compile(r"(?<!\d)(?<!\d[ -])\d{11}(?![ -]?\d)")
-_CARD_RE = re.compile(r"(?<!\d)(?<!\d[ -])\d(?:[ -]?\d){12,18}(?![ -]?\d)")
+_PESEL_RE = re.compile(r"(?<!\d)(?<!\d[ -])\d{11}(?!\d)")
+# card candidates: canonical groupings first (so a CVV or date after the number cannot hide it), then a
+# contiguous 13-19 digit run; a start inside a spaced digit run is never a candidate
+_CARD_RES = [re.compile(r"(?<!\d)(?<!\d[ -])\d{4}([ -]?)\d{4}\1\d{4}\1\d{4}(?!\d)"),               # 16 in groups
+             re.compile(r"(?<!\d)(?<!\d[ -])3[47]\d{2}([ -]?)\d{6}\1\d{5}(?!\d)"),                 # Amex 15
+             re.compile(r"(?<!\d)(?<!\d[ -])\d{13,19}(?!\d)")]
 _EMAIL_RE = re.compile(r"(?<![\w.+-])[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})(?![\w-])")
 _PHONE_RE = re.compile(r"(?<![\w+])(?:\+48[ -]?)?\d{3}[ -]\d{3}[ -]\d{3}(?![\w-])|(?<![\w+])\+\d{1,3}(?:[ -]?\d{2,4}){2,4}(?![\w-])")
 
@@ -186,10 +197,11 @@ def find_pii(text: str, own_domains: list[str] | tuple = ()) -> list[Hit]:
     for m in _PESEL_RE.finditer(text):
         if free(*m.span()) and pesel_ok(m.group(0)):
             hits.append(Hit(m.start(), m.end(), "PL_PESEL", m.group(0), 0.95))
-    for m in _CARD_RE.finditer(text):
-        digits = re.sub(r"[ -]", "", m.group(0))
-        if free(*m.span()) and 13 <= len(digits) <= 19 and luhn_ok(digits) and digits[0] in "23456":
-            hits.append(Hit(m.start(), m.end(), "CREDIT_CARD", digits, 0.9))
+    for rx in _CARD_RES:
+        for m in rx.finditer(text):
+            digits = re.sub(r"[ -]", "", m.group(0))
+            if free(*m.span()) and 13 <= len(digits) <= 19 and luhn_ok(digits) and digits[0] in "23456":
+                hits.append(Hit(m.start(), m.end(), "CREDIT_CARD", digits, 0.9))
     own = {d.lower() for d in own_domains}
     for m in _EMAIL_RE.finditer(text):
         dom = m.group(1).lower()
@@ -203,20 +215,17 @@ def find_pii(text: str, own_domains: list[str] | tuple = ()) -> list[Hit]:
 
 # ------------------------------------------------------------------ markings and dictionaries
 
-def _fold(s: str) -> str:
-    import unicodedata
-    s = s.replace(chr(0x142), "l").replace(chr(0x141), "L")   # l with stroke has no NFKD decomposition
-    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
-
-
-def find_terms(text: str, terms: list[str], typ: str) -> list[Hit]:
-    """Case-insensitive, diacritic-folded whole-word match (folding keeps length for Latin text)."""
+def find_terms(text: str, terms: list[str], typ: str, case_sensitive: bool = False) -> list[Hit]:
+    """Whole-word match over the normalized view (diacritics folded, whitespace collapsed, format characters
+    dropped); spans map back to the ORIGINAL text through the offset map, so redaction stays exact.
+    case_sensitive=True for document markings (CONFIDENTIAL as a label, not "keep this confidential")."""
+    view, omap = normalized_view(text)
     hits = []
-    folded = _fold(text)
-    same = len(folded) == len(text)
-    hay = folded if same else text
     for t in terms:
-        rx = re.compile(r"(?<!\w)" + re.escape(_fold(t) if same else t).replace(r"\ ", r"\s+") + r"(?!\w)", re.IGNORECASE)
-        for m in rx.finditer(hay):
-            hits.append(Hit(m.start(), m.end(), typ, text[m.start():m.end()], 0.9, {"term": t}))
+        tv, _ = normalized_view(t)
+        pat = re.escape(tv.strip()).replace(r"\ ", " ")
+        rx = re.compile(r"(?<!\w)" + pat + r"(?!\w)", 0 if case_sensitive else re.IGNORECASE)
+        for m in rx.finditer(view):
+            st, en = view_span(omap, m.start(), m.end(), len(text))
+            hits.append(Hit(st, en, typ, text[st:en], 0.9, {"term": t}))
     return hits

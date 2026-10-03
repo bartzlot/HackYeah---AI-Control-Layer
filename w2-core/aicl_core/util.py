@@ -45,5 +45,47 @@ def iter_texts(event: Event, include_tool_args: bool = True) -> Iterator[tuple[i
                 yield -(i + 1), t
 
 
-def normalize(text: str) -> str:
-    return unicodedata.normalize("NFKC", text).translate(_ZW)
+_L_STROKE = {0x0141: "L", 0x0142: "l"}          # l with stroke has no NFKD decomposition
+
+
+def normalized_view(text: str, collapse_ws: bool = True) -> tuple[str, list[int]]:
+    """Scan view of `text` with an offset map (omap[j] = index in the ORIGINAL text of view char j):
+    format characters (category Cf: zero-width, bidi marks, word joiners) dropped, Unicode tag characters
+    decoded to ASCII as a separate word, NFKC + diacritics folded (also l with stroke), whitespace runs
+    collapsed to one space. Map a view match [a, b) back with (omap[a], omap[b - 1] + 1)."""
+    out: list[str] = []
+    omap: list[int] = []
+    in_tags = False
+    for i, c in enumerate(text):
+        o = ord(c)
+        tag = 0xE0020 <= o <= 0xE007E
+        if not tag and (o in _ZW or unicodedata.category(c) == "Cf" or 0xFE00 <= o <= 0xFE0F):
+            continue
+        if tag != in_tags and out and out[-1] != " ":   # a hidden tag run is its own word
+            out.append(" ")
+            omap.append(i)
+        in_tags = tag
+        if tag:
+            n = chr(o - 0xE0000)
+        elif o in _L_STROKE:
+            n = _L_STROKE[o]
+        else:
+            n = "".join(ch for ch in unicodedata.normalize("NFKD", unicodedata.normalize("NFKC", c))
+                        if not unicodedata.combining(ch))
+        for ch in n:
+            if collapse_ws and ch.isspace():
+                if out and out[-1] == " ":
+                    continue
+                ch = " "
+            out.append(ch)
+            omap.append(i)
+    return "".join(out), omap
+
+
+def view_span(omap: list[int], a: int, b: int, text_len: int) -> tuple[int, int]:
+    """View match [a, b) -> original [start, end)."""
+    if not omap:
+        return 0, 0
+    s = omap[a] if a < len(omap) else text_len
+    e = omap[b - 1] + 1 if b > a else s
+    return s, e

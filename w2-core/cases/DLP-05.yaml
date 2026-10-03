@@ -50,3 +50,9 @@ cases:
   setup: {destination: "gpt-4o-mini"}
   input: {messages: [{role: user, content: "Status of project ORION for the newsletter"}]}
   expect: {decision: REDACT, rule_ids: [matrix.internal.external], redacted_contains: "project [CODENAME_1]"}
+- id: R01
+  kind: positive
+  path: llm
+  setup: {destination: "gpt-4o-mini"}
+  input: {messages: [{role: user, content: "Please keep this confidential: draft a thank-you note"}]}
+  expect: {decision: ALLOW, findings: []}

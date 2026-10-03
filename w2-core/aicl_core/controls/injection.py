@@ -1,66 +1,51 @@
 """INJ-03: signature rules (policy/rules/*.yaml, EN + PL) over a normalized view with an offset map.
 
 Channel trust decides: untrusted parts (tool results, RAG, MCP, memory) -> rule.action_untrusted;
-user parts -> rule.action_user, raised to BLOCK for injection-family rules whose severity score
-reaches profiles.<p>.injection.block (the strictness dial). Mention exception: a quoted phrase in an
-educational question ("Explain the phrase '...'") is logged, not blocked (user parts only).
+user turns -> rule.action_user, raised to BLOCK for injection-family rules whose severity score reaches
+profiles.<p>.injection.block (the strictness dial); earlier assistant turns -> rule.action_user without
+that escalation; system parts (the operator's own prompt) are not scanned.
+Mention exception (user turns only): an educational question quoting the phrase ("Explain the phrase
+'ignore previous instructions'") is LOG when the rule no longer matches once quoted text is removed, a cue
+word stands shortly before the quote, nothing asks to act on it, and the rule's own user action is not BLOCK.
 """
 from __future__ import annotations
 
 import re
-import unicodedata
 
 from aicl_contracts import Action, Ctx, Event, Finding, Span, Stage
 
 from ..engine import register
-from ..util import is_untrusted, sha8
+from ..util import is_untrusted, normalized_view, sha8, view_span
 
 SEVERITY_SCORE = {"low": 0.40, "medium": 0.65, "high": 0.80, "critical": 0.95}
 INJECTION_FAMILY = {"injection", "prompt_extraction", "jailbreak"}
-_ZW = {0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, 0x00AD}
-_L_STROKE = {0x0141: "L", 0x0142: "l"}
-_QUOTES = "\"'`" + "".join(map(chr, (0x2018, 0x2019, 0x201C, 0x201D, 0x201E, 0x00AB, 0x00BB)))
-_CUES = re.compile(r"(?i)\b(explain|example|what does|what is|meaning of|the phrase|definition|how do .{0,30}defend|"
-                   r"wyjasnij|przyklad|co znaczy|co oznacza|fraza|zwrot)\b")
+_CUES = re.compile(r"(?i)\b(explain|example|for instance|what does|what is|meaning of|phrase|definition|classify|"
+                   r"detect|recogni[sz]e|wyjasnij|przyklad|co znaczy|co oznacza|fraza|zwrot)\b")
+_ACT_ON_IT = re.compile(r"(?i)\b(now do|do (exactly )?(that|it|this|so)|then do|follow (it|that|them|those)|execute (it|that)|"
+                        r"and (then )?(also )?(reveal|print|ignore|disregard|send|run)|teraz to zrob|zrob to|wykonaj (to|je))\b")
+_QUOTED = re.compile("\"[^\"\\n]{1,300}\"|(?<![A-Za-z0-9])'[^'\\n]{1,300}'(?![A-Za-z0-9])|`[^`\\n]{1,300}`|"
+                     + chr(0x201C) + "[^" + chr(0x201D) + "\\n]{1,300}" + chr(0x201D) + "|"
+                     + chr(0x201E) + "[^" + chr(0x201D) + "\\n]{1,300}" + chr(0x201D) + "|"
+                     + chr(0x2018) + "[^" + chr(0x2019) + "\\n]{1,300}" + chr(0x2019))
 
 
-def normalized_view(text: str) -> tuple[str, list[int]]:
-    """NFKC + zero-width strip + diacritic fold + Unicode tag chars decoded; omap[j] = original index."""
-    out: list[str] = []
-    omap: list[int] = []
-    in_tags = False
-    for i, c in enumerate(text):
-        o = ord(c)
-        if o in _ZW:
-            continue
-        tag = 0xE0020 <= o <= 0xE007E
-        if tag != in_tags and out:               # a hidden tag run is its own word: separate it
-            out.append(" ")
-            omap.append(i)
-        in_tags = tag
-        if tag:                                  # Unicode tag smuggling: decode to ASCII
-            n = chr(o - 0xE0000)
-        elif o in _L_STROKE:
-            n = _L_STROKE[o]
-        else:
-            n = "".join(ch for ch in unicodedata.normalize("NFKD", unicodedata.normalize("NFKC", c))
-                        if not unicodedata.combining(ch))
-        for ch in n:
-            out.append(ch)
-            omap.append(i)
-    return "".join(out), omap
-
-
-def _mention(text: str, s: int, e: int) -> bool:
-    if not _CUES.search(text):
+def _mention(view: str, rule, m: re.Match) -> bool:
+    quotes = list(_QUOTED.finditer(view))
+    inside = [q for q in quotes if q.start() <= m.start() < q.end()]
+    if not inside:
         return False
-    before, after = text[max(0, s - 3):s], text[e:e + 3]
-    return any(q in before for q in _QUOTES) and any(q in after for q in _QUOTES)
+    q = inside[0]
+    if not _CUES.search(view[max(0, q.start() - 60):q.start()]):
+        return False
+    if _ACT_ON_IT.search(view):
+        return False
+    stripped = _QUOTED.sub(" ", view)
+    return rule.pattern.search(stripped) is None
 
 
 class Injection:
     control_id = "INJ-03"
-    stages = (Stage.PROMPT, Stage.RESPONSE, Stage.TOOL_RESULT)
+    stages = (Stage.PROMPT, Stage.TOOL_RESULT)
 
     def evaluate(self, event: Event, ctx: Ctx) -> list[Finding]:
         pol, p = ctx.params["_policy"], ctx.params
@@ -68,24 +53,24 @@ class Injection:
         mentions = bool(p.get("mention_exceptions", True))
         out: list[Finding] = []
         for idx, part in enumerate(event.parts):
-            if event.stage == Stage.RESPONSE:
-                continue                                  # model output: output filters are a later control
-            view, omap = normalized_view(part.text)
             untrusted = is_untrusted(event, idx)
+            if part.role == "system" and not untrusted:
+                continue                                  # the operator's own system prompt
+            view, omap = normalized_view(part.text)
             for rule in pol.rules:
                 m = rule.pattern.search(view)
                 if not m:
                     continue
-                s = omap[m.start()] if m.start() < len(omap) else len(part.text)
-                e = omap[m.end() - 1] + 1 if m.end() > 0 else s
+                s, e = view_span(omap, m.start(), m.end(), len(part.text))
                 score = SEVERITY_SCORE.get(rule.severity, 0.65)
                 if untrusted:
                     act, why = rule.action_untrusted, "untrusted channel"
                 else:
-                    act, why = rule.action_user, "user turn"
-                    if rule.category in INJECTION_FAMILY and score >= block_at:
+                    act, why = rule.action_user, f"{part.role} turn"
+                    if part.role == "user" and rule.category in INJECTION_FAMILY and score >= block_at:
                         act, why = Action.BLOCK, f"user turn, score {score:.2f} >= {ctx.profile} block {block_at:.2f}"
-                    if mentions and _mention(part.text, s, e):
+                    if (mentions and part.role == "user" and rule.action_user < Action.BLOCK
+                            and _mention(view, rule, m)):
                         act, why = Action.LOG, "quoted mention in an educational question"
                 out.append(Finding(control_id=self.control_id, rule_id=rule.id, category=rule.category, action=act,
                                    score=score, threshold=block_at, reason_code=f"{rule.name or rule.id}: {why}",

@@ -66,3 +66,8 @@ cases:
   setup: {destination: "gpt-4o-mini"}
   input: {messages: [{role: user, content: "write to ops@corp.example"}]}
   expect: {decision: LOG}
+- id: R01
+  kind: negative
+  path: output                         # a CVV after the number must not hide the card
+  input: {response: "card 4111 1111 1111 1111 123 for the booking"}
+  expect: {decision: REDACT, rule_ids: [CREDIT_CARD], redacted_contains: "card [CREDIT_CARD_1] 123"}

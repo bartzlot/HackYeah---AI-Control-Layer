@@ -129,7 +129,7 @@ class Destination:
         items += [(i, h) for i, h in pii_of(event, ctx, own) if not h.meta.get("own_domain")]
         dicts = p.get("dictionaries") or {}
         for i, t in iter_texts(event, include_tool_args=False):
-            items += [(i, h) for h in find_terms(t, list(p.get("markings") or []), "MARKING")]
+            items += [(i, h) for h in find_terms(t, list(p.get("markings") or []), "MARKING", case_sensitive=True)]
             items += [(i, h) for h in find_terms(t, list(dicts.get("customer") or []), "CUSTOMER")]
             items += [(i, h) for h in find_terms(t, list(dicts.get("project_codename") or []), "CODENAME")]
         groups: dict[tuple[str, Action], Finding] = {}
