@@ -1,0 +1,17 @@
+# aicl-case/1 - format of every <piece>/cases/<control>.yaml (collected by the w2 runner)
+schema: aicl-case/1
+control: DLP-02
+cases:
+- id: T09
+  kind: negative                       # negative = must be blocked/redacted, positive = must pass untouched
+  path: llm                            # llm | tool | mcp | output | memory
+  profile: balanced
+  setup: {destination: "gpt-4o-mini"}  # external trust tier
+  input: {messages: [{role: user, content: "Invoice for Jan Kowalski, PESEL 44051401458"}]}
+  expect: {decision: REDACT, rule_ids: [PL_PESEL], events: [PII_REDACTED], upstream_called: true,
+           upstream_body_contains: "[PL_PESEL_1]", upstream_body_not_contains: "44051401458"}
+- id: T10
+  kind: positive
+  path: llm
+  input: {messages: [{role: user, content: "PESEL 44051401459"}]}   # checksum invalid: not personal data
+  expect: {decision: ALLOW, findings: []}

@@ -14,9 +14,9 @@ Cut order if late: loop guard -> CSV export (JSONL stays) -> judge as WARN-only.
 
 ## lead (A, 0:00-0:30, blocks everything else)
 - [x] T-001 [lead] (T1) bootstrap: uv workspace Python 3.13 (aicl_contracts, aicl_core, aicl_gateway); Makefile (up, down, test, deploy); docker-compose.yml (gateway, cloud-sim, ollama); .env.example [20] | deps: - | claimed: lead/krzys13@seatA 2026-10-03T20:29Z | done: 2026-10-03T20:30Z
-- [~] T-002 [lead] (T1) contracts/aicl_contracts.py: Event (kind, channel, parts, agent_id, session_id, destination, tool_calls, usage), Finding, Decision (lattice ALLOW < LOG < WARN < REDACT < BLOCK, redactions, explain, policy_version, latency_us), Control protocol; contracts/case.example.yaml; audit record fields [2, 13, 15] | deps: T-001 | claimed: lead/krzys13@seatA 2026-10-03T20:30Z
+- [x] T-002 [lead] (T1) contracts/aicl_contracts.py: Event (kind, channel, parts, agent_id, session_id, destination, tool_calls, usage), Finding, Decision (lattice ALLOW < LOG < WARN < REDACT < BLOCK, redactions, explain, policy_version, latency_us), Control protocol; contracts/case.example.yaml; audit record fields [2, 13, 15] | deps: T-001 | claimed: lead/krzys13@seatA 2026-10-03T20:30Z | done: 2026-10-03T21:20Z
 - [ ] T-003 [lead] (T1) policy/policy.yaml, documented: profiles strict / balanced / permissive (injection thresholds, BLOCK vs REDACT for PII); agents (key, allowed models and tools); destinations local (qwen3.5:2b-q4_K_M) / external (cloud-sim) / unknown + data-class matrix; controls DLP-01, DLP-02, DLP-05, INJ-03, INJ-04, TOOL-01, BUD-01; budgets (tokens, USD per agent); policy/rules/historical.yaml (~10 rules: code exec, unsafe deserialization, model-repo supply chain) [12] | deps: T-002
-- [ ] T-004 [lead] deps: add pyyaml to w1-gateway pyproject, include cloud_sim in wheel packages; task.sh: replace `hostname -s` (fails in Git Bash) | deps: T-001
+- [x] T-004 [lead] deps: pyyaml + cloud_sim wheel package | deps: T-001 | done: 2026-10-03T21:20Z
 
 ## w2-core (A)
 - [ ] T-201 [w2] (T1) policy engine + decide(): ruamel.yaml + pydantic load, 1 s polling reload, last-good on invalid, policy_version = sha256; control registry, action lattice, explain trace (control, rule, span), span redaction ([REDACTED_AWS_KEY], [PL_PESEL]) [5, 12] | deps: T-003
