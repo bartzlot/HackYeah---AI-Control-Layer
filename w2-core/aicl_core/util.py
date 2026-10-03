@@ -8,7 +8,7 @@ from typing import Any
 
 from aicl_contracts import Event, Span, Stage
 
-_ZW = dict.fromkeys(map(ord, "​‌‍⁠﻿­"), None)
+_ZW = dict.fromkeys([0x200B, 0x200C, 0x200D, 0x2060, 0xFEFF, 0x00AD], None)   # zero-width, BOM, soft hyphen
 
 
 def sha8(s: str) -> str:
