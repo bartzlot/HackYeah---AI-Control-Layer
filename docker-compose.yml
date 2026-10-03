@@ -55,7 +55,7 @@ services:
     ports: ["127.0.0.1:11434:11434"]
     volumes: [ollama-models:/root/.ollama]
     environment:
-      OLLAMA_KEEP_ALIVE: 30m
+      OLLAMA_KEEP_ALIVE: 24h   # keep the model loaded: a cold load would eat the judge deadline
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
