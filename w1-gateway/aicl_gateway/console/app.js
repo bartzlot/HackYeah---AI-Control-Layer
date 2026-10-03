@@ -52,6 +52,7 @@
       tile("API cost (simulated, USD)", "$" + s.cost_usd.toFixed(4), "", '<div class="l">' + esc(s.tokens || 0) + " tokens</div>") +
       tile("Budget used", s.budget_used_pct + "%", s.budget_used_pct >= 80 ? "bad" : "", '<div class="l">of $' + esc(s.budget_usd) + " USD budget</div>" + bar(s.budget_used_pct)) +
       tile("Security posture", s.posture_pct + "%", s.posture_pct >= 80 ? "ok" : "warn", '<div class="l">' + s.controls_enforced + "/" + s.controls_total + " controls enforced</div>" + bar(s.posture_pct));
+    renderBudgets(s.agent_budgets || []);
     const tl = s.timeline;
     const tlabels = tl.map((x) => x.t.slice(11));
     const css = getComputedStyle(document.documentElement);
@@ -70,6 +71,20 @@
       data: { labels: cl, datasets: [{ data: cv, backgroundColor: ["#3b5bdb", "#e8890c", "#e03131", "#2f9e44", "#9c36b5", "#1098ad"] }] },
       options: { maintainAspectRatio: false },
     }, cl, cv);
+  }
+
+  function burn(used, lim, fmt) {
+    if (lim == null) return esc(fmt(used)) + ' <span class="muted">(no cap)</span>';
+    const p = lim > 0 ? Math.min(100, 100 * used / lim) : (used > 0 ? 100 : 0);
+    return esc(fmt(used)) + " / " + esc(fmt(lim)) + ' <span class="muted">' + p.toFixed(0) + "%</span>" +
+      '<div class="bar"><i style="width:' + p + "%;background:" + (p >= 80 ? "var(--red)" : "var(--accent)") + '"></i></div>';
+  }
+  function renderBudgets(rows) {
+    if (!rows.length) return;
+    const tok = (v) => String(v), usd = (v) => "$" + Number(v).toFixed(4);
+    $("#budgets tbody").innerHTML = rows.map((b) => "<tr><td>" + esc(b.agent_id) + "</td><td>" + burn(b.tokens + b.reserved_tokens, b.limit_tokens, tok) +
+      "</td><td>" + burn(b.usd + b.reserved_usd, b.limit_usd, usd) + "</td><td>" + esc(b.requests) + "</td><td>" + esc(b.denied) +
+      "</td><td>" + esc(Math.round(b.resets_in_s / 60)) + " min</td></tr>").join("");
   }
 
   // security

@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import io
 import json
@@ -226,3 +227,80 @@ def test_csv_formula_injection_guard():
     from aicl_gateway.console_api import _csv_row
     row = _csv_row({"model": "=HYPERLINK(\"http://x\")", "tool": "@SUM(1)", "agent_id": "ok"})
     assert row[10].startswith("'=") and row[12].startswith("'@") and row[9] == "ok"
+
+
+# ---- T-105 acceptance, item by item ------------------------------------------------------------
+
+
+async def test_t105_tiles_empty_and_edge_cases():
+    store = ConsoleStore(budget_usd=0.0)
+    s = store.summary()
+    assert {k: s[k] for k in ("requests", "blocked", "redacted", "allowed", "cost_usd", "tokens")} == \
+        {"requests": 0, "blocked": 0, "redacted": 0, "allowed": 0, "cost_usd": 0.0, "tokens": 0}
+    assert s["budget_used_pct"] == 0.0 and s["posture_pct"] == 100.0 and s["timeline"] == []
+    store.append({"request_id": "r", "stage": "lifecycle", "decision": 4, "ts": "t"})   # reloads are not requests
+    store.append({"request_id": "x", "stage": "prompt", "decision": "BLOCK", "ts": "t", "usage": None})
+    s = store.summary()
+    assert (s["requests"], s["blocked"]) == (1, 1)
+    assert ConsoleStore(controls=[{"id": "X", "mode": "off"}]).summary()["posture_pct"] == 0.0
+
+
+async def test_t105_live_sse_delivers_new_event_with_explain():
+    store, c = make()
+
+    async def listen():
+        return await c.get("/console/api/stream?max_events=1")
+
+    task = asyncio.create_task(listen())
+    for _ in range(50):
+        await asyncio.sleep(0.01)
+        if store._subs:
+            break
+    store.append({"event_id": "live-1", "request_id": "r-live", "stage": "prompt", "decision": 4, "ts": "t",
+                  "explain": ["INJ-03 rule ignore_previous -> BLOCK"], "findings": []})
+    r = await asyncio.wait_for(task, 5)
+    frames = [x for x in r.text.splitlines() if x.startswith("data: ")]
+    got = json.loads(frames[0][6:])
+    assert got["event_id"] == "live-1" and got["explain"] == ["INJ-03 rule ignore_previous -> BLOCK"]
+    assert "id: live-1" in r.text and "event: audit" in r.text
+    assert not store._subs                                     # unsubscribed when the stream ends
+
+
+async def test_t105_playground_destination_selector_routes_each_destination():
+    from aicl_gateway import create_app
+    from cloud_sim import Script, create_app as sim_app
+
+    html = (FIXTURES.parent / "index.html").read_text(encoding="utf-8")
+    for dest in ("local", "external", "unknown"):
+        assert f'<option value="{dest}">' in html
+    js = (FIXTURES.parent / "app.js").read_text(encoding="utf-8")
+    assert '"unknown-model"' in js and "X-AICL-Destination" in js and "/events?limit=20&request_id=" in js
+    ext, loc = sim_app(Script()), sim_app(Script(), {"qwen3.5:2b-q4_K_M": {"in": 0, "out": 0}})
+    app = create_app(None, {"agents": {"k-pg": {"agent_id": "playground"}}, "console": {"demo_key": "k-pg"}},
+                     {"external": httpx.AsyncClient(transport=httpx.ASGITransport(app=ext), base_url="http://e"),
+                      "local": httpx.AsyncClient(transport=httpx.ASGITransport(app=loc), base_url="http://l")})
+    c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://g")
+    pg = (await c.get("/console/api/playground")).json()
+    picks = {"local": pg["models"]["local"][0], "external": pg["models"]["external"][0], "unknown": "unknown-model"}
+    out = {}
+    for dest, model in picks.items():                          # what app.js sends for each selector value
+        r = await c.post("/v1/chat/completions", headers={"authorization": f"Bearer {pg['api_key']}",
+                                                         "X-AICL-Destination": dest},
+                         json={"model": model, "messages": [{"role": "user", "content": "hello"}]})
+        ev = (await c.get(f"/console/api/events?request_id={r.headers['x-aicl-request-id']}")).json()["events"]
+        out[dest] = (r.status_code, r.headers.get("x-aicl-decision"), {e["destination"] for e in ev})
+    assert out == {"local": (200, "ALLOW", {"local"}), "external": (200, "ALLOW", {"external"}),
+                   "unknown": (403, "BLOCK", {"unknown"})}
+    assert len(loc.state.calls) == 1 and len(ext.state.calls) == 1
+
+
+async def test_t105_exports_empty_store_and_content_types():
+    app = FastAPI()
+    app.include_router(make_console_router(ConsoleStore()))
+    c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://c")
+    j = await c.get("/console/api/export.jsonl")
+    assert j.text == "" and j.headers["content-type"].startswith("application/x-ndjson")
+    assert "attachment" in j.headers["content-disposition"]
+    r = await c.get("/console/api/export.csv")
+    assert r.headers["content-type"].startswith("text/csv") and r.text.splitlines()[0].startswith("ts,event_id")
+    assert len(r.text.splitlines()) == 1

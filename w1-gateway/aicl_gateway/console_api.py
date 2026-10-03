@@ -120,10 +120,12 @@ class ConsoleStore:
     """
 
     def __init__(self, budget_usd: float | None = None, controls: list[dict[str, Any]] | None = None,
-                 maxlen: int = 5000, policy: "dict[str, Any] | PolicySource | None" = None) -> None:
+                 maxlen: int = 5000, policy: "dict[str, Any] | PolicySource | None" = None,
+                 budgets: "Callable[[], list[dict[str, Any]]] | None" = None) -> None:
         self._budget_usd = budget_usd
         self._controls = [dict(c) for c in controls] if controls else None
         self._policy = policy
+        self._budgets = budgets             # ledger snapshot: per-agent spend vs limits (T-104)
         self._records: deque[dict[str, Any]] = deque(maxlen=maxlen)
         self._subs: set[asyncio.Queue] = set()
 
@@ -235,7 +237,16 @@ class ConsoleStore:
             "categories": cats,
             "timeline": [{"t": k, **v} for k, v in sorted(timeline.items())],
             "events_total": len(recs),
+            "agent_budgets": self.agent_budgets(),
         }
+
+    def agent_budgets(self) -> list[dict[str, Any]]:
+        if not self._budgets:
+            return []
+        try:
+            return list(self._budgets())
+        except Exception:
+            return []
 
     def control_rows(self) -> list[dict[str, Any]]:
         hits: dict[str, int] = {}
