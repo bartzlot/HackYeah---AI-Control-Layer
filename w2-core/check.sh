@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # w2-core acceptance check. Exit 0 = piece green. Extend with every task (see TASKS.md).
 # Offline and deterministic: no Ollama, no network, no paid API.
-#   1. unit tests (policy loader, reload, last-good, engine, redaction)
-#   2. every */cases/*.yaml through decide()
-#   3. mutation proof: every negative case must FAIL when its own control is switched off
+#   1. per-task acceptance tests: tests/test_w2_t2NN_*.py (one test per item of the TASKS.md line)
+#   2. unit tests (policy loader, reload, last-good, engine, redaction, detectors)
+#   3. every */cases/*.yaml through decide() (tests/test_w2_cases.py)
+#   4. mutation proof: every negative case must FAIL when its own control is switched off
 set -euo pipefail
 cd "$(dirname "$0")/.."
 uv run pytest -q w2-core/tests

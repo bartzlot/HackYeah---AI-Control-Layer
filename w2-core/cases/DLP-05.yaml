@@ -1,0 +1,58 @@
+schema: aicl-case/1
+control: DLP-05
+# Destination matrix: data level (max over findings) x destination class (local / external / unknown).
+cases:
+- id: T05
+  kind: positive
+  path: llm
+  setup: {destination: "gpt-4o-mini"}
+  input: {messages: [{role: user, content: "Summarise the public press release about our new office."}]}
+  expect: {decision: ALLOW, findings: []}
+- id: T49a
+  kind: positive
+  path: llm
+  setup: {destination: "qwen3.5:2b-q4_K_M"}
+  input: {messages: [{role: user, content: "CONFIDENTIAL: Q3 plan for Acme Bank, PESEL 44051401458"}]}
+  expect: {decision: LOG}
+- id: T49c
+  kind: negative
+  path: llm
+  setup: {destination_class: unknown}
+  input: {messages: [{role: user, content: "Invoice for Jan Kowalski, PESEL 44051401458"}]}
+  expect: {decision: BLOCK, rule_ids: [matrix.confidential.unknown], events: [DESTINATION_BLOCKED]}
+- id: D01
+  kind: negative
+  path: llm
+  setup: {destination: "gpt-4o-mini"}
+  input: {messages: [{role: user, content: "CONFIDENTIAL - board minutes, do not forward"}]}
+  expect: {decision: BLOCK, rule_ids: [matrix.confidential.external]}
+- id: D02
+  kind: negative
+  path: llm
+  setup: {destination: "gpt-4o-mini"}
+  input: {messages: [{role: user, content: "Draft a renewal letter for Acme Bank"}]}
+  expect: {decision: REDACT, rule_ids: [matrix.confidential.external], redacted_contains: "[CUSTOMER_1]"}
+- id: D03
+  kind: negative
+  path: llm
+  setup: {destination: "gpt-4o-mini"}
+  input: {messages: [{role: user, content: "debug this: AKIAIOSFODNN7EXAMPLE"}]}
+  expect: {decision: BLOCK, rule_ids: [matrix.restricted.external]}
+- id: D04
+  kind: positive
+  path: llm
+  setup: {destination: "qwen3.5:2b-q4_K_M"}
+  input: {messages: [{role: user, content: "Status of project ORION for the newsletter"}]}
+  expect: {decision: ALLOW, findings: []}
+- id: D05
+  kind: negative
+  path: llm
+  setup: {destination: "gpt-4o-mini"}
+  input: {messages: [{role: user, content: "Status of project ORION for the newsletter"}]}
+  expect: {decision: REDACT, rule_ids: [matrix.internal.external], redacted_contains: "project [CODENAME_1]"}
+- id: R01
+  kind: positive
+  path: llm
+  setup: {destination: "gpt-4o-mini"}
+  input: {messages: [{role: user, content: "Please keep this confidential: draft a thank-you note"}]}
+  expect: {decision: ALLOW, findings: []}

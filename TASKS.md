@@ -20,17 +20,17 @@ Cut order if late: loop guard -> CSV export (JSONL stays) -> judge as WARN-only.
 
 ## w2-core (A)
 - [x] T-201 [w2] (T1) policy engine + decide(): ruamel.yaml + pydantic load, 1 s polling reload, last-good on invalid, policy_version = sha256; control registry, action lattice, explain trace (control, rule, span), span redaction ([REDACTED_AWS_KEY], [PL_PESEL]) [5, 12] | deps: T-003 | claimed: w2/krzys13@seatA 2026-10-03T21:15Z | done: 2026-10-03T21:31Z
-- [~] T-202 [w2] (T1) detectors: secrets (AWS, GitHub, PEM, JWT, api_key=), PII with validators (PESEL checksum + date, IBAN mod-97, card Luhn, e-mail), destination matrix, injection signatures EN + PL with mention exception, rules engine over policy/rules/*.yaml with inline tests [5, 7, 11] | deps: T-201 | claimed: w2/krzys13@seatA 2026-10-03T21:31Z
-- [ ] T-203 [w2] (T1) tool_calls control: per-agent tool allowlist + argument rules (curl | sh, rm -rf, pickle.loads, trust_remote_code=True, foreign model pull) [9, 11] | deps: T-202
+- [x] T-202 [w2] (T1) detectors: secrets (AWS, GitHub, PEM, JWT, api_key=), PII with validators (PESEL checksum + date, IBAN mod-97, card Luhn, e-mail), destination matrix, injection signatures EN + PL with mention exception, rules engine over policy/rules/*.yaml with inline tests [5, 7, 11] | deps: T-201 | claimed: w2/krzys13@seatA 2026-10-03T21:31Z | done: 2026-10-03T21:43Z
+- [~] T-203 [w2] (T1) tool_calls control: per-agent tool allowlist + argument rules (curl | sh, rm -rf, pickle.loads, trust_remote_code=True, foreign model pull) [9, 11] | deps: T-202 | claimed: w2/krzys13@seatA 2026-10-03T21:43Z
 - [ ] T-204 [w2] (T1) test runner: pytest collects */cases/*.yaml, drives decide() and the gateway (ASGI + scripted cloud-sim), meta-test (each control has an allowed and a blocked case, incl. budget and exploits), `make test` -> reports/junit.xml [15] | deps: T-202
 
 ## w1-gateway (B)
 - [ ] T-101 [w1] (T1) GCP: project + gcloud, Compute Engine VM e2-standard-4 with Docker, firewall 18080 only from the demo IP, Ollama on CPU + `ollama pull qwen3.5:2b-q4_K_M` (fallback qwen3.5:0.8b) | deps: -
 - [x] T-102 [w1] (T1) cloud-sim: OpenAI-compatible priced mock ("commercial" model), usage in responses, scripted mode (replies and tool_calls from YAML) for tests [22] | deps: T-001 | claimed: w1/krzys13@seatB 2026-10-03T20:34Z | done: 2026-10-03T21:00Z
 - [x] T-103 [w1] (T1) gateway: /v1/chat/completions + /v1/models, API key -> agent, model allowlist, router (Ollama / cloud-sim / unknown), decide() on request and response, upstream credential injection, audit JSONL + SSE bus [3, 4] | deps: T-002, T-102 | done: 2026-10-03T21:50Z
-- [~] T-104 [w1] (T1) budget + loop guard: SQLite, tokens and USD per agent, reserve then settle, 429 + Retry-After; 4 identical calls in a session = BLOCK [10] | deps: T-103 | claimed: w1/krzys13@seatB 2026-10-03T21:29Z
+- [x] T-104 [w1] (T1) budget + loop guard: SQLite, tokens and USD per agent, reserve then settle, 429 + Retry-After; 4 identical calls in a session = BLOCK [10] | deps: T-103 | claimed: w1/krzys13@seatB 2026-10-03T21:29Z | done: 2026-10-03T21:44Z
 - [x] T-105 [w1] (T1) dashboard /console (vanilla JS + Chart.js + SSE): tiles (requests, blocked, redacted, cost, budget, posture = % controls enforced), controls table, live events with explain, playground with destination selector, audit export JSONL / CSV; fixtures until T-103 lands [14] | deps: T-103 | claimed: w1/krzys13@seatB 2026-10-03T21:15Z | done: 2026-10-03T21:28Z
-- [ ] T-106 [w1] (T1) AI judge INJ-04: Ollama /api/chat (qwen3.5:2b-q4_K_M, think: false, small num_predict) with JSON-schema enum output, gray band only, 3 s timeout (tune on the CPU VM) -> WARN + degraded; fake in tests [6] | deps: T-202
+- [~] T-106 [w1] (T1) AI judge INJ-04: Ollama /api/chat (qwen3.5:2b-q4_K_M, think: false, small num_predict) with JSON-schema enum output, gray band only, 3 s timeout (tune on the CPU VM) -> WARN + degraded; fake in tests [6] | deps: T-202 | claimed: w1/krzys13@seatB 2026-10-03T21:44Z
 
 ## integration and delivery
 - [ ] T-901 [any] (T1) walking skeleton (~2:00): demo agent -> gateway -> Ollama / cloud-sim; AWS key redacted; PESEL allowed local / redacted external / blocked unknown; curl | sh tool call blocked; events on the dashboard | deps: T-103, T-202 | pair: w1+w2
