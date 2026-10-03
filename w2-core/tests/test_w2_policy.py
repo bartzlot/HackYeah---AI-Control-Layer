@@ -35,6 +35,13 @@ def test_comment_only_edit_keeps_version(policy_dir):
     ("defaults: {profile: extreme}", "unknown"),
     ("destination_matrix: {public: {local: MAYBE}}", "bad action"),
     ("controls: {DLP-01: {mode: sometimes}}", "enforce|shadow|off"),
+    ("controls: {DLP-01: {fail: close}}", "closed|open|degrade"),
+    ("emergency: {kill_switch: off}", "true or false"),
+    ("emergency: {killed_agents: support-bot}", "list of strings"),
+    ("agents: {support-bot: {models: qwen}}", "list of strings"),
+    ("controls: [a, b]", None),
+    ("profiles: {strict: {injection: [1]}}", None),
+    ("defaults: {profile: [x]}", None),
 ])
 def test_invalid_overlay_rejected(policy_dir, bad, msg):
     (policy_dir.parent / "local.d" / "50-bad.yaml").write_text(bad + "\n", encoding="utf-8")
@@ -67,6 +74,25 @@ def test_store_keeps_last_good_and_recovers(policy_dir):
     policy_dir.write_text(original.replace("max_body_kb: 512", "max_body_kb: 128"), encoding="utf-8")
     assert store.refresh(force=True) is True
     assert store.error is None and store.current.version != good
+
+
+def test_wrong_shape_edit_keeps_thread_alive(policy_dir):
+    store = PolicyStore(policy_dir, interval=0.05).start()
+    try:
+        good = store.current.version
+        original = policy_dir.read_text(encoding="utf-8")
+        policy_dir.write_text(original + chr(10) + "controls: [a, b]" + chr(10), encoding="utf-8")
+        deadline = time.monotonic() + 2.0
+        while store.error is None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert store.error and store.current.version == good
+        policy_dir.write_text(original.replace("max_body_kb: 512", "max_body_kb: 64"), encoding="utf-8")
+        deadline = time.monotonic() + 2.0
+        while store.current.version == good and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert store.current.version != good and store.error is None
+    finally:
+        store.stop()
 
 
 def test_polling_reload_within_two_seconds(policy_dir):

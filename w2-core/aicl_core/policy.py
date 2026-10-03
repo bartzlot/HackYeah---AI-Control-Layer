@@ -19,6 +19,7 @@ from aicl_contracts import Action
 
 PROFILES = ("strict", "balanced", "permissive")
 MODES = ("enforce", "shadow", "off")
+FAILS = ("closed", "open", "degrade")
 _ACTION_WORDS = {a.name for a in Action} | {"REQUIRE_APPROVAL"}
 
 
@@ -61,6 +62,10 @@ def deep_merge(base: dict, over: dict) -> dict:
     return out
 
 
+def _str_list(v: Any) -> bool:
+    return isinstance(v, list) and all(isinstance(x, str) for x in v)
+
+
 def _check_action(v: Any, where: str) -> None:
     if not isinstance(v, str) or v.upper() not in _ACTION_WORDS:
         raise ValueError(f"{where}: bad action {v!r}")
@@ -77,6 +82,7 @@ class PolicyDoc(BaseModel):
     destinations: dict[str, Any] = {}
     classification: dict[str, str] = {}
     controls: dict[str, dict[str, Any]] = {}
+    emergency: dict[str, Any] = {}
 
     @field_validator("version")
     @classmethod
@@ -95,9 +101,25 @@ class PolicyDoc(BaseModel):
             raise ValueError(f"defaults.profile {dp!r} unknown")
         if self.defaults.get("mode", "enforce") not in MODES:
             raise ValueError("defaults.mode must be enforce|shadow|off")
+        if self.defaults.get("fail", "closed") not in FAILS:
+            raise ValueError("defaults.fail must be closed|open|degrade")
+        em = self.emergency
+        if not isinstance(em, dict) or not isinstance(em.get("kill_switch", False), bool):
+            raise ValueError("emergency.kill_switch must be true or false")
+        for k in ("killed_agents", "killed_sessions"):
+            if not _str_list(em.get(k, [])):
+                raise ValueError(f"emergency.{k} must be a list of strings")
         for aid, a in self.agents.items():
+            if not isinstance(a, dict):
+                raise ValueError(f"agents.{aid} must be a mapping")
             if a.get("profile", dp) not in self.profiles:
                 raise ValueError(f"agents.{aid}.profile unknown")
+            for k in ("models", "tools"):
+                if k in a and a[k] is not None and not _str_list(a[k]):
+                    raise ValueError(f"agents.{aid}.{k} must be a list of strings")
+        for tag, e in ((self.destinations.get("models") or {}) if isinstance(self.destinations, dict) else {}).items():
+            if not isinstance(e, dict) or str(e.get("class", "unknown")) not in ("local", "external", "unknown"):
+                raise ValueError(f"destinations.models.{tag} needs class local|external|unknown")
         for lvl, row in self.destination_matrix.items():
             for dest, cell in row.items():
                 for c in (cell.values() if isinstance(cell, dict) else [cell]):
@@ -118,6 +140,8 @@ class PolicyDoc(BaseModel):
             for mv in (m.values() if isinstance(m, dict) else [m]):
                 if mv not in MODES:
                     raise ValueError(f"controls.{cid}.mode {mv!r} must be enforce|shadow|off")
+            if c.get("fail", "closed") not in FAILS:
+                raise ValueError(f"controls.{cid}.fail must be closed|open|degrade")
             act = c.get("action")
             if isinstance(act, dict):
                 for k, v in act.items():
@@ -184,10 +208,18 @@ class Policy:
         return self.raw.get("controls", {}).get(cid)
 
     def profile_for(self, agent_id: str, explicit: str | None) -> str:
-        if explicit in self.raw["profiles"]:
+        """Agent profile (else defaults.profile); a per-request profile may only make it stricter."""
+        a = self.raw.get("agents", {}).get(agent_id) or {}
+        base = a.get("profile") or self.raw["defaults"].get("profile", "balanced")
+        if explicit in PROFILES and base in PROFILES and PROFILES.index(explicit) < PROFILES.index(base):
             return explicit  # type: ignore[return-value]
-        a = self.raw.get("agents", {}).get(agent_id, {})
-        return a.get("profile") or self.raw["defaults"].get("profile", "balanced")
+        return base
+
+    def model_allowlist(self, agent_id: str) -> list[str]:
+        a = self.raw.get("agents", {}).get(agent_id) or {}
+        if a.get("models") is not None:
+            return list(a["models"])
+        return list(((self.raw.get("destinations") or {}).get("model_allowlist") or {}).get("default") or [])
 
     def mode_for(self, cid: str, profile: str) -> str:
         c = self.control(cid)
@@ -199,8 +231,10 @@ class Policy:
         return m
 
     def fail_for(self, cid: str) -> str:
+        """closed unless the policy says exactly open or degrade (a typo never fails open)."""
         c = self.control(cid) or {}
-        return c.get("fail", self.raw["defaults"].get("fail", "closed"))
+        f = c.get("fail", self.raw["defaults"].get("fail", "closed"))
+        return f if f in ("open", "degrade") else "closed"
 
     def profile_cfg(self, profile: str) -> dict:
         return self.raw["profiles"].get(profile, {})
@@ -226,7 +260,15 @@ def _canon(raw: dict) -> bytes:
 
 
 def load_policy(path: str | Path) -> Policy:
-    path = Path(path)
+    try:
+        return _load_policy(Path(path))
+    except PolicyError:
+        raise
+    except Exception as e:  # noqa: BLE001 - wrong shapes (list where a mapping belongs, ...) are policy errors
+        raise PolicyError(f"{path}: {type(e).__name__}: {e}") from e
+
+
+def _load_policy(path: Path) -> Policy:
     try:
         base = _plain(_yaml_load(path.read_text(encoding="utf-8")))
     except Exception as e:
@@ -315,8 +357,8 @@ class PolicyStore:
             self._sig = sig
             try:
                 new = load_policy(self.path)
-            except PolicyError as e:
-                self.error = str(e)
+            except Exception as e:  # noqa: BLE001 - any bad edit keeps the last good policy
+                self.error = str(e) if isinstance(e, PolicyError) else f"{self.path}: {type(e).__name__}: {e}"
                 return False
             self.error = None
             changed = new.version != self.current.version
@@ -346,7 +388,10 @@ class PolicyStore:
 
     def _run(self) -> None:
         while not self._stop.wait(self.interval):
-            self.refresh()
+            try:
+                self.refresh()
+            except Exception as e:  # noqa: BLE001 - the reload thread must never die
+                self.error = f"reload: {type(e).__name__}: {e}"
 
     def stop(self) -> None:
         self._stop.set()

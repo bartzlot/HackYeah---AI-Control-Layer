@@ -47,13 +47,17 @@ def registered() -> list[str]:
 
 
 _controls_loaded = False
+_controls_lock = threading.Lock()
 
 
 def _load_controls() -> None:
     global _controls_loaded
-    if not _controls_loaded:
-        _controls_loaded = True
-        from . import controls  # noqa: F401  (side effect: registers every control)
+    if _controls_loaded:
+        return
+    with _controls_lock:
+        if not _controls_loaded:
+            from . import controls  # noqa: F401  (side effect: registers every control; raises = no engine)
+            _controls_loaded = True
 
 
 # ---------------------------------------------------------------- helpers
@@ -122,10 +126,20 @@ class Engine:
         return self.store.current
 
     def decide(self, event: Event, policy: Policy | None = None) -> Decision:
+        """Never raises: an internal error yields BLOCK (fail closed) with degraded=True."""
         t0 = time.perf_counter_ns()
-        if policy is None:
-            self.store.maybe_refresh()
-            policy = self.store.current
+        try:
+            if policy is None:
+                self.store.maybe_refresh()
+                policy = self.store.current
+            return self._decide(event, policy, t0)
+        except Exception as e:  # noqa: BLE001
+            return Decision(action=Action.BLOCK, would_action=Action.BLOCK, degraded=True,
+                            policy_version=getattr(policy, "version", ""), decision_id=uuid.uuid4().hex[:16],
+                            explain=[f"engine error {type(e).__name__}: {e}", "decision BLOCK (fail closed)"],
+                            latency_us={"total": (time.perf_counter_ns() - t0) // 1000})
+
+    def _decide(self, event: Event, policy: Policy, t0: int) -> Decision:
         profile = policy.profile_for(event.agent_id, event.profile)
         dest = resolve_destination(policy, event)
         ev = event if dest == event.destination else event.model_copy(update={"destination": dest})
@@ -136,7 +150,7 @@ class Engine:
         latency: dict[str, int] = {}
         degraded = False
 
-        for cid, control in REGISTRY.items():
+        for cid, control in tuple(REGISTRY.items()):
             if ev.stage not in control.stages:
                 continue
             block = policy.control(cid)
@@ -152,7 +166,7 @@ class Engine:
             try:
                 found = list(control.evaluate(ev, ctx))
             except Exception as e:  # noqa: BLE001 - any detector bug falls to the fail mode
-                fail = policy.fail_for(cid)
+                fail = policy.fail_for(cid)        # anything but open / degrade is closed
                 if fail == "closed":
                     found = [Finding(control_id=cid, rule_id="CONTROL_ERROR", category="engine",
                                      action=Action.BLOCK, reason_code=f"fail closed: {type(e).__name__}")]
@@ -162,16 +176,18 @@ class Engine:
                     lines.append((Action.LOG, f"{cid}: error {type(e).__name__}, fail {fail}: skipped"))
             latency[cid] = (time.perf_counter_ns() - c0) // 1000
             for f in found:
+                if not isinstance(f, Finding):
+                    raise TypeError(f"{cid} returned {type(f).__name__}, not Finding")
                 f = _effective(f, ev)
                 (shadow if mode == "shadow" else enforced).append(f)
                 lines.append((f.action, _explain_line(f, mode)))
 
         action = max((f.action for f in enforced), default=Action.ALLOW)
-        would = max([action] + [f.action for f in shadow])
         redactions = build_redactions(enforced, ev) if action == Action.REDACT else []
         if action == Action.REDACT and not redactions:   # nothing could be redacted in place: fail closed
             action = Action.BLOCK
             lines.append((Action.BLOCK, "REDACT without redactable spans -> BLOCK"))
+        would = max([action] + [f.action for f in shadow])
         lines.sort(key=lambda x: x[0])                 # strongest last: PEPs show explain[-2:]
         top = max(enforced, key=lambda f: f.action, default=None)
         head = (f"policy {policy.version[:12]} profile={profile} stage={ev.stage.value} "
@@ -200,8 +216,10 @@ class Engine:
 
 
 def _effective(f: Finding, ev: Event) -> Finding:
-    """A REDACT finding whose spans cannot be rewritten in place (tool-call arguments) becomes BLOCK."""
-    if f.action == Action.REDACT and (not f.spans or any(not 0 <= s.part < len(ev.parts) for s in f.spans)):
+    """A REDACT finding whose spans cannot be rewritten in place (tool-call arguments, bad offsets) becomes BLOCK."""
+    def ok(s) -> bool:
+        return 0 <= s.part < len(ev.parts) and 0 <= s.start < s.end <= len(ev.parts[s.part].text)
+    if f.action == Action.REDACT and (not f.spans or not all(ok(s) for s in f.spans)):
         return f.model_copy(update={"action": Action.BLOCK,
                                     "reason_code": (f.reason_code + "; " if f.reason_code else "")
                                     + "cannot redact tool arguments in place -> BLOCK"})

@@ -97,8 +97,45 @@ def test_overlapping_spans_higher_priority_wins(engine, swap):
         return Finding(control_id="DLP-02", rule_id="X", category="pii", action=Action.REDACT,
                        spans=[span(0, 10, 40, "WIDE", "x")])
     swap(Fake("DLP-01", [secret]), Fake("DLP-02", [wide]))
+    d = engine.decide(ev())   # union of both spans, placeholder of the higher-priority one
+    assert [(r.start, r.end, r.replacement) for r in d.redactions] == [(10, 40, "[REDACTED_AWS_KEY]")]
+
+
+def test_bad_redact_offsets_block(engine, swap):
+    def bad(e):
+        return Finding(control_id="DLP-02", rule_id="X", category="pii", action=Action.REDACT,
+                       spans=[Span(part=0, start=5, end=10_000, type="X")])
+    swap(Fake("DLP-01", [secret]), Fake("DLP-02", [bad]))
     d = engine.decide(ev())
-    assert [r.replacement for r in d.redactions] == ["[REDACTED_AWS_KEY]"]
+    assert d.action == Action.BLOCK and d.would_action >= d.action
+
+
+def test_engine_error_fails_closed(engine, swap):
+    swap(Fake("DLP-01", ["not a finding"]))
+    d = engine.decide(ev())
+    assert d.action == Action.BLOCK and d.degraded and "engine error" in d.explain[0]
+
+
+def test_fail_typo_is_closed(engine, swap):
+    swap(Fake("DLP-01", boom=True))
+    pol = engine.policy.derive({"controls": {"DLP-01": {"fail": "open"}}})
+    assert engine.decide(ev(), policy=pol).action == Action.ALLOW
+    raw = engine.policy.raw["controls"]["DLP-01"]
+    assert engine.policy.fail_for("DLP-01") == "closed" and "fail" not in raw
+
+
+def test_builtin_controls_survive_block_removal(engine):
+    pol = engine.policy.derive({"controls": {"ACCESS-01": None}})
+    assert engine.decide(ev(agent_id="intruder"), policy=pol).action == Action.BLOCK
+    pol = engine.policy.derive({"controls": {"ACCESS-01": {"mode": "off"}}})
+    assert engine.decide(ev(agent_id="intruder"), policy=pol).action != Action.BLOCK
+
+
+def test_request_profile_can_only_tighten(engine):
+    pol = engine.policy
+    assert pol.profile_for("analyst-agent", "strict") == "strict"
+    assert pol.profile_for("analyst-agent", "permissive") == "balanced"
+    assert pol.profile_for("mailer-agent", None) == "strict"
 
 
 def test_redact_in_tool_arguments_becomes_block(engine, swap):

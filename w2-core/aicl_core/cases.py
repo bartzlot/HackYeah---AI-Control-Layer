@@ -78,7 +78,7 @@ def build_event(case: Case) -> Event:
     dest = DestKind(s.get("destination_class", "local"))
     common = dict(agent_id=s.get("agent", DEFAULT_AGENT), session_id=s.get("session"), model=model,
                   destination=dest, profile=case.profile, request_id=f"case-{case.control}-{case.id}")
-    if case.path in ("llm",) or "messages" in inp:
+    if "messages" in inp:
         parts = [Part(role=m.get("role", "user"), text=str(m.get("content", "")),
                       trusted=m.get("trusted", m.get("role", "user") != "tool")) for m in inp.get("messages", [])]
         return Event(stage=Stage.PROMPT, channel="llm", parts=parts, **common)

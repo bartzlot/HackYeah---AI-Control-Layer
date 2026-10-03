@@ -40,13 +40,14 @@ class Access:
             act, _ = to_action((pol.raw.get("unknown_agent") or {}).get("action", "BLOCK"))
             return [Finding(control_id=self.control_id, rule_id="agent.unknown", category="access", action=act,
                             reason_code=f"agent {event.agent_id!r} is not in policy.agents")]
-        models = agent.get("models")
-        if event.stage == Stage.PROMPT and event.model and models is not None and event.model not in models:
+        models = pol.model_allowlist(event.agent_id)   # agents.<id>.models, else destinations.model_allowlist.default
+        if event.stage == Stage.PROMPT and event.model and event.model not in models:
             return [Finding(control_id=self.control_id, rule_id="model.not_allowed", category="access",
                             action=Action.BLOCK, reason_code=f"model {event.model!r} not allowed for {event.agent_id}",
                             detail={"event_type": "MODEL_DENIED"})]
         return []
 
 
-register(KillSwitch())
-register(Access())
+# builtin: removing the policy block does not switch them off (only an explicit mode: off does)
+register(KillSwitch(), builtin=True)
+register(Access(), builtin=True)

@@ -10,8 +10,11 @@ POLICY = REPO / "policy" / "policy.yaml"
 
 
 @pytest.fixture(scope="session")
-def engine():
-    return Engine(POLICY)
+def engine(tmp_path_factory):
+    """The repo policy WITHOUT a developer's local.d overlays (deterministic cases)."""
+    d = tmp_path_factory.mktemp("repo") / "policy"
+    shutil.copytree(REPO / "policy", d, ignore=shutil.ignore_patterns("local.d"))
+    return Engine(d / "policy.yaml")
 
 
 @pytest.fixture
