@@ -17,6 +17,8 @@ from aicl_gateway import create_app
 from cloud_sim import Script, create_app as sim_app
 
 CASES_DIR = Path(__file__).resolve().parents[1] / "cases"
+# case files the shared w2 runner cannot drive yet (T-205): kept out of */cases/ so main stays green
+PENDING_DIR = Path(__file__).resolve().parent / "cases_pending"
 AGENT, KEY = "case-agent", "k-case"
 POLICY_AGENT = "analyst-agent"          # policy.yaml agent allowed on gpt-4o-mini
 LOCAL = "qwen3.5:2b-q4_K_M"
@@ -24,7 +26,7 @@ LOCAL = "qwen3.5:2b-q4_K_M"
 
 def load_cases():
     out = []
-    for f in sorted(CASES_DIR.glob("*.yaml")):
+    for f in sorted([*CASES_DIR.glob("*.yaml"), *PENDING_DIR.glob("*.yaml")]):
         doc = yaml.safe_load(f.read_text(encoding="utf-8"))
         assert doc["schema"] == "aicl-case/1", f
         for c in doc["cases"]:

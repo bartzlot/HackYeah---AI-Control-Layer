@@ -1,4 +1,5 @@
 # aicl-case/1 - INJ-04 local LLM judge on the injection gray band. Owner: w1 (T-106).
+# Lives in tests/cases_pending/ until the w2 runner drives runner: judge-fake files (T-205), then moves to cases/.
 # The judge needs a model, so cases pin its answer: setup.judge = benign | suspicious | malicious | timeout
 # (a fake Ollama; never the real model in tests). runner: judge-fake = the w1 runner builds the w2 engine
 # with the judge registered after INJ-03 and drives the gateway (stub upstream).
