@@ -29,5 +29,6 @@ ENV PATH=/app/.venv/bin:$PATH PYTHONUNBUFFERED=1 \
 WORKDIR /app
 USER aicl
 EXPOSE 18080 18200
-# until the gateway has a policy-driven entrypoint (T-901) this serves create_app() defaults
-CMD ["uvicorn", "--factory", "aicl_gateway.app:create_app", "--host", "0.0.0.0", "--port", "18080"]
+# policy-driven gateway: agents, models, budgets and the INJ-04 judge come from AICL_POLICY + AICL_* env.
+# One worker only: budget reservations live in process memory.
+CMD ["uvicorn", "--factory", "aicl_gateway.main:create_app_from_env", "--host", "0.0.0.0", "--port", "18080"]

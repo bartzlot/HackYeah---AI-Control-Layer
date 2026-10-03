@@ -2,6 +2,8 @@
 .env.example and scripts/task.sh. Offline and deterministic: no docker daemon, no network."""
 from __future__ import annotations
 
+import importlib
+import json
 import re
 import shutil
 import subprocess
@@ -124,9 +126,31 @@ def test_dockerfile_copies_every_workspace_member():
         assert re.search(rf"^COPY {re.escape(m)} {re.escape(m)}$", DOCKERFILE, re.M), f"{m} sources not copied"
 
 
+def dockerfile_cmd() -> list[str]:
+    cmds = re.findall(r"^CMD (\[.*\])$", DOCKERFILE, re.M)
+    assert len(cmds) == 1, "exactly one exec-form CMD"
+    return json.loads(cmds[0])
+
+
 def test_dockerfile_serves_the_gateway_on_its_port():
-    assert "aicl_gateway.app:create_app" in DOCKERFILE and '"18080"' in DOCKERFILE
+    cmd = dockerfile_cmd()
+    assert cmd[0] == "uvicorn" and "--factory" in cmd
+    assert cmd[cmd.index("--port") + 1] == "18080" and cmd[cmd.index("--host") + 1] == "0.0.0.0"
     assert "/healthz" in str(SERVICES["gateway"]["healthcheck"]["test"])
+
+
+def test_dockerfile_cmd_is_the_policy_driven_entrypoint():
+    """T-009: the bare create_app() has no agents (every request 401); the image must serve the T-901 factory."""
+    cmd = dockerfile_cmd()
+    target = cmd[cmd.index("--factory") + 1]
+    assert target == "aicl_gateway.main:create_app_from_env"
+    assert "aicl_gateway.app:create_app" not in DOCKERFILE
+    assert "--workers" not in cmd or cmd[cmd.index("--workers") + 1] == "1", "budget reservations are per process"
+
+
+def test_dockerfile_factory_resolves():
+    module, attr = dockerfile_cmd()[dockerfile_cmd().index("--factory") + 1].split(":")
+    assert callable(getattr(importlib.import_module(module), attr))
 
 
 # ---- .dockerignore ----
