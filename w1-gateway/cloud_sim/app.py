@@ -28,7 +28,7 @@ def _content_text(content) -> str:
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        return " ".join(p.get("text", "") for p in content if isinstance(p, dict))
+        return " ".join(p["text"] for p in content if isinstance(p, dict) and isinstance(p.get("text"), str))
     return ""
 
 
@@ -40,6 +40,14 @@ class Script:
     """
 
     def __init__(self, steps: list[dict] | None = None):
+        if not isinstance(steps or [], list):
+            raise ValueError("script steps must be a list")
+        for step in steps or []:
+            if not isinstance(step, dict):
+                raise ValueError(f"script step must be a mapping: {step!r}")
+            for call in step.get("tool_calls") or []:
+                if not isinstance(call, dict) or not isinstance(call.get("name"), str):
+                    raise ValueError(f"tool call needs a string name: {call!r}")
         self.steps = list(steps or [])
         self.used: set[int] = set()
 
@@ -86,11 +94,13 @@ def create_app(script: Script | None = None, prices: dict | None = None) -> Fast
             body = await request.json()
         except ValueError:
             return _error(400, "invalid_json", "body is not valid JSON")
+        if not isinstance(body, dict):
+            return _error(400, "invalid_request", "body must be a JSON object")
         model = body.get("model")
         messages = body.get("messages")
-        if model not in prices:
+        if not isinstance(model, str) or model not in prices:
             return _error(404, "model_not_found", f"model {model!r} is not priced")
-        if not isinstance(messages, list) or not messages:
+        if not isinstance(messages, list) or not messages or not all(isinstance(m, dict) for m in messages):
             return _error(400, "invalid_request", "messages must be a non-empty list")
         app.state.calls.append(body)
 
@@ -122,8 +132,9 @@ def create_app(script: Script | None = None, prices: dict | None = None) -> Fast
                     return "data: " + json.dumps({"id": cid, "object": "chat.completion.chunk", "created": created,
                         "model": model, "choices": [{"index": 0, "delta": delta, "finish_reason": fin}], **extra}) + "\n\n"
                 yield chunk({"role": "assistant"})
-                for word in (reply or "").split(" "):
-                    yield chunk({"content": word + " "})
+                text = reply or ""
+                for i in range(0, len(text), 8):
+                    yield chunk({"content": text[i:i + 8]})
                 if tool_calls:
                     yield chunk({"tool_calls": [{"index": i, **t} for i, t in enumerate(tool_calls)]})
                 yield chunk({}, finish, usage=usage)

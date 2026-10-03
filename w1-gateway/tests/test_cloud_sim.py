@@ -97,7 +97,7 @@ async def test_stream_emits_sse_with_usage_and_done():
     assert lines[-1] == "data: [DONE]"
     chunks = [json.loads(l[6:]) for l in lines[:-1]]
     text = "".join(c["choices"][0]["delta"].get("content", "") for c in chunks)
-    assert text.split() == ["one", "two"]
+    assert text == "one two"
     assert chunks[-1]["choices"][0]["finish_reason"] == "stop"
     assert chunks[-1]["usage"]["completion_tokens"] == estimate_tokens("one two")
 
@@ -114,3 +114,57 @@ def test_load_script_from_yaml(tmp_path):
     s = load_script(f)
     assert len(s.steps) == 2
     assert load_script(None).steps == []
+
+
+async def test_stream_exact_text_and_streamed_cost_matches_non_stream():
+    reply = "a  b   c, longer than one chunk"
+    mk = lambda: client(Script([{"reply": reply}]))[0]
+    streamed = await mk().post("/v1/chat/completions", json=req(stream=True))
+    plain = (await mk().post("/v1/chat/completions", json=req())).json()
+    chunks = [json.loads(l[6:]) for l in streamed.text.split("\n\n") if l and "[DONE]" not in l]
+    assert "".join(c["choices"][0]["delta"].get("content", "") for c in chunks) == reply
+    assert chunks[-1]["usage"] == plain["usage"]
+
+
+async def test_stream_tool_call_only_has_no_content_chunk():
+    c, _ = client(Script([{"tool_calls": [{"name": "send", "arguments": {}}]}]))
+    r = await c.post("/v1/chat/completions", json=req(stream=True))
+    chunks = [json.loads(l[6:]) for l in r.text.split("\n\n") if l and "[DONE]" not in l]
+    assert not any("content" in ch["choices"][0]["delta"] for ch in chunks)
+    assert chunks[-1]["choices"][0]["finish_reason"] == "tool_calls"
+    assert any("tool_calls" in ch["choices"][0]["delta"] for ch in chunks)
+
+
+@pytest.mark.parametrize("body", [[], {"model": [], "messages": [{"role": "user", "content": "x"}]},
+                                  {"model": "gpt-4o-mini", "messages": ["x"]}])
+async def test_malformed_input_is_4xx_not_500(body):
+    c, _ = client()
+    assert (await c.post("/v1/chat/completions", json=body)).status_code in (400, 404)
+
+
+async def test_non_string_text_part_is_ignored():
+    c, _ = client()
+    body = req()
+    body["messages"] = [{"role": "user", "content": [{"text": 5}]}]
+    assert (await c.post("/v1/chat/completions", json=body)).status_code == 200
+
+
+@pytest.mark.parametrize("steps", ["nope", ["x"], [{"tool_calls": [{"arguments": {}}]}]])
+def test_invalid_script_rejected_at_load(steps):
+    with pytest.raises(ValueError):
+        Script(steps)
+
+
+async def test_gpt4o_and_custom_prices():
+    c, _ = client(prices={"m": {"in": 1000.0, "out": 0.0}})
+    u = (await c.post("/v1/chat/completions", json=req("abcd", model="m"))).json()["usage"]
+    assert u["cost_usd"] == pytest.approx(1 * 1000 / 1e6)
+    c2, _ = client()
+    u2 = (await c2.post("/v1/chat/completions", json=req("abcd", model="gpt-4o"))).json()["usage"]
+    assert u2["cost_usd"] == pytest.approx((1 * 2.5 + u2["completion_tokens"] * 10) / 1e6)
+
+
+async def test_healthz_and_unknown_model_stream():
+    c, _ = client()
+    assert (await c.get("/healthz")).json() == {"ok": True}
+    assert (await c.post("/v1/chat/completions", json=req(model="zz", stream=True))).status_code == 404
