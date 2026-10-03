@@ -3,7 +3,7 @@
 # Build context = repo root: docker build -f w1-gateway/Dockerfile .
 
 FROM python:3.13-slim AS build
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.12.5 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_PROJECT_ENVIRONMENT=/app/.venv
 WORKDIR /src
 # third-party deps first: this layer is rebuilt only when the lock or a manifest changes

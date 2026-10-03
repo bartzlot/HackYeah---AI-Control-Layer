@@ -1,5 +1,8 @@
 # AICL demo stack: gateway :18080 (+ console /console), cloud-sim :18200 (priced mock), ollama :11434 (CPU).
-# Only the gateway port is meant to leave the host; cloud-sim and ollama bind to 127.0.0.1.
+# Everything binds to 127.0.0.1 by default. Inside the container the console sees the docker bridge, not
+# loopback, so AICL_CONSOLE_REMOTE=1 is set here and the host-only guarantee comes from the port mapping.
+# Remote access: ssh tunnel (gcloud compute ssh VM -- -L 18080:localhost:18080), or AICL_GATEWAY_BIND=0.0.0.0
+# ONLY with the VM firewall limited to the demo IP (that also exposes the console and its demo key).
 # Gateway and cloud-sim share one image (w1-gateway/Dockerfile). Model pull is opt-in: `make models`.
 # Deploy to the GCP VM is `make deploy` (T-902).
 name: aicl
@@ -12,9 +15,10 @@ x-aicl: &aicl
 services:
   gateway:
     <<: *aicl
-    ports: ["${AICL_GATEWAY_PORT:-18080}:18080"]
+    ports: ["${AICL_GATEWAY_BIND:-127.0.0.1}:${AICL_GATEWAY_PORT:-18080}:18080"]
     env_file: [{path: .env, required: false}]
     environment:   # wins over .env: container paths and service names
+      AICL_CONSOLE_REMOTE: "1"
       AICL_POLICY: /app/policy/policy.yaml
       AICL_OLLAMA_URL: http://ollama:11434
       AICL_CLOUDSIM_URL: http://cloud-sim:18200
