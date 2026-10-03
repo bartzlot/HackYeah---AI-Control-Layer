@@ -21,7 +21,11 @@ from aicl_contracts import SCHEMA_CASE, Action, Decision, DestKind, Event, Part,
 from .policy import Policy, _plain
 from .redact import apply_redactions
 
-DEFAULT_AGENT = "analyst-agent"   # allowed both the local and the external model in policy.yaml
+DEFAULT_AGENT = "analyst-agent"
+# auto = decide() when the control is registered there, plus the gateway when the input is routable;
+# decide = decide() only; gateway = the real gateway only (gateway-enforced controls such as BUD-01);
+# judge-fake = the gateway with the INJ-04 judge installed over a fake Ollama (setup.judge pins its answer)
+RUNNERS = ("auto", "decide", "gateway", "judge-fake")   # allowed both the local and the external model in policy.yaml
 
 
 @dataclass
@@ -36,6 +40,7 @@ class Case:
     setup: dict = field(default_factory=dict)
     input: dict = field(default_factory=dict)
     expect: dict = field(default_factory=dict)
+    runner: str = "auto"      # auto | decide | gateway | judge-fake (file-level `runner:`, a case may override)
 
     @property
     def name(self) -> str:
@@ -49,13 +54,17 @@ def load_case_file(path: Path) -> list[Case]:
     control = doc.get("control")
     if not control:
         raise ValueError(f"{path}: control missing")
+    file_runner = doc.get("runner", "auto")
     out = []
     for c in doc.get("cases") or []:
         if c.get("kind") not in ("positive", "negative"):
             raise ValueError(f"{path}: case {c.get('id')}: kind must be positive|negative")
+        runner = c.get("runner", file_runner)
+        if runner not in RUNNERS:
+            raise ValueError(f"{path}: case {c.get('id')}: runner must be one of {', '.join(RUNNERS)}")
         out.append(Case(control=c.get("control", control), id=str(c["id"]), kind=c["kind"], path=c.get("path", "llm"),
                         raw=c, file=path, profile=c.get("profile"), setup=c.get("setup") or {},
-                        input=c.get("input") or {}, expect=c.get("expect") or {}))
+                        input=c.get("input") or {}, expect=c.get("expect") or {}, runner=runner))
     return out
 
 

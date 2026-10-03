@@ -11,18 +11,19 @@ import pytest
 from aicl_core import load_policy, registered
 from aicl_core.cases import case_policy, collect_cases, coverage_gaps, enabled_controls
 
-from w2_gateway_driver import GATEWAY_CONTROLS, check_gateway, gateway_path, run_gateway_case
+from w2_gateway_driver import GATEWAY_CONTROLS, check_gateway, gateway_path, run_gateway_case, runs_on_gateway
 
 REPO = Path(__file__).resolve().parents[2]
 ALL = collect_cases(REPO)
-GW = [c for c in ALL if gateway_path(c) and (c.control in GATEWAY_CONTROLS or c.control in set(registered()))]
+GW = [c for c in ALL if runs_on_gateway(c, set(registered()))]
 # controls whose owner task has not landed cases yet: reported as xfail, never silently skipped
-PENDING = {"INJ-04": "T-106 (w1, AI judge)"}
+PENDING = {"INJ-04": "w1 moving tests/cases_pending/INJ-04.yaml into cases/ (runner: judge-fake is driven since T-205)"}
 
 
 def test_gateway_only_cases_are_routable():
     """A case of a gateway-enforced control that the gateway driver cannot run would run nowhere."""
-    lost = [c.name for c in ALL if c.control in GATEWAY_CONTROLS and not gateway_path(c)]
+    lost = [c.name for c in ALL if (c.control in GATEWAY_CONTROLS or c.runner in ("gateway", "judge-fake"))
+            and not gateway_path(c)]
     assert not lost, f"gateway-control cases the gateway driver cannot run: {lost}"
 
 

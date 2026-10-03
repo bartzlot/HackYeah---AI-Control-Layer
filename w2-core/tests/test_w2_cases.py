@@ -12,18 +12,21 @@ import pytest
 from aicl_core import registered
 from aicl_core.cases import build_event, case_policy, check, collect_cases
 
-from w2_gateway_driver import GATEWAY_CONTROLS
+from w2_gateway_driver import GATEWAY_CONTROLS, runs_on_decide, runs_on_gateway
 
 REPO = Path(__file__).resolve().parents[2]
 
 ALL = collect_cases(REPO)
 DECIDE = set(registered())
-CASES = [c for c in ALL if c.control in DECIDE]
+CASES = [c for c in ALL if runs_on_decide(c, DECIDE)]
 
 
 def test_every_case_has_a_known_driver():
-    unknown = sorted({c.name for c in ALL if c.control not in DECIDE | GATEWAY_CONTROLS})
+    unknown = sorted({c.name for c in ALL if c.control not in DECIDE | GATEWAY_CONTROLS
+                      and c.runner not in ("gateway", "judge-fake")})
     assert not unknown, f"cases for controls neither decide() nor the gateway enforce: {unknown}"
+    nowhere = sorted(c.name for c in ALL if not runs_on_decide(c, DECIDE) and not runs_on_gateway(c, DECIDE))
+    assert not nowhere, f"cases no driver runs: {nowhere}"
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda c: c.name)
