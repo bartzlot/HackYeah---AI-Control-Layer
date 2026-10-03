@@ -35,3 +35,4 @@ Cut order if late: loop guard -> CSV export (JSONL stays) -> judge as WARN-only.
 ## integration and delivery
 - [ ] T-901 [any] (T1) walking skeleton (~2:00): demo agent -> gateway -> Ollama / cloud-sim; AWS key redacted; PESEL allowed local / redacted external / blocked unknown; curl | sh tool call blocked; events on the dashboard | deps: T-103, T-202 | pair: w1+w2
 - [ ] T-902 [any] (T1) deploy on the GCP VM + README (quick start, mermaid architecture diagram, how to edit the policy live) + demo rehearsal and fallback recording [22] | deps: T-901
+- [~] T-005 [lead] (T1) containers: w1-gateway/Dockerfile (uv, one image for gateway + cloud-sim), docker-compose.yml hardening (healthchecks, cloud-sim/ollama on 127.0.0.1 only, data volume, opt-in model pull), .dockerignore, .env.example, Makefile models target, scripts/task.sh hostname fix for Git Bash; deploy stays in T-902 | deps: T-001 | claimed: lead/krzys13@omen 2026-10-03T21:23Z
