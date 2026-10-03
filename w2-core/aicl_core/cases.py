@@ -146,3 +146,23 @@ def check(case: Case, event: Event, d: Decision) -> list[str]:
 
 def _as_list(x: Any) -> list:
     return [] if x is None else (x if isinstance(x, list) else [x])
+
+
+def enabled_controls(policy: Policy) -> list[str]:
+    """Controls of policy.yaml whose mode is not `off` for at least one profile."""
+    out = []
+    for cid, block in (policy.raw.get("controls") or {}).items():
+        modes = (block or {}).get("mode", "enforce")
+        modes = modes.values() if isinstance(modes, dict) else [modes]
+        if any(m != "off" for m in modes):
+            out.append(cid)
+    return sorted(out)
+
+
+def coverage_gaps(cases: list[Case], controls: list[str]) -> dict[str, list[str]]:
+    """control -> missing case kinds (meta-test: every control needs a positive AND a negative case)."""
+    have: dict[str, set[str]] = {}
+    for c in cases:
+        have.setdefault(c.control, set()).add(c.kind)
+    return {cid: sorted({"positive", "negative"} - have.get(cid, set())) for cid in controls
+            if {"positive", "negative"} - have.get(cid, set())}

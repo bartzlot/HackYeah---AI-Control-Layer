@@ -3,8 +3,9 @@
 # Offline and deterministic: no Ollama, no network, no paid API.
 #   1. per-task acceptance tests: tests/test_w2_t2NN_*.py (one test per item of the TASKS.md line)
 #   2. unit tests (policy loader, reload, last-good, engine, redaction, detectors)
-#   3. every */cases/*.yaml through decide() (tests/test_w2_cases.py)
-#   4. mutation proof: every negative case must FAIL when its own control is switched off
+#   3. every */cases/*.yaml through decide() (tests/test_w2_cases.py) and through the real gateway over ASGI
+#      with the scripted cloud-sim (tests/test_w2_runner.py), meta-tests: allowed + blocked case per control
+#   4. mutation proof: every negative case must FAIL when its own control is switched off (both drivers)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 uv run pytest -q w2-core/tests
