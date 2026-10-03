@@ -11,7 +11,8 @@ from aicl_core import registered
 from aicl_core.cases import RUNNERS, case_policy, collect_cases, coverage_gaps, load_case_file
 from aicl_core.engine import REGISTRY
 
-from w2_gateway_driver import check_gateway, run_gateway_case, runs_on_decide, runs_on_gateway
+from w2_gateway_driver import (check_gateway, run_gateway_case, runs_on_decide, runs_on_gateway, with_judge_answer,
+                               without_judge_keys)
 
 REPO = Path(__file__).resolve().parents[2]
 _CANDIDATES = [REPO / "w1-gateway" / "cases" / "INJ-04.yaml", REPO / "w1-gateway" / "tests" / "cases_pending" / "INJ-04.yaml"]
@@ -60,7 +61,24 @@ async def test_judge_fake_case_passes_through_gateway(engine, case):
 async def test_judge_fake_negative_fails_with_judge_off(engine, case):
     pol = case_policy(engine.policy, case, {"controls": {case.control: {"mode": "off"}}})
     got = await run_gateway_case(case, pol, engine.decide, control_off=True)
-    assert check_gateway(case, got), f"{case.name} still passes with the judge off"
+    assert check_gateway(without_judge_keys(case), got), f"{case.name} verdict still matches with the judge off"
+
+
+@needs_file
+@pytest.mark.parametrize("case", [c for c in JUDGE_CASES if c.kind == "negative" and c.setup.get("judge") == "malicious"],
+                         ids=lambda c: c.name)
+async def test_malicious_verdict_is_what_blocks(engine, case):
+    benign = with_judge_answer(case, "benign")
+    got = await run_gateway_case(benign, case_policy(engine.policy, benign), engine.decide)
+    assert check_gateway(without_judge_keys(case), got), f"{case.name} still blocked with a benign judge"
+
+
+def test_unknown_expect_key_fails_in_decide_runner(engine):
+    from aicl_core.cases import build_event, check
+    case = next(c for c in collect_cases(REPO) if c.name == "DLP-02:T10")
+    typo = type(case)(**{**case.__dict__, "expect": {**case.expect, "decison": "BLOCK"}})
+    ev = build_event(typo)
+    assert any("unknown expect keys" in x for x in check(typo, ev, engine.decide(ev)))
 
 
 @needs_file

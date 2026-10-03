@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 
 from aicl_contracts import Action, Event
+from aicl_core import registered
 from aicl_core.cases import DEFAULT_AGENT, Case, expand
 from aicl_core.policy import Policy
 
@@ -43,6 +44,19 @@ def runs_on_gateway(case: Case, decide_controls: set[str]) -> bool:
 
 def runs_on_decide(case: Case, decide_controls: set[str]) -> bool:
     return case.runner in ("auto", "decide") and case.control in decide_controls
+
+
+JUDGE_KEYS = ("judge_called", "degraded")
+
+
+def without_judge_keys(case: Case) -> Case:
+    """For the judge-off mutation run: judge_called / degraded are trivially False without a judge, so they
+    must not be what makes the case fail; the verdict (decision, status, events) has to."""
+    return Case(**{**case.__dict__, "expect": {k: v for k, v in case.expect.items() if k not in JUDGE_KEYS}})
+
+
+def with_judge_answer(case: Case, answer: str) -> Case:
+    return Case(**{**case.__dict__, "setup": {**case.setup, "judge": answer}})
 
 
 def judge_fake(case: Case, control_off: bool):
@@ -189,7 +203,7 @@ def check_gateway(case: Case, got: dict) -> list[str]:
     unknown = set(e) - GATEWAY_KEYS - DECIDE_ONLY_KEYS
     if unknown:
         bad.append(f"unknown expect keys {sorted(unknown)} (check them or list them as decide-only)")
-    if case.runner in ("gateway", "judge-fake"):          # these never reach the decide() runner
+    if not runs_on_decide(case, set(registered())):      # the decide() runner never sees this case
         unchecked = set(e) & (DECIDE_ONLY_KEYS - {"events"})
         if unchecked:
             bad.append(f"expect keys {sorted(unchecked)} cannot be checked by runner {case.runner}")

@@ -25,7 +25,11 @@ DEFAULT_AGENT = "analyst-agent"
 # auto = decide() when the control is registered there, plus the gateway when the input is routable;
 # decide = decide() only; gateway = the real gateway only (gateway-enforced controls such as BUD-01);
 # judge-fake = the gateway with the INJ-04 judge installed over a fake Ollama (setup.judge pins its answer)
-RUNNERS = ("auto", "decide", "gateway", "judge-fake")   # allowed both the local and the external model in policy.yaml
+RUNNERS = ("auto", "decide", "gateway", "judge-fake")
+# every expect key either runner understands; anything else is a typo and fails the case
+EXPECT_KEYS = frozenset({"decision", "would_decision", "rule_ids", "controls", "findings", "events",
+                         "redacted_contains", "redacted_not_contains", "http_status", "upstream_called", "retry_after",
+                         "upstream_body_contains", "upstream_body_not_contains", "judge_called", "degraded"})   # allowed both the local and the external model in policy.yaml
 
 
 @dataclass
@@ -122,6 +126,9 @@ def build_event(case: Case) -> Event:
 def check(case: Case, event: Event, d: Decision) -> list[str]:
     """Return the list of failed expectations (empty = case passes)."""
     e, errs = case.expect, []
+    unknown = set(e) - EXPECT_KEYS
+    if unknown:
+        errs.append(f"unknown expect keys {sorted(unknown)}")
     if "decision" in e and d.action != Action.parse(e["decision"]):
         errs.append(f"decision {d.action.name} != {e['decision']}")
     if "would_decision" in e and d.would_action != Action.parse(e["would_decision"]):

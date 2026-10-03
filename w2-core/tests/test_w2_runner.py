@@ -11,7 +11,8 @@ import pytest
 from aicl_core import load_policy, registered
 from aicl_core.cases import case_policy, collect_cases, coverage_gaps, enabled_controls
 
-from w2_gateway_driver import GATEWAY_CONTROLS, check_gateway, gateway_path, run_gateway_case, runs_on_gateway
+from w2_gateway_driver import (GATEWAY_CONTROLS, check_gateway, gateway_path, run_gateway_case, runs_on_gateway,
+                               with_judge_answer, without_judge_keys)
 
 REPO = Path(__file__).resolve().parents[2]
 ALL = collect_cases(REPO)
@@ -39,7 +40,17 @@ async def test_case_through_gateway(engine, case):
 async def test_gateway_negative_fails_with_control_off(engine, case):
     pol = case_policy(engine.policy, case, {"controls": {case.control: {"mode": "off"}}})
     got = await run_gateway_case(case, pol, engine.decide, control_off=True)
-    assert check_gateway(case, got), f"{case.name} still passes through the gateway with {case.control} off"
+    probe = without_judge_keys(case) if case.runner == "judge-fake" else case
+    assert check_gateway(probe, got), f"{case.name} still passes through the gateway with {case.control} off"
+
+
+@pytest.mark.parametrize("case", [c for c in GW if c.kind == "negative" and c.runner == "judge-fake"
+                                  and c.setup.get("judge") in ("malicious", "suspicious")], ids=lambda c: c.name)
+async def test_judge_negative_fails_when_the_judge_says_benign(engine, case):
+    """The judge's verdict is what blocks: the same input with a benign answer must not match."""
+    benign = with_judge_answer(case, "benign")
+    got = await run_gateway_case(benign, case_policy(engine.policy, benign), engine.decide)
+    assert check_gateway(without_judge_keys(case), got), f"{case.name} passes with a benign judge"
 
 
 @pytest.mark.parametrize("cid", enabled_controls(load_policy(REPO / "policy" / "policy.yaml")))
