@@ -12,6 +12,7 @@
 #   upstream_called (last request reached the upstream), retry_after (429 carries Retry-After).
 schema: aicl-case/1
 control: BUD-01
+runner: gateway                         # gateway-level control: decide() alone cannot see budgets or the loop guard
 cases:
 - id: BUD-01-A1
   kind: positive

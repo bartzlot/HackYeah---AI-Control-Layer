@@ -17,5 +17,5 @@ aicl-gateway = { workspace = true }
 dev = ["pytest>=8", "pytest-asyncio>=0.24"]
 
 [tool.pytest.ini_options]
-testpaths = ["contracts/tests", "w2-core/tests", "w1-gateway/tests"]
+testpaths = ["tests", "contracts/tests", "w2-core/tests", "w1-gateway/tests"]
 asyncio_mode = "auto"

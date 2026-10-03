@@ -22,7 +22,7 @@ def default_config() -> dict[str, Any]:
         "models": DEFAULT_MODELS,           # tag -> {"kind": local|external, "upstream_model": optional rename}
         "upstream_urls": {
             "local": os.environ.get("AICL_OLLAMA_URL", "http://localhost:11434"),
-            "external": os.environ.get("AICL_CLOUDSIM_URL", "http://localhost:8081"),
+            "external": os.environ.get("AICL_CLOUDSIM_URL", "http://localhost:18200"),
         },
         # credentials the gateway injects upstream (agent keys are never forwarded)
         "upstream_keys": {"local": None, "external": os.environ.get("AICL_UPSTREAM_KEY_EXTERNAL")},
