@@ -1,27 +1,75 @@
 # AICL demo stack: gateway :18080 (+ console /console), cloud-sim :18200 (priced mock), ollama :11434 (CPU).
-# Dockerfiles are owned by w1 (w1-gateway/Dockerfile, w1-gateway/cloud_sim/Dockerfile).
+# Only the gateway port is meant to leave the host; cloud-sim and ollama bind to 127.0.0.1.
+# Gateway and cloud-sim share one image (w1-gateway/Dockerfile). Model pull is opt-in: `make models`.
+# Deploy to the GCP VM is `make deploy` (T-902).
+name: aicl
+
+x-aicl: &aicl
+  build: {context: ., dockerfile: w1-gateway/Dockerfile}
+  image: aicl:local
+  restart: unless-stopped
+
 services:
   gateway:
-    build: {context: ., dockerfile: w1-gateway/Dockerfile}
-    ports: ["18080:18080"]
-    environment:
+    <<: *aicl
+    ports: ["${AICL_GATEWAY_PORT:-18080}:18080"]
+    env_file: [{path: .env, required: false}]
+    environment:   # wins over .env: container paths and service names
       AICL_POLICY: /app/policy/policy.yaml
       AICL_OLLAMA_URL: http://ollama:11434
       AICL_CLOUDSIM_URL: http://cloud-sim:18200
       AICL_DATA_DIR: /app/data
+      AICL_AUDIT_PATH: /app/data/audit.jsonl
+      AICL_BUDGET_DB: /app/data/budget.db
     volumes:
-      - ./policy:/app/policy
-      - gateway-data:/app/data
-    depends_on: [cloud-sim, ollama]
+      - ./policy:/app/policy:ro     # edit policy.yaml on the host, the gateway polls and reloads
+      - gateway-data:/app/data      # audit JSONL + budget SQLite survive restarts
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:18080/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      cloud-sim: {condition: service_healthy}
+      ollama: {condition: service_started}   # a missing model degrades, it does not block startup
+
   cloud-sim:
-    build: {context: ., dockerfile: w1-gateway/cloud_sim/Dockerfile}
-    ports: ["18200:18200"]
+    <<: *aicl
+    command: ["python", "-m", "cloud_sim"]
+    ports: ["127.0.0.1:18200:18200"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:18200/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
   ollama:
     image: ollama/ollama:latest
-    ports: ["11434:11434"]
+    restart: unless-stopped
+    ports: ["127.0.0.1:11434:11434"]
     volumes: [ollama-models:/root/.ollama]
     environment:
       OLLAMA_KEEP_ALIVE: 30m
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # one-shot: `docker compose --profile models run --rm ollama-pull` (make models)
+  ollama-pull:
+    image: ollama/ollama:latest
+    profiles: [models]
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama", "pull"]
+    command: ["${AICL_OLLAMA_MODEL:-qwen3.5:2b-q4_K_M}"]
+    depends_on:
+      ollama: {condition: service_healthy}
+
 volumes:
   gateway-data:
   ollama-models:

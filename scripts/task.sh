@@ -20,7 +20,7 @@ verb="${1:-}"; arg="${2:-}"; reason="${3:-}"
 root="$(git rev-parse --show-toplevel)"
 branch="$(git -C "$root" branch --show-current)"
 piece="${branch%%-*}"; [ "$branch" = main ] && piece=lead
-who="${piece}/$(git -C "$root" config user.name | tr -c 'A-Za-z0-9._\n' _)@$(hostname -s)"
+who="${piece}/$(git -C "$root" config user.name | tr -c 'A-Za-z0-9._\n' _)@$(hostname -s 2>/dev/null || hostname)"
 
 edit() { # $1 = input file, writes new content to stdout; exit 2 not found, 3 rejected
   awk -v verb="$verb" -v id="$arg" -v who="$who" -v mypiece="$piece" -v force="${TASK_FORCE:-0}" \
