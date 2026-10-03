@@ -24,7 +24,8 @@ COPY --from=build /app/.venv /app/.venv
 COPY policy /app/policy
 ENV PATH=/app/.venv/bin:$PATH PYTHONUNBUFFERED=1 \
     AICL_POLICY=/app/policy/policy.yaml AICL_DATA_DIR=/app/data \
-    AICL_AUDIT_PATH=/app/data/audit.jsonl AICL_BUDGET_DB=/app/data/budget.db
+    AICL_AUDIT_PATH=/app/data/audit.jsonl AICL_BUDGET_DB=/app/data/budget.db \
+    AICL_CLOUDSIM_HOST=0.0.0.0
 WORKDIR /app
 USER aicl
 EXPOSE 18080 18200
