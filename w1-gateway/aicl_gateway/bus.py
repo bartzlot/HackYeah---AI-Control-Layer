@@ -37,6 +37,7 @@ class EventBus:
         self._subs: set[Subscription] = set()
         self._queue_size = queue_size
         self.history: deque[dict] = deque(maxlen=history)
+        self.listeners: list = []   # sync callables fed on every publish (console store)
 
     def subscribe(self) -> Subscription:
         sub = Subscription(self, self._queue_size)
@@ -45,6 +46,8 @@ class EventBus:
 
     def publish(self, record: dict) -> None:
         self.history.append(record)
+        for fn in self.listeners:
+            fn(record)
         for sub in list(self._subs):
             if sub.queue.full():  # slow consumer: drop oldest
                 try:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import time
 import uuid
 from typing import Any, Callable
 
@@ -20,6 +21,7 @@ from aicl_contracts import Action, Decision, DestKind, Event, Part, Stage, ToolC
 from .audit import Audit
 from .bus import EventBus
 from .config import merge_config, route
+from .console_api import ConsoleStore, make_console_router
 
 
 def stub_decide(event: Event) -> Decision:
@@ -102,8 +104,18 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
             clients[kind] = c
             owned.append(c)
 
+    ccfg = cfg["console"]
+    store = ConsoleStore(budget_usd=ccfg.get("budget_usd"), policy=ccfg.get("policy"))
+    if ccfg.get("fixtures"):
+        store.load_file()
+    bus.listeners.append(store.append)
+
     app = FastAPI(title="aicl-gateway")
     app.state.bus, app.state.audit, app.state.config, app.state.upstreams = bus, audit, cfg, clients
+    app.state.console = store
+    models_view = {"local": [m for m, e in cfg["models"].items() if e["kind"] == "local"],
+                   "external": [m for m, e in cfg["models"].items() if e["kind"] == "external"]}
+    app.include_router(make_console_router(store, {"api_key": ccfg.get("demo_key"), "models": models_view}))
 
     @app.on_event("shutdown")
     async def _close():
@@ -134,13 +146,14 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         models = agent.get("models")
         return models is None or model in models
 
-    async def guard(event: Event) -> tuple[Decision | None, JSONResponse | None]:
+    async def guard(event: Event, ctx: dict) -> tuple[Decision | None, JSONResponse | None]:
         """decide + audit; returns (decision, error response when blocked or decide failed)."""
         d = await run_decide(event)
         if d is None:
             audit.denied(event, "decide() failed: fail closed", "REQUEST_BLOCKED")
             return None, _err(503, "policy_unavailable", "policy engine unavailable, request denied (fail closed)")
         audit.from_decision(event, d)
+        ctx["action"] = max(ctx["action"], d.action)
         if d.action == Action.BLOCK:
             why = "; ".join(d.explain[-2:]) or "blocked by policy"
             return d, _err(403, "policy_block", f"Blocked by AI Control Layer: {why}", d.decision_id)
@@ -161,6 +174,20 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
 
     @app.post("/v1/chat/completions")
     async def chat(request: Request):
+        t0 = time.perf_counter()
+        ctx = {"action": Action.ALLOW, "up": 0.0}
+        resp = await _chat(request, ctx)
+        total = (time.perf_counter() - t0) * 1000
+        resp.headers["X-AICL-Decision"] = ctx["action"].name
+        if ctx.get("request_id"):
+            resp.headers["X-AICL-Request-Id"] = ctx["request_id"]
+        resp.headers["Server-Timing"] = (f"aicl;dur={max(total - ctx['up'], 0):.1f}, upstream;dur={ctx['up']:.1f}, "
+                                         f"total;dur={total:.1f}")
+        resp.headers["Access-Control-Expose-Headers"] = "X-AICL-Decision, X-AICL-Request-Id, Server-Timing"
+        return resp
+
+    async def _chat(request: Request, ctx: dict):
+        # X-AICL-Destination is informational only (playground); routing is by model, identity by API key.
         who = authenticate(request)
         if who is None:
             return _err(401, "invalid_api_key", "missing or invalid API key")
@@ -179,6 +206,7 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         base = dict(agent_id=agent_id, session_id=request.headers.get(cfg["session_header"]),
                     request_id="req_" + uuid.uuid4().hex[:12], model=model, destination=kind,
                     profile=agent.get("profile"))
+        ctx["request_id"] = base["request_id"]
 
         if kind == DestKind.UNKNOWN or not allowed(agent, model):
             why = "unknown model" if kind == DestKind.UNKNOWN else "model not in agent allowlist"
@@ -188,7 +216,7 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         # ---- request stage ----
         slots = _text_slots(messages)
         parts = [Part(role=r, text=t, trusted=r != "tool") for _, _, r, t in slots]
-        d, error = await guard(Event(stage=Stage.PROMPT, parts=parts, **base))
+        d, error = await guard(Event(stage=Stage.PROMPT, parts=parts, **base), ctx)
         if error:
             return error
         fwd = json.loads(json.dumps(body))
@@ -209,10 +237,12 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         key = cfg["upstream_keys"].get(kind.value)
         if key:
             headers["authorization"] = f"Bearer {key}"
+        t_up = time.perf_counter()
         try:
             up = await clients[kind.value].post("/v1/chat/completions", json=fwd, headers=headers)
         except (httpx.HTTPError, KeyError) as e:
             return _err(502, "upstream_error", f"upstream {kind.value} unreachable: {type(e).__name__}")
+        ctx["up"] = (time.perf_counter() - t_up) * 1000
         try:
             resp = up.json()
         except ValueError:
@@ -229,7 +259,7 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         # ---- response stage ----
         content = msg.get("content") if isinstance(msg.get("content"), str) else ""
         d, error = await guard(Event(stage=Stage.RESPONSE, parts=[Part(role="assistant", text=content)],
-                                     usage=usage, **base))
+                                     usage=usage, **base), ctx)
         if error:
             return error
         if d.action == Action.REDACT and d.redactions:
@@ -247,7 +277,7 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
                     args = {"_raw": fn.get("arguments")}
                 tcs.append(ToolCall(name=str(fn.get("name", "")),
                                     arguments=args if isinstance(args, dict) else {"_value": args}))
-            td, error = await guard(Event(stage=Stage.TOOL_ARGS, tool_calls=tcs, **base))
+            td, error = await guard(Event(stage=Stage.TOOL_ARGS, tool_calls=tcs, **base), ctx)
             if td is None:
                 return error
             if td.action == Action.BLOCK:

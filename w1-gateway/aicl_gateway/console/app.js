@@ -49,8 +49,8 @@
       tile("Blocked", s.blocked, "bad") +
       tile("Redacted", s.redacted, "warn") +
       tile("Allowed", s.allowed, "ok") +
-      tile("API cost (simulated, USD)", "$" + s.cost_usd.toFixed(4)) +
-      tile("Budget used", s.budget_used_pct + "%", s.budget_used_pct >= 80 ? "bad" : "", bar(s.budget_used_pct)) +
+      tile("API cost (simulated, USD)", "$" + s.cost_usd.toFixed(4), "", '<div class="l">' + esc(s.tokens || 0) + " tokens</div>") +
+      tile("Budget used", s.budget_used_pct + "%", s.budget_used_pct >= 80 ? "bad" : "", '<div class="l">of $' + esc(s.budget_usd) + " USD budget</div>" + bar(s.budget_used_pct)) +
       tile("Security posture", s.posture_pct + "%", s.posture_pct >= 80 ? "ok" : "warn", '<div class="l">' + s.controls_enforced + "/" + s.controls_total + " controls enforced</div>" + bar(s.posture_pct));
     const tl = s.timeline;
     const tlabels = tl.map((x) => x.t.slice(11));
@@ -146,15 +146,30 @@
     out.className = "result"; out.textContent = "Sending...";
     const t0 = performance.now();
     try {
+      const dest = $("#pg-dest").value;
+      let pc = { api_key: null, models: { local: [], external: [] } };
+      try { pc = await getJSON("/console/api/playground"); } catch (e) {}
+      const model = dest === "unknown" ? "unknown-model" : (pc.models[dest] || [])[0] || (dest === "local" ? "qwen3.5:2b-q4_K_M" : "gpt-4o-mini");
+      const headers = { "Content-Type": "application/json", "X-AICL-Destination": dest };
+      if (pc.api_key) headers["Authorization"] = "Bearer " + pc.api_key;
       const r = await fetch($("#pg-url").value, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-AICL-Destination": $("#pg-dest").value, "X-AICL-Agent": "playground" },
-        body: JSON.stringify({ model: $("#pg-dest").value === "local" ? "qwen3.5:2b" : "gpt-4o-mini", destination: $("#pg-dest").value, messages: [{ role: "user", content: $("#pg-text").value }] }),
+        method: "POST", headers,
+        body: JSON.stringify({ model, messages: [{ role: "user", content: $("#pg-text").value }] }),
       });
       const txt = await r.text();
       let body = txt; try { body = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) {}
       const dec = ["x-aicl-decision", "x-aicl-action", "server-timing", "x-aicl-request-id"].map((h) => r.headers.get(h) ? h + ": " + r.headers.get(h) : "").filter(Boolean).join("\n");
-      out.textContent = "HTTP " + r.status + (r.status >= 400 ? " (blocked or error)" : " (passed)") + " in " + Math.round(performance.now() - t0) + " ms\n" + dec + "\n\n" + body;
+      let trace = "";
+      const rid = r.headers.get("x-aicl-request-id");
+      if (rid) {
+        try {
+          const evs = (await getJSON(API + "/events?limit=20&request_id=" + encodeURIComponent(rid))).events.slice().reverse();
+          trace = "\n\nPolicy decisions:\n" + evs.map((e) => "- " + e.stage + ": " + dn(e.decision) + " (" + e.event_type + ")" +
+            (e.findings || []).map((f) => "\n    " + f.control_id + " / " + f.rule_id + " [" + f.category + "]").join("") +
+            (e.explain || []).map((x) => "\n    > " + x).join("")).join("\n");
+        } catch (e) {}
+      }
+      out.textContent = "HTTP " + r.status + (r.status >= 400 ? " (blocked or error)" : " (passed)") + " in " + Math.round(performance.now() - t0) + " ms\n" + dec + trace + "\n\nResponse:\n" + body;
     } catch (e) {
       out.textContent = "Gateway not reachable at " + $("#pg-url").value + ": " + e.message;
     }

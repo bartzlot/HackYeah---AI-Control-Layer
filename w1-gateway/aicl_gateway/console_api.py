@@ -1,4 +1,4 @@
-"""Console API (T-105 UI part): in-memory audit store + FastAPI router for the dashboard.
+"""Console API (T-105): in-memory audit store + FastAPI router for the dashboard.
 
 make_console_router(store) -> APIRouter. Mount it on the gateway app (or any FastAPI app).
 Records are AuditRecord JSON dicts (contracts/aicl_contracts.py). Raw text never appears here.
@@ -10,8 +10,9 @@ import csv
 import io
 import json
 from collections import deque
+from itertools import islice
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
@@ -19,18 +20,72 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 CONSOLE_DIR = Path(__file__).parent / "console"
 FIXTURES = CONSOLE_DIR / "fixtures.jsonl"
 
+# Static catalog: display name, severity and category per control id. Mode and default action come
+# from policy.yaml when a policy is attached (controls_from_policy); this list is the offline default.
+CATALOG: dict[str, dict[str, str]] = {
+    "DLP-01": {"name": "Secret detection (AWS, GitHub, PEM, JWT)", "severity": "critical", "category": "secret"},
+    "DLP-02": {"name": "PII detection with validators (PESEL, IBAN, card, e-mail)", "severity": "high", "category": "pii"},
+    "DLP-05": {"name": "Destination DLP (data class x local / external / unknown)", "severity": "high", "category": "pii"},
+    "INJ-03": {"name": "Injection signatures + historical exploit rules", "severity": "high", "category": "injection"},
+    "INJ-04": {"name": "Semantic injection judge (local LLM, gray band)", "severity": "high", "category": "injection"},
+    "TOOL-01": {"name": "Tool authorization + argument rules", "severity": "critical", "category": "tool_abuse"},
+    "BUD-01": {"name": "Budgets (tokens, USD) + loop guard", "severity": "medium", "category": "resource"},
+}
+DEFAULT_ACTIONS = {"DLP-01": "REDACT", "DLP-02": "REDACT", "DLP-05": "BLOCK", "INJ-03": "BLOCK", "INJ-04": "WARN",
+                   "TOOL-01": "BLOCK", "BUD-01": "BLOCK"}
 DEFAULT_CONTROLS: list[dict[str, Any]] = [
-    {"id": "DLP-01", "name": "Secret detection", "severity": "critical", "category": "secret", "mode": "enforce", "action": "BLOCK"},
-    {"id": "DLP-02", "name": "PII detection (PL_PESEL, IBAN, e-mail)", "severity": "high", "category": "pii", "mode": "enforce", "action": "REDACT"},
-    {"id": "DLP-03", "name": "Destination matrix (local / external / unknown)", "severity": "high", "category": "pii", "mode": "enforce", "action": "BLOCK"},
-    {"id": "INJ-01", "name": "Injection signatures", "severity": "high", "category": "injection", "mode": "enforce", "action": "BLOCK"},
-    {"id": "INJ-04", "name": "Semantic injection classifier", "severity": "high", "category": "injection", "mode": "shadow", "action": "WARN"},
-    {"id": "TOOL-01", "name": "Tool argument validation (shell, paths)", "severity": "critical", "category": "tool_abuse", "mode": "enforce", "action": "BLOCK"},
-    {"id": "TOOL-02", "name": "Tool authorization and approvals", "severity": "high", "category": "tool_abuse", "mode": "enforce", "action": "BLOCK"},
-    {"id": "BUD-01", "name": "Budgets and rate limits", "severity": "medium", "category": "resource", "mode": "enforce", "action": "BLOCK"},
-    {"id": "BUD-02", "name": "Agent loop guard", "severity": "medium", "category": "resource", "mode": "enforce", "action": "BLOCK"},
-    {"id": "SUP-01", "name": "MCP tool pinning", "severity": "medium", "category": "supply_chain", "mode": "off", "action": "WARN"},
-]
+    {"id": cid, **meta, "mode": "enforce", "action": DEFAULT_ACTIONS[cid]} for cid, meta in CATALOG.items()]
+
+
+def _mode(v: Any, profile: str) -> str:
+    """policy mode: word, per-profile map, or a YAML 1.1 boolean (bare off -> False)."""
+    if isinstance(v, dict):
+        v = v.get(profile, "enforce")
+    if v is False:
+        return "off"
+    if v is True or v is None:
+        return "enforce"
+    v = str(v).lower()
+    return v if v in ("enforce", "shadow", "off") else "enforce"
+
+
+def _action(c: dict[str, Any], cid: str) -> str:
+    a = c.get("action")
+    if isinstance(a, str):
+        return a.upper()
+    if isinstance(a, dict) and a:
+        acts = {str(x).upper() for x in a.values()}
+        order = ("BLOCK", "REDACT", "WARN", "LOG", "ALLOW")
+        return "/".join(x for x in order if x in acts) or DEFAULT_ACTIONS.get(cid, "BLOCK")
+    if c.get("default"):
+        return str(c["default"]).upper()
+    return DEFAULT_ACTIONS.get(cid, "BLOCK")
+
+
+def controls_from_policy(policy: dict[str, Any]) -> list[dict[str, Any]]:
+    """Rows for the controls table from a raw policy dict. Catalog controls missing from the policy stay
+    in the list as mode off (they count against posture, research/13 section 14)."""
+    profile = str(((policy.get("defaults") or {}).get("profile")) or "balanced")
+    pcs = policy.get("controls") or {}
+    if not isinstance(pcs, dict):
+        pcs = {}
+    rows = []
+    for cid in dict.fromkeys([*CATALOG, *pcs]):
+        c = pcs.get(cid)
+        meta = CATALOG.get(cid, {"name": str(cid), "severity": "medium", "category": "other"})
+        if not isinstance(c, dict):
+            rows.append({"id": cid, **meta, "mode": "off", "action": DEFAULT_ACTIONS.get(cid, "BLOCK")})
+            continue
+        rows.append({"id": cid, **meta, "mode": _mode(c.get("mode"), profile), "action": _action(c, cid)})
+    return rows
+
+
+def budget_from_policy(policy: dict[str, Any]) -> float | None:
+    org = (policy.get("budgets") or {}).get("org") or {}
+    try:
+        return float(org["usd"])
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 _NAMES = ["ALLOW", "LOG", "WARN", "REDACT", "BLOCK"]
@@ -45,15 +100,52 @@ def dec_name(v: Any) -> str:
     return str(v).upper()
 
 
-class ConsoleStore:
-    """Bounded in-memory audit store with pub/sub for SSE."""
+def dec_rank(v: Any) -> int:
+    n = dec_name(v)
+    return _NAMES.index(n) if n in _NAMES else 0
 
-    def __init__(self, budget_usd: float = 1.0, controls: list[dict[str, Any]] | None = None,
-                 maxlen: int = 5000) -> None:
-        self.budget_usd = budget_usd
-        self.controls = [dict(c) for c in (controls or DEFAULT_CONTROLS)]
+
+PolicySource = Callable[[], "dict[str, Any] | None"]
+
+
+class ConsoleStore:
+    """Bounded in-memory audit store with pub/sub for SSE.
+
+    policy: raw policy dict or a callable returning it (hot reload); drives the controls table and the
+    org USD budget. controls / budget_usd given explicitly win over the policy.
+    """
+
+    def __init__(self, budget_usd: float | None = None, controls: list[dict[str, Any]] | None = None,
+                 maxlen: int = 5000, policy: "dict[str, Any] | PolicySource | None" = None) -> None:
+        self._budget_usd = budget_usd
+        self._controls = [dict(c) for c in controls] if controls else None
+        self._policy = policy
         self._records: deque[dict[str, Any]] = deque(maxlen=maxlen)
         self._subs: set[asyncio.Queue] = set()
+
+    def policy(self) -> dict[str, Any] | None:
+        p = self._policy
+        if callable(p):
+            try:
+                p = p()
+            except Exception:
+                return None
+        return p if isinstance(p, dict) else None
+
+    @property
+    def controls(self) -> list[dict[str, Any]]:
+        if self._controls is not None:
+            return self._controls
+        pol = self.policy()
+        return controls_from_policy(pol) if pol else [dict(c) for c in DEFAULT_CONTROLS]
+
+    @property
+    def budget_usd(self) -> float:
+        if self._budget_usd is not None:
+            return self._budget_usd
+        pol = self.policy()
+        b = budget_from_policy(pol) if pol else None
+        return b if b is not None else 1.0
 
     # -- ingest ---------------------------------------------------------
     def append(self, record: dict[str, Any]) -> None:
@@ -81,44 +173,56 @@ class ConsoleStore:
             return self.load_lines(f)
 
     # -- query ----------------------------------------------------------
-    def list(self, limit: int = 100) -> list[dict[str, Any]]:
-        """Newest first."""
+    def list(self, limit: int = 100, request_id: str | None = None) -> list[dict[str, Any]]:
+        """Newest first; optionally only the records of one request."""
         if limit <= 0:
             return []
-        return list(reversed(self._records))[:limit]
+        recs = reversed(self._records)
+        if request_id:
+            recs = (r for r in recs if r.get("request_id") == request_id)
+        return list(islice(recs, limit))
 
     def all(self) -> list[dict[str, Any]]:
         return list(self._records)
 
     def summary(self) -> dict[str, Any]:
-        recs = list(self._records)
-        prompts = [r for r in recs if r.get("stage") == "prompt"]
-        by_dec: dict[str, int] = {}
-        for r in prompts:
-            d = dec_name(r.get("decision"))
-            by_dec[d] = by_dec.get(d, 0) + 1
-        cost = round(sum((r.get("usage") or {}).get("usd", 0.0) for r in recs), 6)
+        """KPIs (research/13 section 14): one request = one request_id; its final decision is the max
+        over all its records (prompt, response, tool_args)."""
+        recs = [r for r in self._records if r.get("stage") != "lifecycle"]
+        final: dict[str, int] = {}
+        for i, r in enumerate(recs):
+            rid = r.get("request_id") or r.get("event_id") or f"#{i}"
+            final[rid] = max(final.get(rid, 0), dec_rank(r.get("decision")))
+        by_dec = {n: 0 for n in _NAMES}
+        for v in final.values():
+            by_dec[_NAMES[v]] += 1
+        cost, tokens = 0.0, 0
         cats: dict[str, int] = {}
+        timeline: dict[str, dict[str, int]] = {}
         for r in recs:
+            u = r.get("usage") or {}
+            cost += u.get("usd") or 0.0
+            tokens += (u.get("input_tokens") or 0) + (u.get("output_tokens") or 0)
             for f in r.get("findings", []):
                 c = f.get("category", "other")
                 cats[c] = cats.get(c, 0) + 1
-        timeline: dict[str, dict[str, int]] = {}
-        for r in recs:
-            b = str(r.get("ts", ""))[:16]
-            row = timeline.setdefault(b, {"allow": 0, "redact": 0, "block": 0})
+            row = timeline.setdefault(str(r.get("ts", ""))[:16], {"allow": 0, "redact": 0, "block": 0})
             d = dec_name(r.get("decision"))
             row["block" if d == "BLOCK" else "redact" if d == "REDACT" else "allow"] += 1
-        enforced = sum(1 for c in self.controls if c.get("mode") == "enforce")
-        total_c = len(self.controls)
+        cost = round(cost, 6)
+        controls = self.controls
+        enforced = sum(1 for c in controls if c.get("mode") == "enforce")
+        total_c = len(controls)
+        budget = self.budget_usd
         return {
-            "requests": len(prompts),
-            "allowed": by_dec.get("ALLOW", 0) + by_dec.get("LOG", 0) + by_dec.get("WARN", 0),
-            "redacted": by_dec.get("REDACT", 0),
-            "blocked": by_dec.get("BLOCK", 0),
+            "requests": len(final),
+            "allowed": by_dec["ALLOW"] + by_dec["LOG"] + by_dec["WARN"],
+            "redacted": by_dec["REDACT"],
+            "blocked": by_dec["BLOCK"],
             "cost_usd": cost,
-            "budget_usd": self.budget_usd,
-            "budget_used_pct": round(100 * cost / self.budget_usd, 1) if self.budget_usd else 0.0,
+            "tokens": tokens,
+            "budget_usd": budget,
+            "budget_used_pct": round(100 * cost / budget, 1) if budget else 0.0,
             "controls_total": total_c,
             "controls_enforced": enforced,
             "posture_pct": round(100 * enforced / total_c, 1) if total_c else 0.0,
@@ -166,7 +270,7 @@ def _csv_row(r: dict[str, Any]) -> list[Any]:
             r.get("redaction_count", 0), (r.get("usage") or {}).get("usd", 0.0), r.get("policy_version")]
 
 
-def make_console_router(store: ConsoleStore) -> APIRouter:
+def make_console_router(store: ConsoleStore, playground: dict | None = None) -> APIRouter:
     router = APIRouter(prefix="/console")
 
     @router.get("")
@@ -181,6 +285,10 @@ def make_console_router(store: ConsoleStore) -> APIRouter:
             return JSONResponse({"error": "not found"}, status_code=404)
         return FileResponse(p)
 
+    @router.get("/api/playground")
+    async def playground_cfg():
+        return playground or {"api_key": None, "models": {"local": [], "external": []}}
+
     @router.get("/api/summary")
     async def summary():
         return store.summary()
@@ -190,8 +298,8 @@ def make_console_router(store: ConsoleStore) -> APIRouter:
         return {"controls": store.control_rows()}
 
     @router.get("/api/events")
-    async def events(limit: int = Query(100, ge=0, le=5000)):
-        return {"events": store.list(limit)}
+    async def events(limit: int = Query(100, ge=0, le=5000), request_id: str | None = None):
+        return {"events": store.list(limit, request_id)}
 
     @router.get("/api/export.jsonl")
     async def export_jsonl():
