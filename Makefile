@@ -1,9 +1,9 @@
-# AICL Makefile (lead). Targets: up down test deploy
+# AICL Makefile (lead). Targets: up down logs models test deploy
 SHELL := /bin/bash
 GCP_VM ?= aicl-vm
 GCP_ZONE ?= europe-central2-a
 
-.PHONY: up down test deploy sync
+.PHONY: up down logs models test deploy sync
 sync:
 	uv sync
 
@@ -12,6 +12,14 @@ up:
 
 down:
 	docker compose down
+
+logs:
+	docker compose logs -f --tail=100
+
+# pull the local model into the compose ollama (AICL_OLLAMA_MODEL, default qwen3.5:2b-q4_K_M); never run from tests
+models:
+	docker compose up -d ollama
+	docker compose --profile models run --rm ollama-pull
 
 test: sync
 	uv run pytest -q --junitxml=reports/junit.xml
