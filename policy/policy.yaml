@@ -1,0 +1,170 @@
+# AICL policy - the single control catalog. Judges edit this file LIVE (see policy/README.md).
+# Reload ~1 s after save; an invalid edit keeps the last good version. Overlays: policy/local.d/*.yaml
+# (merged in file-name order). Write modes as the words enforce | shadow | off (loaders must read the
+# bare word off as a string, never as a boolean; PyYAML 1.1 does not, so use ruamel.yaml or quote it).
+# ASCII hyphen only. All secrets and PII are synthetic.
+version: aicl-policy/1
+metadata: {name: hackyeah-demo, owner: secops@corp.example, description: "AICL demo policy"}
+
+# ---------- 1. global behaviour ----------
+defaults:
+  profile: balanced          # strict | balanced | permissive; per-agent override in agents.<id>.profile
+  mode: enforce              # enforce = act | shadow = log would_decision, change nothing | off = skip
+  fail: closed               # closed | open | degrade (semantic cascade falls back to deterministic only)
+  block_response: refusal    # LLM: assistant refusal text, finish_reason content_filter; MCP: isError result
+  max_body_kb: 512
+emergency: {kill_switch: false, killed_agents: [], killed_sessions: []}   # also driven by dashboard buttons
+
+# ---------- 2. profiles (strictness dial) ----------
+# injection.block: calibrated injection score >= block -> BLOCK. Gray band [judge_low, block) -> judge, else WARN.
+# pii: action per entity per profile (REDACT = placeholder, BLOCK = refuse the request, LOG = record only).
+profiles:
+  strict:
+    adherence_pct: 95
+    injection: {block: 0.35, judge_low: 0.20}
+    pii: {default: BLOCK, email: REDACT, phone: REDACT}
+    secrets: BLOCK
+  balanced:
+    adherence_pct: 99
+    injection: {block: 0.60, judge_low: 0.30}
+    pii: {default: REDACT, email: REDACT, phone: REDACT}
+    secrets: REDACT
+  permissive:
+    adherence_pct: 99.9
+    injection: {block: 0.85, judge_low: 0.60}
+    pii: {default: REDACT, email: LOG, phone: LOG}
+    secrets: REDACT
+
+actions:
+  precedence: [BLOCK, REQUIRE_APPROVAL, REDACT, WARN, LOG, ALLOW]   # strongest wins
+  locked_controls: []        # e.g. [DLP-01]: weakening needs the admin API + reason; empty for judges
+
+# ---------- 3. agents (who) ----------
+# key_sha256 = sha256 of the agent API key, never the key. Placeholders until the lead's key tool fills them.
+agents:
+  support-bot:
+    key_sha256: "sha256:PLACEHOLDER-demo-key-support-bot"
+    profile: balanced
+    models: ["qwen3.5:2b-q4_K_M"]                  # local only
+    tools: [notes.search, notes.add, corp.read_database]
+    max_data_level: confidential
+  analyst-agent:
+    key_sha256: "sha256:PLACEHOLDER-demo-key-analyst-agent"
+    profile: balanced
+    models: ["qwen3.5:2b-q4_K_M", "gpt-4o-mini"]   # may use the external model (matrix applies)
+    tools: [corp.read_database, corp.search_docs, web.fetch]
+    max_data_level: confidential
+  mailer-agent:
+    key_sha256: "sha256:PLACEHOLDER-demo-key-mailer-agent"
+    profile: strict
+    models: ["qwen3.5:2b-q4_K_M"]
+    tools: [corp.send_email]
+    max_data_level: internal
+unknown_agent: {action: BLOCK}                     # requests with an unknown key are denied
+
+# ---------- 4. destinations and data classification (where) ----------
+data_levels: [public, internal, confidential, restricted]
+classification:              # finding type -> data level; message level = max over findings
+  pii.email: internal
+  pii.phone: internal
+  pii.pesel: confidential
+  pii.iban: confidential
+  pii.card: restricted
+  secret.any: restricted
+  marking.confidential: confidential
+  dictionary.customer: confidential
+  dictionary.project_codename: internal
+destinations:
+  models:                    # key = model tag as the client sends it; trust by tag, not host
+    "qwen3.5:2b-q4_K_M": {class: local, provider: ollama, max_data_level: restricted, local: {usd_per_gpu_s: 1.6e-4}}
+    "gpt-4o-mini":       {class: external, provider: cloud-sim, max_data_level: internal, price: {in_usd_per_mtok: 0.15, out_usd_per_mtok: 0.60}}
+    "*-cloud":           {class: unknown}   # any Ollama cloud tag leaves the box
+    "*":                 {class: unknown}   # unknown model -> unknown destination
+  model_allowlist: {default: ["qwen3.5:2b-q4_K_M"], unknown_model: BLOCK}
+  mcp_servers:
+    notes: {url: "http://localhost:18301/mcp", class: local, max_data_level: confidential, pin: {mode: tofu, on_drift: block}}
+    corp:  {url: "http://localhost:18302/mcp", class: local, max_data_level: confidential, pin: {mode: tofu, on_drift: block}}
+  apis:
+    "docs.corp.example": {class: local, max_data_level: confidential}
+    "*":                 {class: unknown, max_data_level: public}
+# data level x destination class -> action. Classes: local | external | unknown.
+# Judges flip single cells live. A cell is an action or a per-profile map.
+destination_matrix:
+  public:       {local: ALLOW, external: ALLOW, unknown: BLOCK}
+  internal:     {local: ALLOW, external: REDACT, unknown: BLOCK}
+  confidential: {local: ALLOW, external: {strict: BLOCK, balanced: BLOCK, permissive: REDACT}, unknown: BLOCK}
+  restricted:   {local: ALLOW, external: BLOCK, unknown: BLOCK}
+
+# ---------- 5. controls (what) ----------
+# Every enabled control needs test cases in <piece>/cases/<control>.yaml (one allowed, one blocked/redacted).
+controls:
+  DLP-01:                    # secrets (AWS, GitHub with CRC, private keys, high-entropy in context)
+    mode: enforce
+    action: {prompt: REDACT, tool_args: BLOCK, response: REDACT}
+    entropy: context_only
+    github_crc: require
+    redaction_tag: "[REDACTED_{type}]"
+  DLP-02:                    # PII (validated: PESEL checksum, IBAN mod97, Luhn)
+    mode: enforce
+    entities:
+      PL_PESEL:    {action: profile, validate: checksum_and_date}   # action: profile = take profiles.<p>.pii
+      IBAN:        {action: profile, validate: mod97}
+      CREDIT_CARD: {action: profile, validate: luhn}
+      EMAIL:       {action: profile, own_domains: [corp.example]}
+      PHONE:       {action: profile}
+    placeholders: numbered   # [EMAIL_1]; restored for the user, never inside tool arguments
+  DLP-05:                    # destination DLP: data class x destination matrix, markings, dictionaries
+    mode: enforce
+    markings: ["CONFIDENTIAL", "INTERNAL ONLY", "TAJEMNICA PRZEDSIEBIORSTWA"]
+    dictionaries: {customer: [Acme Bank, Nordwind], project_codename: [BLUE PELICAN, ORION]}
+    internal_hosts: ["*.corp.example", "*.internal"]
+    matrix: destination_matrix
+  INJ-03:                    # signature rules: policy/rules/historical.yaml + feed rules, EN + PL
+    mode: enforce
+    rule_files: [policy/rules/historical.yaml]
+    action: {user: WARN, untrusted: BLOCK}   # untrusted = tool result / RAG / MCP / memory
+    mention_exceptions: true
+  INJ-04:                    # semantic cascade: classifier -> kNN -> judge on gray band
+    mode: {strict: enforce, balanced: enforce, permissive: shadow}
+    fail: degrade
+    classifier: {model: piguard-onnx, timeout_ms: 120, run_on: [untrusted, after_signal]}
+    knn: {index: "feed:semantic", k: 5, timeout_ms: 40}
+    judge: {enabled: true, model: "qwen3.5:2b-q4_K_M", timeout_ms: 1500, on_timeout: {user: WARN, untrusted: BLOCK}}
+    thresholds: {}           # empty = profile defaults; e.g. {injection: {block: 0.80}} overrides
+  TOOL-01:                   # tool authorization; default deny; BLOCK > REQUIRE_APPROVAL > ALLOW
+    mode: enforce
+    default: BLOCK
+    rules:
+      - {id: tool.read.ok,          tool: corp.read_database, action: ALLOW, when: {args.query: {sql: select_only}}}
+      - {id: tool.notes.ok,         tool: "notes.*", action: ALLOW}
+      - {id: tool.deny.destructive, tool: corp.delete_database, action: BLOCK, reason: "destructive tool"}
+      - {id: tool.mail.internal,    tool: corp.send_email, action: ALLOW, when: {args.to: {domain_in: [corp.example]}}}
+      - {id: tool.mail.external,    tool: corp.send_email, action: REQUIRE_APPROVAL, when: {args.to: {domain_not_in: [corp.example]}}}
+      - {id: tool.shell.deny,       tool: "*.run_shell", action: BLOCK}
+      - {id: tool.fetch.ssrf,       tool: web.fetch, action: BLOCK, when: {args.url: {resolves_to_private: true}}}
+  BUD-01: {mode: enforce, fail: closed}   # limits in the budgets section; loop guard in loop_limits
+
+# ---------- 6. budgets and rates (how much) ----------
+budgets:
+  unpriced_model: BLOCK
+  ladder: {warn_at: 0.8, downgrade_to: {"gpt-4o-mini": "qwen3.5:2b-q4_K_M"}, then: BLOCK}
+  agents:                    # per-agent caps
+    support-bot:   {tokens: 200000, usd: 0.00, period: day}   # local model only: USD 0
+    analyst-agent: {tokens: 500000, usd: 0.50, period: day}
+    mailer-agent:  {tokens: 50000,  usd: 0.05, period: day}
+  org: {usd: 5.00, tokens: 2000000, period: month}
+  rates:
+    - {on: "agent:*",              metric: requests, limit: 60, per: minute, burst: 10}
+    - {on: "tool:corp.send_email", metric: calls,    limit: 3,  per: minute, burst: 1}
+
+# ---------- 7. loop guard ----------
+loop_limits:                 # per session; trip -> BLOCK + session killed (AGENT_LOOP_TERMINATED)
+  repeat_identical: 4        # 4 identical (tool, normalized args) calls = BLOCK
+  repeat_error: 3
+  pingpong_cycles: 6
+  max_steps: 25
+  max_tool_calls: 60
+  max_wall_s: 600
+
+# ---------- 8. exceptions (time-boxed, owned) ----------
+exceptions: []               # {id, control, match, effect, owner, reason, expires}
