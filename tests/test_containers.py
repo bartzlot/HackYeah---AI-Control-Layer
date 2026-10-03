@@ -149,7 +149,8 @@ def test_dockerfile_cmd_is_the_policy_driven_entrypoint():
 
 
 def test_dockerfile_factory_resolves():
-    module, attr = dockerfile_cmd()[dockerfile_cmd().index("--factory") + 1].split(":")
+    cmd = dockerfile_cmd()
+    module, attr = cmd[cmd.index("--factory") + 1].split(":")
     assert callable(getattr(importlib.import_module(module), attr))
 
 
