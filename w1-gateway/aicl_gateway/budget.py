@@ -11,8 +11,9 @@ import json
 import math
 import sqlite3
 import threading
+import time
 import unicodedata
-from collections import deque
+from collections import OrderedDict, deque
 from datetime import datetime, timedelta, timezone
 
 # USD per million tokens, used to size reservations for priced (external) models when the policy has no price.
@@ -23,6 +24,8 @@ DEFAULT_PRICES: dict[str, dict[str, float]] = {
 DEFAULT_LOOP_LIMITS = {"repeat_identical": 4}
 DEFAULT_MAX_TOKENS = 512          # assumed output when the client sends no max_tokens
 LOOP_WINDOW = 20                  # per-session ring of recent call fingerprints
+LOOP_MAX_AGE_S = 600              # fingerprints older than this fall out of the ring (policy max_wall_s)
+LOOP_MAX_KEYS = 10_000            # LRU bound on tracked (agent, session) pairs
 
 
 def period_bounds(period: str, now: datetime | None = None) -> tuple[str, float]:
@@ -39,6 +42,14 @@ def period_bounds(period: str, now: datetime | None = None) -> tuple[str, float]
         return now.strftime("%Y-%m-%dT%H:%M"), (nxt - now).total_seconds()
     nxt = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     return now.strftime("%Y-%m-%d"), (nxt - now).total_seconds()
+
+
+class Reservation:
+    """One held estimate; settle() or release() closes it exactly once."""
+    __slots__ = ("agent", "period", "tokens", "usd", "open")
+
+    def __init__(self, agent: str, period: str, tokens: int, usd: float):
+        self.agent, self.period, self.tokens, self.usd, self.open = agent, period, tokens, usd, True
 
 
 class BudgetLedger:
@@ -82,7 +93,8 @@ class BudgetLedger:
             return self._used(agent, self._period(agent)[0])
 
     def reserve(self, agent: str, tokens: int, usd: float = 0.0):
-        """-> (reservation, None, None) when granted; (None, retry_after_s, reason) when over budget."""
+        """-> (reservation, None, None) when granted; (None, retry_after_s, reason) when over budget;
+        (None, 0, reason) when this single request is larger than the whole cap (a retry can never fit)."""
         lim = self.limits.get(agent)
         period, left = self._period(agent)
         with self._lock:
@@ -90,6 +102,12 @@ class BudgetLedger:
             if lim:
                 ut, uu = self._used(agent, period)
                 reason = None
+                if ((lim.get("tokens") is not None and tokens > lim["tokens"])
+                        or (lim.get("usd") is not None and usd > float(lim["usd"]) + 1e-12)):
+                    self._bump(agent, period, denied=1)
+                    return None, 0, (f"request needs {tokens} tokens / {usd:.6f} USD, more than the whole budget"
+                                     f" ({lim.get('tokens')} tokens / {lim.get('usd')} USD per"
+                                     f" {lim.get('period', 'day')}); lower max_tokens")
                 if lim.get("tokens") is not None and ut + held[0] + tokens > lim["tokens"]:
                     reason = (f"token budget: spent {ut} + reserved {int(held[0])} + request {tokens}"
                               f" > limit {lim['tokens']} per {lim.get('period', 'day')}")
@@ -101,13 +119,17 @@ class BudgetLedger:
                     return None, max(1, math.ceil(left)), reason
             held[0] += tokens
             held[1] += usd
-            return (agent, period, tokens, usd), None, None
+            return Reservation(agent, period, tokens, usd), None, None
 
-    def _drop(self, res) -> None:
-        agent, period, tokens, usd = res
-        held = self._held.setdefault((agent, period), [0, 0.0])
-        held[0] = max(0, held[0] - tokens)
-        held[1] = max(0.0, held[1] - usd)
+    def _drop(self, res: "Reservation") -> bool:
+        """Remove the hold once; False when it was already settled or released."""
+        if not res.open:
+            return False
+        res.open = False
+        held = self._held.setdefault((res.agent, res.period), [0, 0.0])
+        held[0] = max(0, held[0] - res.tokens)
+        held[1] = max(0.0, held[1] - res.usd)
+        return True
 
     def release(self, res) -> None:
         with self._lock:
@@ -115,8 +137,13 @@ class BudgetLedger:
 
     def settle(self, res, tokens: int, usd: float) -> None:
         with self._lock:
-            self._drop(res)
-            self._bump(res[0], res[1], tokens, usd, requests=1)
+            if self._drop(res):
+                self._bump(res.agent, res.period, tokens, usd, requests=1)
+
+    def record(self, agent: str, tokens: int, usd: float = 0.0) -> None:
+        """Book usage directly (imports, tests, cases with pre-spent budgets)."""
+        with self._lock:
+            self._bump(agent, self._period(agent)[0], tokens, usd)
 
     def utilization(self, agent: str) -> float:
         """Max of tokens / usd spent as a fraction of the cap (0 when uncapped)."""
@@ -153,15 +180,41 @@ class BudgetLedger:
         self._db.close()
 
 
-def estimate(body: dict, price: dict | None) -> tuple[int, float]:
-    """Pessimistic (tokens, usd) reservation: ceil(utf8 bytes / 3) input tokens (never under-counts,
-    chars / 4 under-counts Polish by 24 %) plus max_tokens (default DEFAULT_MAX_TOKENS)."""
-    raw = json.dumps(body.get("messages", []), ensure_ascii=False).encode("utf-8")
-    out = body.get("max_tokens") or body.get("max_completion_tokens") or DEFAULT_MAX_TOKENS
-    out = int(out) if isinstance(out, (int, float)) and not isinstance(out, bool) and out > 0 else DEFAULT_MAX_TOKENS
-    tin = math.ceil(len(raw) / 3)
+def output_cap(body: dict) -> int:
+    """Positive output cap the request will run with: the larger of max_tokens / max_completion_tokens,
+    DEFAULT_MAX_TOKENS when neither is a positive integer (Ollama treats -1 / missing as unlimited)."""
+    vals = [v for v in (body.get("max_tokens"), body.get("max_completion_tokens"))
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0]
+    return int(max(vals)) if vals else DEFAULT_MAX_TOKENS
+
+
+def estimate_split(body: dict, price: dict | None) -> tuple[int, int, float]:
+    """Pessimistic (input tokens, output tokens, usd): ceil(utf8 bytes / 3) over the whole request except
+    the model name (messages, tools, response_format; never under-counts, chars / 4 under-counts Polish by
+    24 %) plus the output cap."""
+    rest = {k: v for k, v in body.items() if k not in ("model", "stream", "stream_options")}
+    raw = json.dumps(rest, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    tin, out = math.ceil(len(raw) / 3), output_cap(body)
     usd = (tin * price["in"] + out * price["out"]) / 1e6 if price else 0.0
+    return tin, out, usd
+
+
+def estimate(body: dict, price: dict | None) -> tuple[int, float]:
+    tin, out, usd = estimate_split(body, price)
     return tin + out, usd
+
+
+def config_from_policy(policy: dict) -> dict:
+    """Gateway config keys for BUD-01 from a raw policy dict (budgets.agents, budgets.unpriced_model,
+    budgets.ladder.warn_at, loop_limits, destinations.models.*.price). Used by the entrypoint (T-901)."""
+    b = policy.get("budgets") or {}
+    out = {"budgets": {k: v for k, v in (b.get("agents") or {}).items() if isinstance(v, dict)},
+           "budget": {"unpriced_model": str(b.get("unpriced_model", "BLOCK")).upper(),
+                      "warn_at": float((b.get("ladder") or {}).get("warn_at", 0.8))},
+           "prices": prices_from_policy(policy)}
+    if isinstance(policy.get("loop_limits"), dict):
+        out["loop_limits"] = dict(policy["loop_limits"])
+    return out
 
 
 def prices_from_policy(policy: dict) -> dict[str, dict[str, float]]:
@@ -189,9 +242,11 @@ def last_user_fingerprint(messages: list[dict]) -> str | None:
     if not isinstance(m, dict) or m.get("role") != "user":
         return None
     c = m.get("content")
-    if isinstance(c, list):
-        c = " ".join(str(p.get("text", "")) for p in c if isinstance(p, dict))
-    return "msg:" + _h(_norm(c if isinstance(c, str) else json.dumps(c, sort_keys=True)))
+    if isinstance(c, list):   # text parts plus a digest of non-text parts (images differ by content)
+        c = json.dumps([p.get("text") if isinstance(p, dict) and "text" in p else p for p in c],
+                       sort_keys=True, ensure_ascii=False, default=str)
+    text = _norm(c if isinstance(c, str) else json.dumps(c, sort_keys=True, default=str))
+    return "msg:" + _h(text) if text else None
 
 
 def tool_fingerprint(name: str, args) -> str:
@@ -206,15 +261,19 @@ def tool_fingerprint(name: str, args) -> str:
 
 
 class LoopGuard:
-    """Per (agent, session) ring of the last LOOP_WINDOW call fingerprints. The Nth identical call
-    (repeat_identical, default 4) trips: with a session id the session is terminated (every later call
-    is blocked); without one only repeats of that call are blocked while they stay in the ring."""
+    """Per (agent, session) ring of the last LOOP_WINDOW call fingerprints younger than LOOP_MAX_AGE_S.
+    The Nth identical call (repeat_identical, default 4) trips: with a session id the session is terminated
+    (every later call is blocked); without one only repeats of that call are blocked while they stay in
+    the ring. Prompt fingerprints are only fed for requests with a session id (see app.py), so a presenter
+    repeating a prompt in the playground is not mistaken for a loop. Bounded: LRU over LOOP_MAX_KEYS pairs."""
 
-    def __init__(self, limits: dict | None = None):
+    def __init__(self, limits: dict | None = None, clock=time.monotonic):
         lim = {**DEFAULT_LOOP_LIMITS, **{k: v for k, v in (limits or {}).items() if v is not None}}
         self.threshold = max(2, int(lim["repeat_identical"]))
-        self._rings: dict[tuple[str, str], deque] = {}
-        self._killed: set[tuple[str, str]] = set()
+        self.max_age = float(lim.get("max_wall_s") or LOOP_MAX_AGE_S)
+        self._clock = clock
+        self._rings: OrderedDict[tuple[str, str], deque] = OrderedDict()
+        self._killed: OrderedDict[tuple[str, str], float] = OrderedDict()
         self._lock = threading.Lock()
 
     def killed(self, agent: str, session: str | None) -> bool:
@@ -223,16 +282,24 @@ class LoopGuard:
     def observe(self, agent: str, session: str | None, fp: str | None) -> bool:
         """Record one call; True when this call must be blocked (loop tripped or session terminated)."""
         key = (agent, session if session is not None else "\x00no-session")
+        now = self._clock()
         with self._lock:
             if key in self._killed:
                 return True
             if fp is None:
                 return False
-            ring = self._rings.setdefault(key, deque(maxlen=LOOP_WINDOW))
-            ring.append(fp)
-            if sum(1 for x in ring if x == fp) >= self.threshold:
+            ring = self._rings.pop(key, None) or deque(maxlen=LOOP_WINDOW)
+            self._rings[key] = ring                       # most recently used last
+            while ring and now - ring[0][0] > self.max_age:
+                ring.popleft()
+            ring.append((now, fp))
+            while len(self._rings) > LOOP_MAX_KEYS:
+                self._rings.popitem(last=False)
+            if sum(1 for _, x in ring if x == fp) >= self.threshold:
                 if session is not None:
-                    self._killed.add(key)
+                    self._killed[key] = now
                     self._rings.pop(key, None)
+                    while len(self._killed) > LOOP_MAX_KEYS:
+                        self._killed.popitem(last=False)
                 return True
             return False

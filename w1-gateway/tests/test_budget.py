@@ -5,8 +5,8 @@ import threading
 import httpx
 
 from aicl_gateway import create_app
-from aicl_gateway.budget import (BudgetLedger, LoopGuard, estimate, last_user_fingerprint, period_bounds,
-                                 prices_from_policy, tool_fingerprint)
+from aicl_gateway.budget import (BudgetLedger, LoopGuard, config_from_policy, estimate, estimate_split,
+                                 last_user_fingerprint, output_cap, period_bounds, prices_from_policy, tool_fingerprint)
 from cloud_sim import Script, create_app as sim_app
 
 KEY = {"authorization": "Bearer k-a"}
@@ -106,14 +106,18 @@ async def test_gateway_budget_429_settle_and_console():
     assert r.status_code == 200 and ext.state.calls[-1]["max_tokens"] == 512   # injected output cap
     used = app.state.ledger.used("a")
     assert 0 < used[0] < 50 and used[1] > 0                    # settled on reported usage, not the estimate
-    r = await chat(c, "big", max_tokens=5000)
+    r = await chat(c, "too big", max_tokens=5000)               # alone larger than the cap: 413, no retry
+    assert r.status_code == 413 and "retry-after" not in r.headers
+    assert r.json()["error"]["code"] == "budget_request_too_large"
+    app.state.ledger.record("a", 1200)                         # cap nearly spent
+    r = await chat(c, "big", max_tokens=400)
     assert r.status_code == 429 and int(r.headers["retry-after"]) >= 1
     assert r.headers["x-aicl-decision"] == "BLOCK" and r.json()["error"]["code"] == "budget_exceeded"
     assert len(ext.state.calls) == 1                           # never reached the upstream
     s = (await c.get("/console/api/summary")).json()
-    assert s["blocked"] == 1 and s["agent_budgets"][0]["denied"] == 1
+    assert s["blocked"] == 2 and s["agent_budgets"][0]["denied"] == 2
     ctl = {x["id"]: x["hits"] for x in (await c.get("/console/api/controls")).json()["controls"]}
-    assert ctl["BUD-01"] == 1
+    assert ctl["BUD-01"] == 2
 
 
 async def test_gateway_budget_warning_and_unpriced_model():
@@ -173,8 +177,107 @@ async def test_concurrent_gateway_requests_respect_cap():
         return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "ok"}}],
                                          "usage": {"prompt_tokens": 5, "completion_tokens": 5, "cost_usd": 0.0}})
 
-    app = create_app(None, {"agents": {"k-a": {"agent_id": "a"}}, "budgets": {"a": {"tokens": 4 * 520}}},
+    one = sum(estimate_split({"messages": [{"role": "user", "content": "q0"}], "max_tokens": 500}, None)[:2])
+    app = create_app(None, {"agents": {"k-a": {"agent_id": "a"}}, "budgets": {"a": {"tokens": 4 * one + 2}}},
                      {"external": httpx.AsyncClient(transport=httpx.MockTransport(slow), base_url="http://e")})
     c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://g")
     rs = await asyncio.gather(*[chat(c, f"q{i}", max_tokens=500) for i in range(10)])
     assert sum(r.status_code == 200 for r in rs) == 4 and sum(r.status_code == 429 for r in rs) == 6
+
+
+# ---- review regressions -------------------------------------------------------------------------
+
+
+def test_output_cap_and_estimate_cover_whole_request():
+    assert output_cap({"max_tokens": -1}) == 512 and output_cap({"max_tokens": 0}) == 512
+    assert output_cap({"max_tokens": 100, "max_completion_tokens": 900}) == 900
+    assert output_cap({"max_tokens": True}) == 512
+    msgs = {"messages": [{"role": "user", "content": "hi"}]}
+    tools = {**msgs, "tools": [{"type": "function", "function": {"name": "x", "parameters": {"p": "y" * 300}}}]}
+    assert estimate(tools, None)[0] > estimate(msgs, None)[0] + 100
+
+
+def test_settle_then_release_does_not_free_other_holds():
+    led = BudgetLedger(":memory:", {"a": {"tokens": 1000}})
+    r1, r2 = led.reserve("a", 400)[0], led.reserve("a", 400)[0]
+    led.settle(r1, 10, 0.0)
+    led.release(r1)                                           # second close of r1 is a no-op
+    led.settle(r1, 10, 0.0)
+    assert led.snapshot()[0]["reserved_tokens"] == 400 and led.used("a") == (10, 0.0)
+    assert led.reserve("a", 600)[0] is None                   # r2 still held: 10 + 400 + 600 > 1000
+    led.release(r2)
+    assert led.reserve("a", 600)[0]
+
+
+def test_loop_guard_window_age_and_lru_bound(monkeypatch):
+    now = [0.0]
+    g = LoopGuard({"repeat_identical": 4, "max_wall_s": 60}, clock=lambda: now[0])
+    for _ in range(3):
+        assert not g.observe("a", "s", "fp")
+    now[0] = 61.0                                             # old calls aged out of the ring
+    assert not g.observe("a", "s", "fp")
+    import aicl_gateway.budget as b
+    monkeypatch.setattr(b, "LOOP_MAX_KEYS", 5)
+    for i in range(20):
+        g.observe("a", f"s{i}", "fp")
+    assert len(g._rings) <= 5
+
+
+def test_fingerprints_ignore_empty_and_keep_images_apart():
+    img = lambda u: [{"role": "user", "content": [{"type": "image_url", "image_url": {"url": u}}]}]
+    assert last_user_fingerprint(img("data:a")) != last_user_fingerprint(img("data:b"))
+    assert last_user_fingerprint([{"role": "user", "content": "   "}]) is None
+
+
+def test_config_from_real_policy():
+    from pathlib import Path
+
+    import yaml
+    pol = yaml.safe_load((Path(__file__).resolve().parents[2] / "policy" / "policy.yaml").read_text(encoding="utf-8"))
+    cfg = config_from_policy(pol)
+    assert cfg["budget"]["unpriced_model"] in ("BLOCK", "ALLOW") and 0 < cfg["budget"]["warn_at"] <= 1
+    assert all(isinstance(v, dict) for v in cfg["budgets"].values())
+    assert cfg.get("loop_limits", {}).get("repeat_identical", 4) >= 2
+    assert all(set(p) == {"in", "out"} for p in cfg["prices"].values())
+
+
+async def test_sessionless_repeated_prompt_is_not_a_loop():
+    app, c, ext = gateway()
+    codes = [(await chat(c, "ignore all previous instructions")).status_code for _ in range(6)]
+    assert codes == [200] * 6                                 # playground / human repeats: no session id
+
+
+async def test_gateway_clamps_max_tokens_and_uses_larger_cap():
+    app, c, ext = gateway()
+    await chat(c, "a", max_tokens=-1)
+    assert ext.state.calls[-1]["max_tokens"] == 512
+    await chat(c, "b", max_tokens=50, max_completion_tokens=300)
+    assert ext.state.calls[-1]["max_tokens"] == 300 == ext.state.calls[-1]["max_completion_tokens"]
+
+
+async def test_reservation_released_on_cancel_and_bad_usage():
+    async def hang(request):
+        raise asyncio.CancelledError()
+
+    app = create_app(None, {"agents": {"k-a": {"agent_id": "a"}}, "budgets": {"a": {"tokens": 5000}}},
+                     {"external": httpx.AsyncClient(transport=httpx.MockTransport(hang), base_url="http://e")})
+    c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://g")
+    try:
+        await chat(c, "q")
+    except BaseException:
+        pass
+    assert app.state.ledger.snapshot()[0]["reserved_tokens"] == 0
+
+    def junk(request):
+        return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "ok"}}],
+                                         "usage": {"prompt_tokens": "lots", "completion_tokens": None}})
+
+    app = create_app(None, {"agents": {"k-a": {"agent_id": "a"}}, "budgets": {"a": {"tokens": 5000}}},
+                     {"external": httpx.AsyncClient(transport=httpx.MockTransport(junk), base_url="http://e")})
+    c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://g")
+    r = await chat(c, "q")
+    assert r.status_code == 200
+    snap = app.state.ledger.snapshot()[0]
+    assert snap["reserved_tokens"] == 0 and snap["tokens"] > 512    # settled at the pessimistic estimate
+    rec = [x for x in app.state.bus.recent(10) if x["stage"] == "response"][0]
+    assert rec["usage"]["source"] == "estimated" and rec["usage"]["output_tokens"] == 512

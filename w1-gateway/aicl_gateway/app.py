@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from aicl_contracts import Action, Decision, DestKind, Event, Finding, Part, Stage, ToolCall, Usage
 
 from .audit import Audit
-from .budget import (DEFAULT_MAX_TOKENS, DEFAULT_PRICES, BudgetLedger, LoopGuard, estimate, last_user_fingerprint,
+from .budget import (DEFAULT_PRICES, BudgetLedger, LoopGuard, estimate_split, last_user_fingerprint, output_cap,
                      tool_fingerprint)
 from .bus import EventBus
 from .config import merge_config, route
@@ -235,7 +235,8 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
 
         # ---- loop guard (before policy: repeated blocked attempts count too) ----
         sid = base["session_id"]
-        if loops.observe(agent_id, sid, last_user_fingerprint(messages)):
+        # prompts count only inside a session: a person repeating a prompt without one is not an agent loop
+        if loops.observe(agent_id, sid, last_user_fingerprint(messages) if sid else None):
             ctx["action"] = Action.BLOCK
             why = f"agent loop: {loops.threshold} identical calls" + (f", session {sid} terminated" if sid else "")
             audit.denied(Event(stage=Stage.PROMPT, **base), why, "AGENT_LOOP_TERMINATED",
@@ -259,23 +260,37 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
                         fwd["messages"][mi]["content"][ci]["text"] = text
 
         # ---- budget: reserve the worst case now, settle with real usage ----
-        if not isinstance(fwd.get("max_tokens"), int) and not isinstance(fwd.get("max_completion_tokens"), int):
-            fwd["max_tokens"] = DEFAULT_MAX_TOKENS     # Ollama default is unlimited; makes the reservation a bound
+        cap = output_cap(fwd)            # always a positive cap: Ollama treats missing / -1 as unlimited
+        fwd["max_tokens"] = cap
+        if "max_completion_tokens" in fwd:
+            fwd["max_completion_tokens"] = cap
         price = prices.get(model) if kind == DestKind.EXTERNAL else None
         if kind == DestKind.EXTERNAL and price is None and bcfg.get("unpriced_model", "BLOCK") == "BLOCK":
             ctx["action"] = Action.BLOCK
             why = f"unpriced external model {model}: budgets cannot be enforced"
             audit.denied(Event(stage=Stage.PROMPT, **base), why, "BUDGET_EXCEEDED", [bud_finding("budget.unpriced", why)])
             return _err(403, "unpriced_model", f"Blocked by AI Control Layer: {why}")
-        est_tokens, est_usd = estimate(fwd, price)
-        res, retry, why = ledger.reserve(agent_id, est_tokens, est_usd)
+        est_in, est_out, est_usd = estimate_split(fwd, price)
+        res, retry, why = ledger.reserve(agent_id, est_in + est_out, est_usd)
         if res is None:
             ctx["action"] = Action.BLOCK
+            rule = "budget.request_too_large" if retry == 0 else "budget.agent"
             audit.denied(Event(stage=Stage.PROMPT, **base), f"budget exceeded for agent {agent_id}: {why}",
-                         "BUDGET_EXCEEDED", [bud_finding("budget.agent", why, retry_after_s=retry)])
+                         "BUDGET_EXCEEDED", [bud_finding(rule, why, retry_after_s=retry)])
+            if retry == 0:
+                return _err(413, "budget_request_too_large", f"Blocked by AI Control Layer: {why}")
             r = _err(429, "budget_exceeded", f"Blocked by AI Control Layer: {why}; retry after {retry} s")
             r.headers["Retry-After"] = str(retry)
             return r
+        try:
+            return await _upstream_and_respond(fwd, res, est_in, est_out, est_usd, price, kind, entry, base, ctx,
+                                               agent_id, sid, stream)
+        finally:
+            ledger.release(res)        # no-op after settle; frees the hold on any error or cancellation
+
+    async def _upstream_and_respond(fwd, res, est_in, est_out, est_usd, price, kind, entry, base, ctx,
+                                    agent_id, sid, stream):
+        model = base["model"]
 
         # ---- upstream: own credential only, agent key never forwarded ----
         fwd["model"] = entry.get("upstream_model", model)
@@ -289,24 +304,25 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         try:
             up = await clients[kind.value].post("/v1/chat/completions", json=fwd, headers=headers)
         except (httpx.HTTPError, KeyError) as e:
-            ledger.release(res)
             return _err(502, "upstream_error", f"upstream {kind.value} unreachable: {type(e).__name__}")
         ctx["up"] = (time.perf_counter() - t_up) * 1000
         try:
             resp = up.json()
         except ValueError:
-            ledger.release(res)
             return _err(502, "upstream_error", "upstream returned invalid JSON")
         if up.status_code != 200 or not isinstance(resp, dict) or not resp.get("choices"):
-            ledger.release(res)
             return JSONResponse(resp if isinstance(resp, dict) else {"error": {"message": "bad upstream reply"}},
                                 status_code=up.status_code if up.status_code != 200 else 502)
         resp["model"] = model
-        u = resp.get("usage") or {}
-        usage = Usage(input_tokens=int(u.get("prompt_tokens") or 0), output_tokens=int(u.get("completion_tokens") or 0),
-                      usd=float(u.get("cost_usd") or 0.0), source="reported" if u else "estimated")
-        if not u:   # no usage reported: settle the reservation (pessimistic estimate), flagged as estimated
-            usage = usage.model_copy(update={"input_tokens": est_tokens, "usd": est_usd})
+        u = resp.get("usage") if isinstance(resp.get("usage"), dict) else {}
+        try:
+            usage = Usage(input_tokens=max(0, int(u.get("prompt_tokens") or 0)),
+                          output_tokens=max(0, int(u.get("completion_tokens") or 0)),
+                          usd=max(0.0, float(u.get("cost_usd") or 0.0)), source="reported")
+        except (TypeError, ValueError):
+            u = {}
+        if not u:   # no usable usage reported: settle the pessimistic reservation, flagged as estimated
+            usage = Usage(input_tokens=est_in, output_tokens=est_out, usd=est_usd, source="estimated")
         elif kind == DestKind.EXTERNAL and not u.get("cost_usd") and price:
             usage = usage.model_copy(update={"usd": (usage.input_tokens * price["in"]
                                                      + usage.output_tokens * price["out"]) / 1e6})

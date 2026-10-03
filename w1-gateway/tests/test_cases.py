@@ -43,6 +43,8 @@ async def run_case(case: dict, control_off: bool = False) -> dict:
     ups = {"external": httpx.AsyncClient(transport=httpx.ASGITransport(app=ext), base_url="http://ext"),
            "local": httpx.AsyncClient(transport=httpx.ASGITransport(app=loc), base_url="http://loc")}
     app = create_app(None, cfg, ups)
+    if setup.get("spent") and not control_off:
+        app.state.ledger.record(AGENT, int(setup["spent"].get("tokens", 0)), float(setup["spent"].get("usd", 0.0)))
     records = []
     app.state.bus.listeners.append(records.append)
     c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gw")

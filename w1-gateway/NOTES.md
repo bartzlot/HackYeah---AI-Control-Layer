@@ -10,3 +10,11 @@
 - The entrypoint that builds `create_app` from `policy/policy.yaml` should pass
   `console={"policy": <callable returning the current raw policy dict>, "demo_key": <playground agent key>}`
   so the controls table, posture and the org USD budget follow live policy edits.
+
+## Budgets from policy (T-104)
+- `aicl_gateway.budget.config_from_policy(raw_policy)` returns the gateway config keys `budgets`, `budget`,
+  `prices`, `loop_limits`. The policy-driven entrypoint (T-901) must merge it into `create_app(config=...)`;
+  the Dockerfile's bare `create_app` factory caps nobody. Budget limits are read at startup (a policy edit
+  to budgets needs a restart until the entrypoint re-applies them on reload).
+- One uvicorn worker only: open reservations live in process memory (the cap guarantee is per process).
+- Prompt repeats count toward the loop guard only with an `X-Session-Id`; tool-call repeats always count.

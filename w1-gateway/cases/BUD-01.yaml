@@ -4,6 +4,7 @@
 # setup keys used here:
 #   destination: model tag the request uses (gpt-4o-mini = external, priced; qwen3.5:2b-q4_K_M = local)
 #   budget:      the agent's cap for this case {tokens, usd, period} (policy budgets.agents.<agent>)
+#   spent:       usage already booked in the current period {tokens, usd}
 #   session:     X-Session-Id header
 #   repeat:      send the same request this many times; expect applies to the last one
 #   tool_calls:  scripted upstream tool calls returned on every turn (tool loop cases)
@@ -19,17 +20,23 @@ cases:
   input: {messages: [{role: user, content: "Summarise the Q3 sales notes in three bullets."}]}
   expect: {decision: ALLOW, http_status: 200, events: [REQUEST_ALLOWED], upstream_called: true}
 - id: BUD-01-B1
-  kind: negative
+  kind: negative                        # USD cap almost spent: 429 + Retry-After until the period resets
   path: llm
-  setup: {destination: "gpt-4o-mini", budget: {tokens: 200000, usd: 0.0001, period: day}}
+  setup: {destination: "gpt-4o-mini", budget: {tokens: 200000, usd: 0.50, period: day}, spent: {usd: 0.4995}}
   input: {messages: [{role: user, content: "Write a 2000 token market report."}], max_tokens: 2000}
   expect: {decision: BLOCK, http_status: 429, events: [BUDGET_EXCEEDED], upstream_called: false, retry_after: true}
 - id: BUD-01-B2
-  kind: negative
+  kind: negative                        # token cap spent on the local model (USD 0 does not mean unlimited)
   path: llm
-  setup: {destination: "qwen3.5:2b-q4_K_M", budget: {tokens: 300, usd: 0.0, period: day}}
-  input: {messages: [{role: user, content: "Explain our onboarding process in detail."}]}   # 512 default max_tokens > 300
+  setup: {destination: "qwen3.5:2b-q4_K_M", budget: {tokens: 200000, usd: 0.0, period: day}, spent: {tokens: 199800}}
+  input: {messages: [{role: user, content: "Explain our onboarding process in detail."}]}   # 512 default max_tokens
   expect: {decision: BLOCK, http_status: 429, events: [BUDGET_EXCEEDED], upstream_called: false, retry_after: true}
+- id: BUD-01-B5
+  kind: negative                        # one request larger than the whole cap: 413, a retry can never fit
+  path: llm
+  setup: {destination: "gpt-4o-mini", budget: {tokens: 1000, usd: 0.50, period: day}}
+  input: {messages: [{role: user, content: "Write the full annual report."}], max_tokens: 4000}
+  expect: {decision: BLOCK, http_status: 413, events: [BUDGET_EXCEEDED], upstream_called: false}
 - id: BUD-01-A2
   kind: positive
   path: llm
