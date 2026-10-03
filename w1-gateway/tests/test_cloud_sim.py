@@ -183,3 +183,11 @@ def test_cloud_sim_binds_loopback_by_default_and_gateway_default_url_matches(mon
     from aicl_gateway.config import default_config
     monkeypatch.delenv("AICL_CLOUDSIM_URL", raising=False)
     assert default_config()["upstream_urls"]["external"] == f"http://localhost:{serve_args({})['port']}"
+
+
+def test_container_image_lets_cloud_sim_listen_on_all_interfaces():
+    """Code default is loopback; inside the container the gateway reaches cloud-sim over the docker network,
+    so the image sets AICL_CLOUDSIM_HOST=0.0.0.0 (the compose port mapping keeps it host-only)."""
+    from pathlib import Path
+    df = (Path(__file__).resolve().parents[1] / "Dockerfile").read_text(encoding="utf-8")
+    assert "AICL_CLOUDSIM_HOST=0.0.0.0" in df
