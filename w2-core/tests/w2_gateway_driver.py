@@ -138,27 +138,31 @@ async def run_gateway_case(case: Case, policy: Policy, decide, *, control_off: b
     def bound(event: Event):
         return decide(event, policy=policy)
 
-    judge_calls, cleanup = (judge_fake(case, control_off) if case.runner == "judge-fake" else ([], lambda: None))
-    app = create_app(bound, cfg, ups)
-    if gated and s.get("spent") and not control_off:
-        app.state.ledger.record(agent, int(s["spent"].get("tokens", 0)), float(s["spent"].get("usd", 0.0)))
-    records: list[dict] = []
-    app.state.bus.listeners.append(records.append)
     headers = {"authorization": f"Bearer {KEY}"}
     if s.get("session"):
         headers["x-session-id"] = s["session"]
     body = _body(case)
-    try:
+    records: list[dict] = []
+    judge_calls: list[dict] = []
+    cleanup, app = (lambda: None), None
+    try:                                  # everything after the judge registration is covered by cleanup()
+        if case.runner == "judge-fake":
+            judge_calls, cleanup = judge_fake(case, control_off)
+        app = create_app(bound, cfg, ups)
+        if gated and s.get("spent") and not control_off:
+            app.state.ledger.record(agent, int(s["spent"].get("tokens", 0)), float(s["spent"].get("usd", 0.0)))
+        app.state.bus.listeners.append(records.append)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gw") as c:
             for _ in range(repeat):
                 n_ext, n_loc, n_rec = len(ext.state.calls), len(loc.state.calls), len(records)
                 r = await c.post("/v1/chat/completions", headers=headers, json=body)
     finally:
+        cleanup()
         for u in ups.values():
             await u.aclose()
-        app.state.ledger.close()          # ASGITransport runs no lifespan: release per-case resources here
-        app.state.bus.close()
-        cleanup()
+        if app is not None:               # ASGITransport runs no lifespan: release per-case resources here
+            app.state.ledger.close()
+            app.state.bus.close()
     sent = ext.state.calls[n_ext:] + loc.state.calls[n_loc:]          # upstream bodies of the LAST request
     try:
         payload = r.json()
@@ -185,6 +189,10 @@ def check_gateway(case: Case, got: dict) -> list[str]:
     unknown = set(e) - GATEWAY_KEYS - DECIDE_ONLY_KEYS
     if unknown:
         bad.append(f"unknown expect keys {sorted(unknown)} (check them or list them as decide-only)")
+    if case.runner in ("gateway", "judge-fake"):          # these never reach the decide() runner
+        unchecked = set(e) & (DECIDE_ONLY_KEYS - {"events"})
+        if unchecked:
+            bad.append(f"expect keys {sorted(unchecked)} cannot be checked by runner {case.runner}")
     if "decision" in e:
         want = Action.parse(e["decision"]).name
         if got["decision"] != want:

@@ -14,6 +14,9 @@ from aicl_core.cases import build_event, case_policy, check, collect_cases
 
 from w2_gateway_driver import GATEWAY_CONTROLS, runs_on_decide, runs_on_gateway
 
+GATEWAY_ONLY_KEYS = {"http_status", "upstream_called", "retry_after", "upstream_body_contains",
+                     "upstream_body_not_contains", "judge_called", "degraded"}
+
 REPO = Path(__file__).resolve().parents[2]
 
 ALL = collect_cases(REPO)
@@ -27,6 +30,14 @@ def test_every_case_has_a_known_driver():
     assert not unknown, f"cases for controls neither decide() nor the gateway enforce: {unknown}"
     nowhere = sorted(c.name for c in ALL if not runs_on_decide(c, DECIDE) and not runs_on_gateway(c, DECIDE))
     assert not nowhere, f"cases no driver runs: {nowhere}"
+
+
+def test_decide_only_cases_carry_no_gateway_only_expectations():
+    """check() cannot see HTTP status, upstream traffic or judge calls: a case only decide() runs must not
+    promise them, or they would pass unchecked."""
+    lost = sorted(f"{c.name}: {sorted(set(c.expect) & GATEWAY_ONLY_KEYS)}" for c in CASES
+                  if not runs_on_gateway(c, DECIDE) and set(c.expect) & GATEWAY_ONLY_KEYS)
+    assert not lost, f"gateway-only expectations on decide-only cases: {lost}"
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda c: c.name)

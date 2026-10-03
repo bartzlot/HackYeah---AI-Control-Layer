@@ -91,3 +91,26 @@ async def test_auto_and_decide_runners_unchanged(engine):
     assert runs_on_decide(dlp, decide) and runs_on_gateway(dlp, decide)
     bud = [c for c in cases if c.control == "BUD-01"]
     assert bud and all(runs_on_gateway(c, decide) and not runs_on_decide(c, decide) for c in bud)
+
+
+@needs_file
+async def test_judge_cleanup_runs_even_when_gateway_setup_fails(engine, monkeypatch):
+    import aicl_gateway
+
+    def boom(*a, **kw):
+        raise RuntimeError("create_app failed")
+    monkeypatch.setattr(aicl_gateway, "create_app", boom)
+    case = JUDGE_CASES[0]
+    with pytest.raises(RuntimeError, match="create_app failed"):
+        await run_gateway_case(case, case_policy(engine.policy, case), engine.decide)
+    assert "INJ-04" not in REGISTRY
+
+
+@needs_file
+def test_decide_only_keys_flagged_on_gateway_only_runners():
+    case = JUDGE_CASES[0]
+    case = type(case)(**{**case.__dict__, "expect": {**case.expect, "would_decision": "BLOCK"}})
+    got = {"status": 200, "decision": case.expect.get("decision"), "events": [], "rule_ids": [], "controls": [],
+           "upstream_called": True, "upstream_body": "", "content": "", "tool_calls": [], "retry_after": None,
+           "judge_called": bool(case.expect.get("judge_called")), "degraded": bool(case.expect.get("degraded"))}
+    assert any("cannot be checked by runner judge-fake" in b for b in check_gateway(case, got))
