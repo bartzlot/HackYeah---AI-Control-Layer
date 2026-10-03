@@ -9,12 +9,13 @@ Tier in the title: (T1) must, (T2) should, (stretch) cut first. At FREEZE every 
 Design reference for every task: `research/13-architecture.md` (section numbers in brackets). Acceptance = the piece's `check.sh` covers it; every control task ships `cases/<control>.yaml` with at least one allowed and one blocked/redacted case.
 
 MVP RESCOPE (3-4 h, 2 seats): A = lead + w2 (branch main / w2), B = w1 (branch w1). Requirements: `research/brief.md`. Everything cut lives in `BACKLOG.md`; bring an item back with `scripts/task.sh add`.
+MODELS (decided): GCP free trial = no GPU, so Ollama runs on CPU on the VM with `qwen3.5:2b-q4_K_M` (fallback `qwen3.5:0.8b`), always `think: false`; destination `local` = that model, `external` = the priced `cloud-sim` mock. GPU (`qwen3.5:4b`) only after a billing upgrade + GPU quota.
 Cut order if late: loop guard -> CSV export (JSONL stays) -> judge as WARN-only.
 
 ## lead (A, 0:00-0:30, blocks everything else)
 - [ ] T-001 [lead] (T1) bootstrap: uv workspace Python 3.13 (aicl_contracts, aicl_core, aicl_gateway); Makefile (up, down, test, deploy); docker-compose.yml (gateway, cloud-sim, ollama); .env.example [20] | deps: -
 - [ ] T-002 [lead] (T1) contracts/aicl_contracts.py: Event (kind, channel, parts, agent_id, session_id, destination, tool_calls, usage), Finding, Decision (lattice ALLOW < LOG < WARN < REDACT < BLOCK, redactions, explain, policy_version, latency_us), Control protocol; contracts/case.example.yaml; audit record fields [2, 13, 15] | deps: T-001
-- [ ] T-003 [lead] (T1) policy/policy.yaml, documented: profiles strict / balanced / permissive (injection thresholds, BLOCK vs REDACT for PII); agents (key, allowed models and tools); destinations local / external / unknown + data-class matrix; controls DLP-01, DLP-02, DLP-05, INJ-03, INJ-04, TOOL-01, BUD-01; budgets (tokens, USD per agent); policy/rules/historical.yaml (~10 rules: code exec, unsafe deserialization, model-repo supply chain) [12] | deps: T-002
+- [ ] T-003 [lead] (T1) policy/policy.yaml, documented: profiles strict / balanced / permissive (injection thresholds, BLOCK vs REDACT for PII); agents (key, allowed models and tools); destinations local (qwen3.5:2b-q4_K_M) / external (cloud-sim) / unknown + data-class matrix; controls DLP-01, DLP-02, DLP-05, INJ-03, INJ-04, TOOL-01, BUD-01; budgets (tokens, USD per agent); policy/rules/historical.yaml (~10 rules: code exec, unsafe deserialization, model-repo supply chain) [12] | deps: T-002
 
 ## w2-core (A)
 - [ ] T-201 [w2] (T1) policy engine + decide(): ruamel.yaml + pydantic load, 1 s polling reload, last-good on invalid, policy_version = sha256; control registry, action lattice, explain trace (control, rule, span), span redaction ([REDACTED_AWS_KEY], [PL_PESEL]) [5, 12] | deps: T-003
@@ -23,12 +24,12 @@ Cut order if late: loop guard -> CSV export (JSONL stays) -> judge as WARN-only.
 - [ ] T-204 [w2] (T1) test runner: pytest collects */cases/*.yaml, drives decide() and the gateway (ASGI + scripted cloud-sim), meta-test (each control has an allowed and a blocked case, incl. budget and exploits), `make test` -> reports/junit.xml [15] | deps: T-202
 
 ## w1-gateway (B)
-- [ ] T-101 [w1] (T1) GCP: project + gcloud, Compute Engine VM e2-standard-4 with Docker, firewall 18080 only from the demo IP, Ollama + small model on the VM | deps: -
+- [ ] T-101 [w1] (T1) GCP: project + gcloud, Compute Engine VM e2-standard-4 with Docker, firewall 18080 only from the demo IP, Ollama on CPU + `ollama pull qwen3.5:2b-q4_K_M` (fallback qwen3.5:0.8b) | deps: -
 - [ ] T-102 [w1] (T1) cloud-sim: OpenAI-compatible priced mock ("commercial" model), usage in responses, scripted mode (replies and tool_calls from YAML) for tests [22] | deps: T-001
 - [ ] T-103 [w1] (T1) gateway: /v1/chat/completions + /v1/models, API key -> agent, model allowlist, router (Ollama / cloud-sim / unknown), decide() on request and response, upstream credential injection, audit JSONL + SSE bus [3, 4] | deps: T-002, T-102
 - [ ] T-104 [w1] (T1) budget + loop guard: SQLite, tokens and USD per agent, reserve then settle, 429 + Retry-After; 4 identical calls in a session = BLOCK [10] | deps: T-103
 - [ ] T-105 [w1] (T1) dashboard /console (vanilla JS + Chart.js + SSE): tiles (requests, blocked, redacted, cost, budget, posture = % controls enforced), controls table, live events with explain, playground with destination selector, audit export JSONL / CSV; fixtures until T-103 lands [14] | deps: T-103
-- [ ] T-106 [w1] (T1) AI judge INJ-04: Ollama /api/chat with JSON-schema enum output, gray band only, 3 s timeout -> WARN + degraded; fake in tests [6] | deps: T-202
+- [ ] T-106 [w1] (T1) AI judge INJ-04: Ollama /api/chat (qwen3.5:2b-q4_K_M, think: false, small num_predict) with JSON-schema enum output, gray band only, 3 s timeout (tune on the CPU VM) -> WARN + degraded; fake in tests [6] | deps: T-202
 
 ## integration and delivery
 - [ ] T-901 [any] (T1) walking skeleton (~2:00): demo agent -> gateway -> Ollama / cloud-sim; AWS key redacted; PESEL allowed local / redacted external / blocked unknown; curl | sh tool call blocked; events on the dashboard | deps: T-103, T-202 | pair: w1+w2
