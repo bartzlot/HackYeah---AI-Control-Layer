@@ -2,6 +2,7 @@
 SHELL := /bin/bash
 GCP_VM ?= aicl-vm
 GCP_ZONE ?= europe-central2-a
+-include .env
 MODEL ?= $(or $(AICL_OLLAMA_MODEL),qwen3.5:2b-q4_K_M)
 
 .PHONY: demo up down logs models warm test deploy sync
@@ -27,7 +28,7 @@ models:
 
 # load the model into memory now (keep_alive 24h), from the aicl image on the compose network
 warm:
-	docker compose run --rm --no-deps cloud-sim python -c 'import json, urllib.request as u; u.urlopen(u.Request("http://ollama:11434/api/generate", json.dumps({"model": "$(MODEL)", "keep_alive": "24h"}).encode(), {"Content-Type": "application/json"}), timeout=900).read(); print("warm: $(MODEL)")'
+	docker compose run --rm --no-deps cloud-sim python -c 'import json, urllib.request as u; u.urlopen(u.Request("http://ollama:11434/api/generate", json.dumps({"model": "$(MODEL)", "keep_alive": "24h", "options": {"num_ctx": 4096}}).encode(), {"Content-Type": "application/json"}), timeout=900).read(); print("warm: $(MODEL)")'
 
 test: sync
 	uv run pytest -q --junitxml=reports/junit.xml

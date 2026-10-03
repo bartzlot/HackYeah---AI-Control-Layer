@@ -58,7 +58,11 @@ def test_compose_lets_the_judge_run_beside_a_local_answer():
 def test_make_warm_loads_the_policy_judge_model():
     mk = (ROOT / "Makefile").read_text(encoding="utf-8")
     assert re.search(r"^demo: up models warm$", mk, re.M)
-    assert re.search(r"^warm:\n\t.*api/generate.*keep_alive", mk, re.M)
+    assert re.search(r"^-include \.env$", mk, re.M), "make must see AICL_OLLAMA_MODEL from .env like compose does"
+    warm = re.search(r"^warm:\n\t(.*)$", mk, re.M).group(1)
+    assert "api/generate" in warm and '"keep_alive": "24h"' in warm
+    # same context size as the judge request, or Ollama reloads the model inside the judge deadline
+    assert f'"num_ctx": {Judge.request_body("m", "user", "x")["options"]["num_ctx"]}' in warm
     default = re.search(r"^MODEL \?= .*,(\S+)\)$", mk, re.M).group(1)
     assert default == JUDGE["model"], "make warm would load a different model than the judge uses"
 
