@@ -1,0 +1,27 @@
+# AICL demo stack: gateway :18080 (+ console /console), cloud-sim :18200 (priced mock), ollama :11434 (CPU).
+# Dockerfiles are owned by w1 (w1-gateway/Dockerfile, w1-gateway/cloud_sim/Dockerfile).
+services:
+  gateway:
+    build: {context: ., dockerfile: w1-gateway/Dockerfile}
+    ports: ["18080:18080"]
+    environment:
+      AICL_POLICY: /app/policy/policy.yaml
+      AICL_OLLAMA_URL: http://ollama:11434
+      AICL_CLOUDSIM_URL: http://cloud-sim:18200
+      AICL_DATA_DIR: /app/data
+    volumes:
+      - ./policy:/app/policy
+      - gateway-data:/app/data
+    depends_on: [cloud-sim, ollama]
+  cloud-sim:
+    build: {context: ., dockerfile: w1-gateway/cloud_sim/Dockerfile}
+    ports: ["18200:18200"]
+  ollama:
+    image: ollama/ollama:latest
+    ports: ["11434:11434"]
+    volumes: [ollama-models:/root/.ollama]
+    environment:
+      OLLAMA_KEEP_ALIVE: 30m
+volumes:
+  gateway-data:
+  ollama-models:

@@ -1,0 +1,21 @@
+[project]
+name = "aicl"
+version = "0.1.0"
+description = "AI Control Layer (workspace root)"
+requires-python = ">=3.13"
+dependencies = ["aicl-contracts", "aicl-core", "aicl-gateway"]
+
+[tool.uv.workspace]
+members = ["contracts", "w2-core", "w1-gateway"]
+
+[tool.uv.sources]
+aicl-contracts = { workspace = true }
+aicl-core = { workspace = true }
+aicl-gateway = { workspace = true }
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[tool.pytest.ini_options]
+testpaths = ["w2-core/tests", "w1-gateway/tests"]
+asyncio_mode = "auto"
