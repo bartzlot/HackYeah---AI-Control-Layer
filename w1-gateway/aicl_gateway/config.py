@@ -29,13 +29,19 @@ def default_config() -> dict[str, Any]:
         "audit_path": os.environ.get("AICL_AUDIT_PATH"),   # JSONL, None = bus only
         "upstream_timeout": 120.0,
         "session_header": "x-session-id",
+        # console: demo_key = key the playground uses; policy = raw policy dict or callable (controls table,
+        # org USD budget); budget_usd overrides the policy budget; fixtures = preload demo records;
+        # remote = serve the console (and the demo key) to non-loopback clients; host-only by default,
+        # set it only on a firewalled demo host or inside docker behind a host-only port mapping
+        "console": {"demo_key": None, "fixtures": False, "budget_usd": None, "policy": None,
+                    "remote": os.environ.get("AICL_CONSOLE_REMOTE", "") == "1"},
     }
 
 
 def merge_config(config: dict | None) -> dict[str, Any]:
     cfg = default_config()
     for k, v in (config or {}).items():
-        if k in ("upstream_urls", "upstream_keys") and isinstance(v, dict):
+        if k in ("upstream_urls", "upstream_keys", "console") and isinstance(v, dict):
             cfg[k] = {**cfg[k], **v}
         else:
             cfg[k] = v
