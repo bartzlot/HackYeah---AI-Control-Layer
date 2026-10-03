@@ -151,7 +151,9 @@
       try { pc = await getJSON("/console/api/playground"); } catch (e) {}
       const model = dest === "unknown" ? "unknown-model" : (pc.models[dest] || [])[0] || (dest === "local" ? "qwen3.5:2b-q4_K_M" : "gpt-4o-mini");
       const headers = { "Content-Type": "application/json", "X-AICL-Destination": dest };
-      if (pc.api_key) headers["Authorization"] = "Bearer " + pc.api_key;
+      let sameOrigin = false;
+      try { sameOrigin = new URL($("#pg-url").value, location.href).origin === location.origin; } catch (e) {}
+      if (pc.api_key && sameOrigin) headers["Authorization"] = "Bearer " + pc.api_key;
       const r = await fetch($("#pg-url").value, {
         method: "POST", headers,
         body: JSON.stringify({ model, messages: [{ role: "user", content: $("#pg-text").value }] }),
@@ -169,7 +171,8 @@
             (e.explain || []).map((x) => "\n    > " + x).join("")).join("\n");
         } catch (e) {}
       }
-      out.textContent = "HTTP " + r.status + (r.status >= 400 ? " (blocked or error)" : " (passed)") + " in " + Math.round(performance.now() - t0) + " ms\n" + dec + trace + "\n\nResponse:\n" + body;
+      const verdict = r.headers.get("x-aicl-decision") || (r.status >= 400 ? "error" : "no decision");
+      out.textContent = "HTTP " + r.status + " - decision " + verdict + " in " + Math.round(performance.now() - t0) + " ms\n" + dec + trace + "\n\nResponse:\n" + body;
     } catch (e) {
       out.textContent = "Gateway not reachable at " + $("#pg-url").value + ": " + e.message;
     }

@@ -14,7 +14,7 @@ from itertools import islice
 from pathlib import Path
 from typing import Any, Callable
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 CONSOLE_DIR = Path(__file__).parent / "console"
@@ -37,8 +37,11 @@ DEFAULT_CONTROLS: list[dict[str, Any]] = [
     {"id": cid, **meta, "mode": "enforce", "action": DEFAULT_ACTIONS[cid]} for cid, meta in CATALOG.items()]
 
 
-def _mode(v: Any, profile: str) -> str:
-    """policy mode: word, per-profile map, or a YAML 1.1 boolean (bare off -> False)."""
+def _mode(v: Any, profile: str, default: Any = "enforce") -> str:
+    """policy mode: word, per-profile map, or a YAML 1.1 boolean (bare off -> False). Same fallbacks as
+    the w2 engine (Policy.mode_for): missing mode -> defaults.mode, profile missing from a map -> enforce."""
+    if v is None:
+        v = default
     if isinstance(v, dict):
         v = v.get(profile, "enforce")
     if v is False:
@@ -65,7 +68,8 @@ def _action(c: dict[str, Any], cid: str) -> str:
 def controls_from_policy(policy: dict[str, Any]) -> list[dict[str, Any]]:
     """Rows for the controls table from a raw policy dict. Catalog controls missing from the policy stay
     in the list as mode off (they count against posture, research/13 section 14)."""
-    profile = str(((policy.get("defaults") or {}).get("profile")) or "balanced")
+    defaults = policy.get("defaults") or {}
+    profile = str(defaults.get("profile") or "balanced")
     pcs = policy.get("controls") or {}
     if not isinstance(pcs, dict):
         pcs = {}
@@ -76,7 +80,7 @@ def controls_from_policy(policy: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(c, dict):
             rows.append({"id": cid, **meta, "mode": "off", "action": DEFAULT_ACTIONS.get(cid, "BLOCK")})
             continue
-        rows.append({"id": cid, **meta, "mode": _mode(c.get("mode"), profile), "action": _action(c, cid)})
+        rows.append({"id": cid, **meta, "mode": _mode(c.get("mode"), profile, defaults.get("mode", "enforce")), "action": _action(c, cid)})
     return rows
 
 
@@ -190,9 +194,11 @@ class ConsoleStore:
         over all its records (prompt, response, tool_args)."""
         recs = [r for r in self._records if r.get("stage") != "lifecycle"]
         final: dict[str, int] = {}
+        bucket: dict[str, str] = {}          # request -> minute of its first record
         for i, r in enumerate(recs):
             rid = r.get("request_id") or r.get("event_id") or f"#{i}"
             final[rid] = max(final.get(rid, 0), dec_rank(r.get("decision")))
+            bucket.setdefault(rid, str(r.get("ts", ""))[:16])
         by_dec = {n: 0 for n in _NAMES}
         for v in final.values():
             by_dec[_NAMES[v]] += 1
@@ -206,9 +212,9 @@ class ConsoleStore:
             for f in r.get("findings", []):
                 c = f.get("category", "other")
                 cats[c] = cats.get(c, 0) + 1
-            row = timeline.setdefault(str(r.get("ts", ""))[:16], {"allow": 0, "redact": 0, "block": 0})
-            d = dec_name(r.get("decision"))
-            row["block" if d == "BLOCK" else "redact" if d == "REDACT" else "allow"] += 1
+        for rid, v in final.items():      # timeline counts requests by final decision, like the tiles
+            row = timeline.setdefault(bucket[rid], {"allow": 0, "redact": 0, "block": 0})
+            row["block" if v == 4 else "redact" if v == 3 else "allow"] += 1
         cost = round(cost, 6)
         controls = self.controls
         enforced = sum(1 for c in controls if c.get("mode") == "enforce")
@@ -270,7 +276,13 @@ def _csv_row(r: dict[str, Any]) -> list[Any]:
             r.get("redaction_count", 0), (r.get("usage") or {}).get("usd", 0.0), r.get("policy_version")]
 
 
-def make_console_router(store: ConsoleStore, playground: dict | None = None) -> APIRouter:
+LOOPBACK = {"127.0.0.1", "::1", "localhost"}
+
+
+def make_console_router(store: ConsoleStore, playground: dict | None = None,
+                        expose_key: bool = False) -> APIRouter:
+    """playground = {"api_key", "models"}; the key is handed only to loopback clients unless
+    expose_key (console.expose_demo_key) is set for a firewalled demo host."""
     router = APIRouter(prefix="/console")
 
     @router.get("")
@@ -286,8 +298,12 @@ def make_console_router(store: ConsoleStore, playground: dict | None = None) -> 
         return FileResponse(p)
 
     @router.get("/api/playground")
-    async def playground_cfg():
-        return playground or {"api_key": None, "models": {"local": [], "external": []}}
+    async def playground_cfg(request: Request):
+        pg = dict(playground or {"api_key": None, "models": {"local": [], "external": []}})
+        host = request.client.host if request.client else ""
+        if not (expose_key or host in LOOPBACK):
+            pg["api_key"] = None
+        return pg
 
     @router.get("/api/summary")
     async def summary():

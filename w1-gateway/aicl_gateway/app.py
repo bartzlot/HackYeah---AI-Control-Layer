@@ -115,7 +115,8 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
     app.state.console = store
     models_view = {"local": [m for m, e in cfg["models"].items() if e["kind"] == "local"],
                    "external": [m for m, e in cfg["models"].items() if e["kind"] == "external"]}
-    app.include_router(make_console_router(store, {"api_key": ccfg.get("demo_key"), "models": models_view}))
+    app.include_router(make_console_router(store, {"api_key": ccfg.get("demo_key"), "models": models_view},
+                                           expose_key=bool(ccfg.get("expose_demo_key"))))
 
     @app.on_event("shutdown")
     async def _close():
@@ -150,6 +151,7 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         """decide + audit; returns (decision, error response when blocked or decide failed)."""
         d = await run_decide(event)
         if d is None:
+            ctx["action"] = Action.BLOCK
             audit.denied(event, "decide() failed: fail closed", "REQUEST_BLOCKED")
             return None, _err(503, "policy_unavailable", "policy engine unavailable, request denied (fail closed)")
         audit.from_decision(event, d)
@@ -178,8 +180,8 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         ctx = {"action": Action.ALLOW, "up": 0.0}
         resp = await _chat(request, ctx)
         total = (time.perf_counter() - t0) * 1000
-        resp.headers["X-AICL-Decision"] = ctx["action"].name
-        if ctx.get("request_id"):
+        if ctx.get("request_id"):          # a request was identified and decided (not 400 / 401)
+            resp.headers["X-AICL-Decision"] = ctx["action"].name
             resp.headers["X-AICL-Request-Id"] = ctx["request_id"]
         resp.headers["Server-Timing"] = (f"aicl;dur={max(total - ctx['up'], 0):.1f}, upstream;dur={ctx['up']:.1f}, "
                                          f"total;dur={total:.1f}")
@@ -210,6 +212,7 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
 
         if kind == DestKind.UNKNOWN or not allowed(agent, model):
             why = "unknown model" if kind == DestKind.UNKNOWN else "model not in agent allowlist"
+            ctx["action"] = Action.BLOCK
             audit.denied(Event(stage=Stage.PROMPT, **base), f"{why}: {model}")
             return _err(403, "model_denied", f"model {model!r} is not permitted for this agent ({why})")
 

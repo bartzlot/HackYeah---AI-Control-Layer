@@ -62,26 +62,50 @@ def load_policy():
     return yaml.safe_load((ROOT / "policy" / "policy.yaml").read_text(encoding="utf-8"))
 
 
+POLICY = {   # fixed fixture in the shape of policy/policy.yaml (the shared file changes as pieces land)
+    "defaults": {"profile": "balanced", "mode": "enforce"},
+    "controls": {
+        "DLP-01": {"mode": "enforce", "action": {"prompt": "REDACT", "tool_args": "BLOCK"}},
+        "DLP-02": {"mode": "enforce"},
+        "DLP-05": {"mode": "enforce"},
+        "INJ-03": {"mode": "enforce"},
+        "INJ-04": {"mode": {"strict": "enforce", "balanced": "enforce", "permissive": "shadow"}},
+        "TOOL-01": {"mode": "enforce", "default": "BLOCK"},
+        "BUD-01": {"fail": "closed"},                 # no mode -> defaults.mode
+    },
+    "budgets": {"org": {"usd": 5.0}},
+}
+
+
 def test_controls_and_budget_follow_policy():
-    pol = load_policy()
+    import copy
+    pol = copy.deepcopy(POLICY)
     store = ConsoleStore(policy=lambda: pol)
     rows = {r["id"]: r for r in store.control_rows()}
-    assert set(pol["controls"]) <= set(rows)
-    assert rows["INJ-04"]["mode"] == "enforce"            # per-profile map, balanced
+    assert set(rows) == set(pol["controls"])
+    assert rows["INJ-04"]["mode"] == "enforce" and rows["BUD-01"]["mode"] == "enforce"
     assert rows["DLP-01"]["action"] == "BLOCK/REDACT"     # per-stage action map
     assert rows["TOOL-01"]["action"] == "BLOCK"           # default deny
-    assert store.budget_usd == pol["budgets"]["org"]["usd"]
-    full = store.summary()["posture_pct"]
-    assert full == 100.0
+    assert store.budget_usd == 5.0
+    assert store.summary()["posture_pct"] == 100.0
     pol["controls"]["DLP-05"]["mode"] = False             # bare `off` read by YAML 1.1
     pol["controls"]["INJ-03"]["mode"] = "shadow"
     del pol["controls"]["BUD-01"]                         # removed control stays in the denominator
     rows = {r["id"]: r for r in store.control_rows()}
     assert (rows["DLP-05"]["mode"], rows["INJ-03"]["mode"], rows["BUD-01"]["mode"]) == ("off", "shadow", "off")
     s = store.summary()
-    assert s["controls_total"] == 7 and s["controls_enforced"] == 4 and s["posture_pct"] < full
+    assert (s["controls_total"], s["controls_enforced"], s["posture_pct"]) == (7, 4, round(400 / 7, 1))
     pol["defaults"]["profile"] = "permissive"
     assert {r["id"]: r for r in store.control_rows()}["INJ-04"]["mode"] == "shadow"
+
+
+def test_real_policy_file_drives_the_console():
+    pol = load_policy()
+    store = ConsoleStore(policy=pol)
+    rows = {r["id"] for r in store.control_rows()}
+    assert set(pol["controls"]) <= rows
+    assert 0 <= store.summary()["posture_pct"] <= 100
+    assert store.budget_usd == float(pol["budgets"]["org"]["usd"])
 
 
 async def test_events_controls_and_pages():
@@ -148,10 +172,9 @@ async def test_gateway_feeds_console_end_to_end():
                             redactions=[Redaction(part=0, start=i, end=i + 20, replacement="[REDACTED_AWS_KEY]")])
         return Decision()
 
-    pol = load_policy()
     ext = httpx.AsyncClient(transport=httpx.ASGITransport(app=sim_app(Script())), base_url="http://ext")
     app = create_app(decide, {"agents": {"k-demo": {"agent_id": "demo"}},
-                              "console": {"demo_key": "k-demo", "policy": lambda: pol}}, {"external": ext})
+                              "console": {"demo_key": "k-demo", "policy": lambda: POLICY}}, {"external": ext})
     c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://g")
     r = await c.post("/v1/chat/completions", headers={"authorization": "Bearer k-demo"},
                      json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "key AKIAIOSFODNN7EXAMPLE"}]})
@@ -159,7 +182,7 @@ async def test_gateway_feeds_console_end_to_end():
     rid = r.headers["x-aicl-request-id"]
     s = (await c.get("/console/api/summary")).json()
     assert (s["requests"], s["redacted"], s["blocked"]) == (1, 1, 0) and s["cost_usd"] > 0
-    assert s["budget_usd"] == pol["budgets"]["org"]["usd"] and s["posture_pct"] == 100.0
+    assert s["budget_usd"] == 5.0 and s["posture_pct"] == 100.0
     ev = (await c.get(f"/console/api/events?request_id={rid}")).json()["events"]
     assert [e["stage"] for e in ev] == ["response", "prompt"]
     assert ev[1]["findings"][0]["control_id"] == "DLP-01" and "DLP-01 AWS key -> REDACT" in ev[1]["explain"]
@@ -167,7 +190,13 @@ async def test_gateway_feeds_console_end_to_end():
     assert "AKIAIOSFODNN7EXAMPLE" not in (await c.get("/console/api/export.csv")).text
     sse = await c.get("/console/api/stream?replay=2&max_events=2")
     assert [json.loads(x[6:])["request_id"] for x in sse.text.splitlines() if x.startswith("data: ")] == [rid, rid]
-    pg = (await c.get("/console/api/playground")).json()
+    pg = (await c.get("/console/api/playground")).json()          # ASGITransport client = 127.0.0.1
     assert pg["api_key"] == "k-demo" and "gpt-4o-mini" in pg["models"]["external"]
+    far = httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=("203.0.113.7", 5000)), base_url="http://g")
+    assert (await far.get("/console/api/playground")).json()["api_key"] is None
+    d = await c.post("/v1/chat/completions", headers={"authorization": "Bearer k-demo"},
+                     json={"model": "unknown-model", "messages": [{"role": "user", "content": "hi"}]})
+    assert d.status_code == 403 and d.headers["x-aicl-decision"] == "BLOCK"
+    assert "x-aicl-decision" not in (await c.post("/v1/chat/completions", json={})).headers
     ctl = {x["id"]: x["hits"] for x in (await c.get("/console/api/controls")).json()["controls"]}
     assert ctl["DLP-01"] == 1

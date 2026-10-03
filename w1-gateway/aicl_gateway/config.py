@@ -30,8 +30,10 @@ def default_config() -> dict[str, Any]:
         "upstream_timeout": 120.0,
         "session_header": "x-session-id",
         # console: demo_key = key the playground uses; policy = raw policy dict or callable (controls table,
-        # org USD budget); budget_usd overrides the policy budget; fixtures = preload demo records
-        "console": {"demo_key": None, "fixtures": False, "budget_usd": None, "policy": None},
+        # org USD budget); budget_usd overrides the policy budget; fixtures = preload demo records;
+        # expose_demo_key = hand demo_key to non-loopback browsers (only on a firewalled demo host)
+        "console": {"demo_key": None, "fixtures": False, "budget_usd": None, "policy": None,
+                    "expose_demo_key": False},
     }
 
 
