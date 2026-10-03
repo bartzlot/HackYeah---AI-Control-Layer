@@ -1,0 +1,20 @@
+schema: aicl-case/1
+control: KILL-01
+cases:
+- id: K01
+  kind: positive
+  path: llm
+  input: {messages: [{role: user, content: "Hello, summarise yesterday's notes."}]}
+  expect: {decision: ALLOW, findings: []}
+- id: K02
+  kind: negative
+  path: llm
+  setup: {policy: {emergency: {kill_switch: true}}}
+  input: {messages: [{role: user, content: "Hello"}]}
+  expect: {decision: BLOCK, rule_ids: [kill.global]}
+- id: K03
+  kind: negative
+  path: llm
+  setup: {agent: support-bot, policy: {emergency: {killed_agents: [support-bot]}}}
+  input: {messages: [{role: user, content: "Hello"}]}
+  expect: {decision: BLOCK, rule_ids: [kill.agent]}
