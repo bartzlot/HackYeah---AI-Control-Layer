@@ -20,6 +20,7 @@ from aicl_contracts import Action
 PROFILES = ("strict", "balanced", "permissive")
 MODES = ("enforce", "shadow", "off")
 FAILS = ("closed", "open", "degrade")
+WHEN_OPS = ("sql", "domain_in", "domain_not_in", "resolves_to_private", "eq", "in", "regex")
 _ACTION_WORDS = {a.name for a in Action} | {"REQUIRE_APPROVAL"}
 
 
@@ -154,6 +155,16 @@ class PolicyDoc(BaseModel):
                 if not isinstance(r, dict) or "action" not in r:
                     raise ValueError(f"controls.{cid}.rules[{i}] needs an action")
                 _check_action(r["action"], f"controls.{cid}.rules[{i}].action")
+                when = r.get("when") or {}
+                if not isinstance(when, dict):
+                    raise ValueError(f"controls.{cid}.rules[{i}].when must be a mapping")
+                for path, cond in when.items():
+                    if not isinstance(cond, dict) or not cond:
+                        raise ValueError(f"controls.{cid}.rules[{i}].when.{path} must map operator -> value")
+                    for op in cond:
+                        if op not in WHEN_OPS:   # a typo must not silently disable a deny rule
+                            raise ValueError(f"controls.{cid}.rules[{i}].when.{path}: unknown operator {op!r}, "
+                                             f"use one of {', '.join(WHEN_OPS)}")
         return self
 
 
@@ -169,6 +180,7 @@ class Rule:
     source: str = "policy"
     match: list[str] = field(default_factory=list)
     no_match: list[str] = field(default_factory=list)
+    tools: list[str] = field(default_factory=list)      # TOOL-01 scope (tool-name globs); empty = every tool
 
 
 def load_rule_file(path: Path, source: str = "policy") -> list[Rule]:
@@ -184,7 +196,8 @@ def load_rule_file(path: Path, source: str = "policy") -> list[Rule]:
                 action_user=to_action(r.get("action_user", "WARN"))[0],
                 action_untrusted=to_action(r.get("action_untrusted", "BLOCK"))[0],
                 severity=r.get("severity", "medium"), name=r.get("name", ""), source=source,
-                match=list(r.get("match", [])), no_match=list(r.get("no_match", []))))
+                match=list(r.get("match", [])), no_match=list(r.get("no_match", [])),
+                tools=[str(t) for t in (r.get("tools") or [])]))
         except (KeyError, re.error, ValueError, TypeError) as e:
             raise PolicyError(f"{path}: rule {r.get('id', '?') if isinstance(r, dict) else '?'}: {e}") from e
     for rule in out:  # inline tests: a rule that fails its own examples never goes live

