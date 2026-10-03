@@ -232,5 +232,5 @@ def test_owned_upstream_clients_fail_fast_on_connect():
     app = create_app(None, {"upstream_urls": {"local": "http://host.docker.internal:11434", "external": "http://cs:18200"}})
     for kind in ("local", "external"):
         t = app.state.upstreams[kind].timeout
-        assert t.connect == 5.0 and t.read == 120.0
+        assert t.connect == 5.0 and t.read == app.state.config["upstream_timeout"] > 5.0
     assert str(app.state.upstreams["local"].base_url).startswith("http://host.docker.internal:11434")

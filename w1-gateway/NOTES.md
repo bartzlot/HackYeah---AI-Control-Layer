@@ -22,10 +22,10 @@
 ## INJ-04 judge (T-106)
 - `aicl_gateway.judge.install(aicl_core.engine.register, ollama_url)` registers the judge with the w2 engine
   after INJ-03; the entrypoint (T-901) must call it once at startup. Not registered = INJ-04 never runs.
-- [lead] policy.yaml `controls.INJ-04.judge.timeout_ms` is 1500; on the CPU VM qwen3.5:2b needs about 3000
-  (T-106 says 3 s, tune on the VM). The judge reads the value from the policy (default 3000 when absent).
-- The gateway now runs a sync decide() in a worker thread (asyncio.to_thread) so a judge call never blocks
-  the event loop; the judge itself allows one concurrent Ollama call (shared Ollama, NUM_PARALLEL 1).
+- The judge reads `controls.INJ-04.judge.timeout_ms` from the policy (8000 since T-008; default 3000 when
+  absent) and calls the policy's judge model, renamed by `AICL_OLLAMA_MODEL` like the chat route.
+- The gateway runs a sync decide() in its own thread pool so a judge call never blocks the event loop; the
+  judge itself makes one Ollama call at a time (compose OLLAMA_NUM_PARALLEL=2 leaves chat a slot).
 
 ## Walking skeleton entrypoint (T-901) - requests to the lead
 - Dockerfile CMD now runs `aicl_gateway.main:create_app_from_env` (policy-driven). T-009: update

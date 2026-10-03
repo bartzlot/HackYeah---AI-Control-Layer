@@ -131,10 +131,12 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
     app = FastAPI(title="aicl-gateway")
     app.state.bus, app.state.audit, app.state.config, app.state.upstreams = bus, audit, cfg, clients
     app.state.console, app.state.ledger, app.state.loops = store, ledger, loops
-    models_view = {"local": [m for m, e in cfg["models"].items() if e["kind"] == "local"],
-                   "external": [m for m, e in cfg["models"].items() if e["kind"] == "external"]}
-    app.include_router(make_console_router(store, {"api_key": ccfg.get("demo_key"), "models": models_view},
-                                           remote=bool(ccfg.get("remote"))))
+    def playground_view() -> dict:
+        models = dict(cfg["models"])        # read per request: follows live policy reloads
+        return {"api_key": ccfg.get("demo_key"),
+                "models": {k: [m for m, e in models.items() if e.get("kind") == k] for k in ("local", "external")}}
+
+    app.include_router(make_console_router(store, playground_view, remote=bool(ccfg.get("remote"))))
 
     @app.on_event("shutdown")
     async def _close():
@@ -164,6 +166,8 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         return d.model_copy(update=upd) if upd else d
 
     def authenticate(request: Request) -> tuple[str, dict] | None:
+        if cfg.get("before_auth"):          # entrypoint hook: apply a reloaded policy before identity
+            cfg["before_auth"]()
         auth = request.headers.get("authorization", "")
         key = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
         agent = cfg["agents"].get(key) if key else None
@@ -199,7 +203,7 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         if who is None:
             return _err(401, "invalid_api_key", "missing or invalid API key")
         data = [{"id": m, "object": "model", "owned_by": "aicl-" + e["kind"]}
-                for m, e in cfg["models"].items() if allowed(who[1], m)]
+                for m, e in dict(cfg["models"]).items() if allowed(who[1], m)]
         return {"object": "list", "data": data}
 
     @app.post("/v1/chat/completions")

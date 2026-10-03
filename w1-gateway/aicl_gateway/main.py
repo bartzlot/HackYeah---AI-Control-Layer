@@ -20,8 +20,10 @@ first request after a new policy version.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
+import threading
 from pathlib import Path
 from typing import Any, Callable
 
@@ -31,6 +33,8 @@ from . import judge as judge_mod
 from .app import create_app
 from .budget import config_from_policy
 
+log = logging.getLogger("aicl.gateway")
+EXAMPLE_DEMO_KEY = "aicl_demo_0123456789abcdef"   # the public .env.example value
 DEMO_AGENT = "analyst-agent"          # the demo key's agent: may use the local and the external model
 KEY_PREFIX = "AICL_KEY_"
 _HEX64 = re.compile(r"^(sha256:)?([0-9a-f]{64})$")
@@ -120,32 +124,55 @@ def create_app_from_env(env: dict | None = None, *, upstreams: dict | None = Non
     _ensure_parent(cfg["audit_path"])
     _ensure_parent(cfg["budget_db"])
     # INJ-04 local judge, registered after the w2 controls (INJ-03 first); one Judge per process
-    judge = judge_mod.install(register, cfg["upstream_urls"]["local"], chat_fn=judge_chat)
+    # INJ-04 local judge, registered after the w2 controls (INJ-03 first); one Judge per process. The judge
+    # calls the same Ollama tag as the chat route (AICL_OLLAMA_MODEL renames the policy's local model).
+    model_map = {tag: e["upstream_model"] for tag, e in cfg["models"].items() if e.get("upstream_model")}
+    judge = judge_mod.install(register, cfg["upstream_urls"]["local"], chat_fn=judge_chat, model_map=model_map)
+    if env.get("AICL_KEY_DEMO") == EXAMPLE_DEMO_KEY and env.get("AICL_GATEWAY_BIND") not in (None, "", "127.0.0.1"):
+        log.warning("AICL_KEY_DEMO is the public .env.example value and the gateway is bound to %s: "
+                    "set a fresh key in .env", env.get("AICL_GATEWAY_BIND"))
     seen = {"version": engine.policy.version}
+    lock = threading.Lock()
     holder: dict[str, Any] = {}
 
     def apply_policy(raw: dict) -> None:
-        """Re-derive agents, models and budgets from a new policy version (dicts mutated in place)."""
+        """Re-derive agents, models and budgets from a new policy version. New dicts are built first and
+        swapped in by single assignments, so readers on the event loop never see a half-updated dict."""
         app = holder["app"]
         new = build_config(raw, env, lambda: engine.policy.raw)
+        conf = app.state.config
         for k in ("agents", "agent_key_hashes", "models"):
-            app.state.config[k].clear()
-            app.state.config[k].update(new[k])
+            conf[k] = new[k]
         app.state.ledger.limits = new["budgets"]
         app.state.ledger.warn_at = float(new["budget"].get("warn_at", 0.8))
-        app.state.config["budget"].update(new["budget"])   # prices and loop limits apply on restart
+        conf["budget"].update(new["budget"])   # same dict the gateway holds; prices and loop limits: restart
+        judge.model_map = {t: e["upstream_model"] for t, e in new["models"].items() if e.get("upstream_model")}
+
+    def sync_policy() -> None:
+        """Apply the engine's current policy if its version changed (called before auth and after decide)."""
+        engine.store.maybe_refresh()
+        pol = engine.policy
+        if pol.version == seen["version"]:
+            return
+        with lock:
+            if pol.version == seen["version"]:
+                return
+            try:
+                apply_policy(pol.raw)
+            except Exception:  # noqa: BLE001 - keep the previous derived config, retry on the next request
+                log.exception("policy %s: re-deriving gateway config failed, keeping the previous one",
+                              pol.version[:12])
+                return
+            seen["version"] = pol.version
+            log.info("policy %s applied: %d agent keys, %d models", pol.version[:12],
+                     len(holder["app"].state.config["agents"]), len(holder["app"].state.config["models"]))
 
     def decide(event):
         d = engine.decide(event)
-        pol = engine.policy
-        if pol.version != seen["version"]:
-            seen["version"] = pol.version
-            try:
-                apply_policy(pol.raw)
-            except Exception:  # noqa: BLE001 - keep the previous derived config; the engine keeps last-good
-                pass
+        sync_policy()
         return d
 
+    cfg["before_auth"] = sync_policy
     app = create_app(decide, cfg, upstreams)
     holder["app"] = app
     app.state.engine, app.state.judge = engine, judge

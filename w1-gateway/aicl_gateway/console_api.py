@@ -308,7 +308,8 @@ def is_local(request: Request) -> bool:
     return bool(request.client) and request.client.host in LOOPBACK
 
 
-def make_console_router(store: ConsoleStore, playground: dict | None = None, remote: bool = False) -> APIRouter:
+def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], dict] | None" = None,
+                        remote: bool = False) -> APIRouter:
     """The console (UI, audit API, exports, playground demo key) is host-only (research/13 section 14):
     non-loopback clients get 403 unless remote=True (console.remote, only on a firewalled demo host)."""
 
@@ -332,7 +333,8 @@ def make_console_router(store: ConsoleStore, playground: dict | None = None, rem
 
     @router.get("/api/playground")
     async def playground_cfg():
-        return playground or {"api_key": None, "models": {"local": [], "external": []}}
+        pg = playground() if callable(playground) else playground   # callable = live after policy reloads
+        return pg or {"api_key": None, "models": {"local": [], "external": []}}
 
     @router.get("/api/summary")
     async def summary():

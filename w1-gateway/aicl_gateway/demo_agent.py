@@ -95,12 +95,15 @@ async def run_scenario(client: httpx.AsyncClient, key: str, s: Scenario, session
         headers["x-session-id"] = f"{session}-{s.id}"
     messages: list[dict] = [{"role": "user", "content": s.prompt}]
     worst, status, decision, rids, content = "allowed", 0, None, [], ""
-    rank = {"allowed": 0, "redacted": 1, "blocked": 2}
+    rank = {"allowed": 0, "redacted": 1, "blocked": 2, "error": 3}
     for _ in range(max_steps):
         body: dict = {"model": s.model, "messages": messages, "max_tokens": 128}
         if s.tools:
             body["tools"] = TOOLS
-        r = await client.post("/v1/chat/completions", headers=headers, json=body)
+        try:
+            r = await client.post("/v1/chat/completions", headers=headers, json=body)
+        except httpx.HTTPError as e:
+            return Result(s.id, s.expect, "error", 0, None, rids, f"gateway unreachable: {type(e).__name__}")
         status, decision = r.status_code, r.headers.get("x-aicl-decision")
         if r.headers.get("x-aicl-request-id"):
             rids.append(r.headers["x-aicl-request-id"])
@@ -112,7 +115,11 @@ async def run_scenario(client: httpx.AsyncClient, key: str, s: Scenario, session
             except ValueError:
                 content = r.text
             break
-        msg = r.json()["choices"][0]["message"]
+        try:
+            msg = r.json()["choices"][0]["message"]
+        except (ValueError, KeyError, IndexError, TypeError):
+            worst, content = "error", f"unexpected reply: {r.text[:120]}"
+            break
         content = msg.get("content") or ""
         calls = msg.get("tool_calls") or []
         if not calls:

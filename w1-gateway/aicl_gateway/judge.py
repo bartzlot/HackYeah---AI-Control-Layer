@@ -100,10 +100,13 @@ class Judge:
     stages = (Stage.PROMPT, Stage.TOOL_RESULT)
 
     def __init__(self, ollama_url: str = "http://localhost:11434", chat_fn: ChatFn | None = None,
-                 cache_ttl_s: float = 300.0, cache_size: int = 512, clock: Callable[[], float] = time.monotonic):
+                 cache_ttl_s: float = 300.0, cache_size: int = 512, clock: Callable[[], float] = time.monotonic,
+                 model_map: dict[str, str] | None = None):
         self.ollama_url = ollama_url.rstrip("/")
+        self.model_map = dict(model_map or {})      # policy tag -> Ollama tag actually pulled (AICL_OLLAMA_MODEL)
         self._chat = chat_fn or self._ollama_chat
-        self._sem = threading.Semaphore(1)          # Ollama NUM_PARALLEL defaults to 1 and is shared
+        self._sem = threading.Semaphore(1)          # one judge call at a time: Ollama is shared with chat
+                                                    # (compose OLLAMA_NUM_PARALLEL=2 leaves chat a slot)
         self._cache: OrderedDict[str, tuple[float, dict]] = OrderedDict()
         self._cache_lock = threading.Lock()
         self.cache_ttl_s, self.cache_size, self._clock = cache_ttl_s, cache_size, clock
@@ -233,6 +236,7 @@ class Judge:
         block = float(over.get("block", prof.get("block", 0.6)))
         judge_low = float(over.get("judge_low", prof.get("judge_low", 0.3)))
         model = str(jcfg.get("model") or DEFAULT_MODEL)
+        model = self.model_map.get(model, model)
         timeout_s = float(jcfg.get("timeout_ms") or DEFAULT_TIMEOUT_MS) / 1000.0
         on_to = jcfg.get("on_timeout") or {}
         deadline = time.monotonic() + timeout_s      # one budget for the whole event
