@@ -110,7 +110,7 @@ def create_app(script: Script | None = None, prices: dict | None = None) -> Fast
         reply = (step or {}).get("reply") if step else f"echo: {last_user}"
         tool_calls = [
             {"id": f"call_{i}", "type": "function",
-             "function": {"name": t["name"], "arguments": json.dumps(t.get("arguments", {}))}}
+             "function": {"name": t["name"], "arguments": t["arguments"] if isinstance(t.get("arguments"), str) else json.dumps(t.get("arguments", {}))}}
             for i, t in enumerate((step or {}).get("tool_calls") or [])
         ]
         message: dict = {"role": "assistant", "content": reply if not tool_calls else (reply or None)}

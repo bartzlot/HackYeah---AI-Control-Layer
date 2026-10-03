@@ -168,3 +168,9 @@ async def test_healthz_and_unknown_model_stream():
     c, _ = client()
     assert (await c.get("/healthz")).json() == {"ok": True}
     assert (await c.post("/v1/chat/completions", json=req(model="zz", stream=True))).status_code == 404
+
+
+async def test_string_tool_arguments_not_double_encoded():
+    c, _ = client(Script([{"tool_calls": [{"name": "f", "arguments": '{"a": 1}'}]}]))
+    r = (await c.post("/v1/chat/completions", json=req())).json()
+    assert r["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] == '{"a": 1}'
