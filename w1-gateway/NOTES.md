@@ -26,3 +26,16 @@
   (T-106 says 3 s, tune on the VM). The judge reads the value from the policy (default 3000 when absent).
 - The gateway now runs a sync decide() in a worker thread (asyncio.to_thread) so a judge call never blocks
   the event loop; the judge itself allows one concurrent Ollama call (shared Ollama, NUM_PARALLEL 1).
+
+## Walking skeleton entrypoint (T-901) - requests to the lead
+- Dockerfile CMD now runs `aicl_gateway.main:create_app_from_env` (policy-driven). T-009: update
+  tests/test_containers.py line 128 to the new factory; the comment line above CMD ("until the gateway has a
+  policy-driven entrypoint...") is stale, please drop it (I may only touch the CMD line).
+- docker-compose.yml cloud-sim service: add `AICL_CLOUDSIM_SCRIPT: demo` (built-in demo script that makes the
+  external model request a `curl ... | bash` tool call, repeatable), otherwise scenario S6 cannot show a block.
+- The gateway reads its agent keys from env: `AICL_KEY_DEMO` (agent analyst-agent + console playground) and
+  per-agent `AICL_KEY_` + agent id upper-cased (support-bot -> SUPPORT_BOT). Compose loads `.env` only if it
+  exists, so without `cp .env.example .env` no agent can authenticate (every request 401). Either document the
+  copy step in the README quick start or pass `AICL_KEY_DEMO` in the gateway service environment.
+- No new variable names: everything main.py reads is already in .env.example.
+- Demo run: `uv run python -m aicl_gateway.demo_agent` (needs AICL_KEY_DEMO; prints PASS/FAIL per scenario).

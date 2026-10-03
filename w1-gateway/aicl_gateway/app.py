@@ -7,6 +7,7 @@ decisions enforceable (nothing leaves before it is checked).
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import inspect
 import json
 import time
@@ -165,6 +166,8 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         auth = request.headers.get("authorization", "")
         key = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
         agent = cfg["agents"].get(key) if key else None
+        if agent is None and key and cfg.get("agent_key_hashes"):   # policy agents.<id>.key_sha256
+            agent = cfg["agent_key_hashes"].get(hashlib.sha256(key.encode("utf-8")).hexdigest())
         return (agent.get("agent_id", "anonymous"), agent) if agent is not None else None
 
     def allowed(agent: dict, model: str) -> bool:

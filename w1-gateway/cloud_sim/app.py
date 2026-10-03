@@ -33,9 +33,9 @@ def _content_text(content) -> str:
 
 
 class Script:
-    """Ordered steps: {match: {contains: str}?, reply: str?, tool_calls: [{name, arguments}]?}.
+    """Ordered steps: {match: {contains: str}?, reply: str?, tool_calls: [{name, arguments}]?, repeat: bool?}.
 
-    A step without `match` fires on any request; each step fires once, in order. With no
+    A step without `match` fires on any request; each step fires once (unless repeat: true), in order. With no
     step left (or no match) the mock echoes the last user message.
     """
 
@@ -57,14 +57,21 @@ class Script:
                 continue
             needle = (step.get("match") or {}).get("contains")
             if needle is None or needle in last_user:
-                self.used.add(i)
+                if not step.get("repeat"):      # repeat: true = fires on every matching request (live demo)
+                    self.used.add(i)
                 return step
         return None
 
 
+DEMO_SCRIPT = Path(__file__).parent / "demo_script.yaml"
+
+
 def load_script(path: str | os.PathLike | None) -> Script:
+    """YAML file with `steps`; the word `demo` = the built-in demo script (cloud_sim/demo_script.yaml)."""
     if not path:
         return Script()
+    if str(path) == "demo":
+        path = DEMO_SCRIPT
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
     return Script(data.get("steps", []))
 
