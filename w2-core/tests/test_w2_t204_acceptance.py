@@ -92,8 +92,13 @@ def test_meta_covers_every_enabled_policy_control(engine):
     assert set(gaps) <= {"INJ-04"}, f"controls without an allowed + blocked case: {gaps}"
 
 
+def make_test_recipe() -> str:
+    """The command line of the Makefile `test` target (no make on every dev box, e.g. Windows Git Bash)."""
+    return re.search(r"^test:.*\n\t(.+)$", (REPO / "Makefile").read_text(encoding="utf-8"), re.M).group(1)
+
+
 def test_make_test_writes_junit(tmp_path):
-    recipe = re.search(r"^test:.*\n\t(.+)$", (REPO / "Makefile").read_text(encoding="utf-8"), re.M).group(1)
+    recipe = make_test_recipe()
     assert "--junitxml=reports/junit.xml" in recipe and recipe.startswith("uv run pytest")
     # run the same pytest command (minus uv) on one small file, junit into tmp
     args = shlex.split(recipe)[2:]
@@ -104,3 +109,16 @@ def test_make_test_writes_junit(tmp_path):
     assert r.returncode == 0, r.stdout + r.stderr
     suite = ET.parse(tmp_path / "junit.xml").getroot().find("testsuite")
     assert int(suite.get("tests")) > 5 and int(suite.get("failures")) == 0
+
+
+def test_make_test_collection_includes_the_case_runner():
+    """The `make test` recipe (testpaths from pyproject) collects both case drivers and the meta-tests."""
+    args = [a for a in shlex.split(make_test_recipe())[2:] if not a.startswith("--junitxml=")]
+    r = subprocess.run([sys.executable, "-m", *[a for a in args if a != "-q"], "--co", "-q", "-p", "no:cacheprovider"],
+                       cwd=REPO, capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stdout[-2000:] + r.stderr[-2000:]
+    out = r.stdout
+    for needle in ("test_w2_runner.py::test_case_through_gateway[BUD-01:", "test_w2_runner.py::test_case_through_gateway[DLP-02:T09]",
+                   "test_w2_cases.py::test_case[TOOL-01:", "test_w2_runner.py::test_meta_each_control_has_positive_and_negative_case[",
+                   "test_w2_cases.py::test_negative_case_fails_with_control_off["):
+        assert needle in out, f"`make test` does not collect {needle}"

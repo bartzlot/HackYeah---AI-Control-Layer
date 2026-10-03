@@ -11,15 +11,19 @@ import pytest
 from aicl_core import load_policy, registered
 from aicl_core.cases import case_policy, collect_cases, coverage_gaps, enabled_controls
 
-from w2_gateway_driver import check_gateway, gateway_path, run_gateway_case
+from w2_gateway_driver import GATEWAY_CONTROLS, check_gateway, gateway_path, run_gateway_case
 
 REPO = Path(__file__).resolve().parents[2]
 ALL = collect_cases(REPO)
-GATEWAY_CONTROLS = {"BUD-01"}
 GW = [c for c in ALL if gateway_path(c) and (c.control in GATEWAY_CONTROLS or c.control in set(registered()))]
 # controls whose owner task has not landed cases yet: reported as xfail, never silently skipped
 PENDING = {"INJ-04": "T-106 (w1, AI judge)"}
-EXPLOIT_CATEGORIES = ("code_exec", "unsafe_deserialization", "model_supply_chain")
+
+
+def test_gateway_only_cases_are_routable():
+    """A case of a gateway-enforced control that the gateway driver cannot run would run nowhere."""
+    lost = [c.name for c in ALL if c.control in GATEWAY_CONTROLS and not gateway_path(c)]
+    assert not lost, f"gateway-control cases the gateway driver cannot run: {lost}"
 
 
 @pytest.mark.parametrize("case", GW, ids=lambda c: c.name)
@@ -50,8 +54,11 @@ def test_meta_budget_and_exploit_cases_exist(engine):
     assert any(c.expect.get("http_status") == 429 for c in bud), "budget exhaustion case (429) missing"
     assert any("AGENT_LOOP_TERMINATED" in (c.expect.get("events") or []) for c in bud), "loop guard case missing"
     by_cat = {r.id: r.category for r in engine.policy.rules}
+    # every category of the historical-exploit rule set (HIST-*) needs a blocking case
+    exploit_categories = sorted({r.category for r in engine.policy.rules if r.id.startswith("HIST-")})
+    assert {"code_exec", "unsafe_deserialization", "model_supply_chain"} <= set(exploit_categories)
     covered = {by_cat.get(r) for c in ALL if c.kind == "negative" for r in c.expect.get("rule_ids") or []}
-    missing = [cat for cat in EXPLOIT_CATEGORIES if cat not in covered]
+    missing = [cat for cat in exploit_categories if cat not in covered]
     assert not missing, f"no blocking case for historical exploit categories {missing}"
 
 
