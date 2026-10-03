@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Control Layer - Console</title>
+<link rel="stylesheet" href="/console/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="logo"></span> AI Control Layer <small>console</small></div>
+  <nav id="nav">
+    <button data-page="overview" class="active">Overview</button>
+    <button data-page="security">Security</button>
+    <button data-page="controls">Controls</button>
+    <button data-page="playground">Playground</button>
+    <button data-page="audit">Audit export</button>
+  </nav>
+  <div class="right"><span id="live" class="pill off">offline</span><button id="theme" title="Toggle theme">Theme</button></div>
+</header>
+
+<main>
+<section id="page-overview" class="page active">
+  <h1>Management overview</h1>
+  <div class="tiles" id="tiles"></div>
+  <div class="grid2">
+    <div class="card"><h2>Decisions over time</h2><div class="chartbox"><canvas id="ch-time"></canvas><div class="fallback" id="fb-time"></div></div></div>
+    <div class="card"><h2>Findings by category</h2><div class="chartbox"><canvas id="ch-cat"></canvas><div class="fallback" id="fb-cat"></div></div></div>
+  </div>
+</section>
+
+<section id="page-security" class="page">
+  <h1>Security - live events</h1>
+  <div class="toolbar">
+    <select id="f-decision"><option value="">All decisions</option><option>ALLOW</option><option>REDACT</option><option>BLOCK</option></select>
+    <input id="f-text" placeholder="Filter agent, tool, control, type...">
+    <span class="muted" id="count"></span>
+  </div>
+  <div class="split">
+    <div class="card scroll"><table id="events"><thead><tr><th>Time</th><th>Decision</th><th>Sev</th><th>Type</th><th>Agent</th><th>Dest</th><th>Controls</th></tr></thead><tbody></tbody></table></div>
+    <aside class="card" id="explain"><h2>Explain</h2><p class="muted">Select an event.</p></aside>
+  </div>
+</section>
+
+<section id="page-controls" class="page">
+  <h1>Controls</h1>
+  <div class="card scroll"><table id="ctl"><thead><tr><th>ID</th><th>Control</th><th>Category</th><th>Severity</th><th>Mode</th><th>Default action</th><th>Hits</th></tr></thead><tbody></tbody></table></div>
+</section>
+
+<section id="page-playground" class="page">
+  <h1>Playground</h1>
+  <div class="card">
+    <label>Prompt</label>
+    <textarea id="pg-text" rows="5">My PESEL is 44051401359 and my key is AKIAIOSFODNN7EXAMPLE, summarise my contract.</textarea>
+    <div class="toolbar">
+      <label>Destination</label>
+      <select id="pg-dest"><option value="local">local</option><option value="external">external</option><option value="unknown">unknown</option></select>
+      <label>Gateway URL</label><input id="pg-url" value="/v1/chat/completions" size="34">
+      <button id="pg-run" class="primary">Send through gateway</button>
+    </div>
+    <div id="pg-out" class="result muted">No request yet.</div>
+  </div>
+</section>
+
+<section id="page-audit" class="page">
+  <h1>Audit export</h1>
+  <div class="card">
+    <p class="muted">Records hold decisions, rule ids and span hashes only, never raw text.</p>
+    <div class="toolbar">
+      <a class="btn" href="/console/api/export.jsonl" download>Download JSONL</a>
+      <a class="btn" href="/console/api/export.csv" download>Download CSV</a>
+    </div>
+  </div>
+</section>
+</main>
+<script src="/console/static/chart.umd.min.js" onerror="this.onerror=null;window.__chartFallback=1"></script>
+<script src="/console/static/app.js"></script>
+</body>
+</html>
