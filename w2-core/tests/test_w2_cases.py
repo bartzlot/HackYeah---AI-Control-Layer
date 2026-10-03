@@ -12,8 +12,9 @@ import pytest
 from aicl_core import registered
 from aicl_core.cases import build_event, case_policy, check, collect_cases
 
+from w2_gateway_driver import GATEWAY_CONTROLS
+
 REPO = Path(__file__).resolve().parents[2]
-GATEWAY_CONTROLS = {"BUD-01"}          # enforced in w1-gateway (budget ledger, loop guard)
 
 ALL = collect_cases(REPO)
 DECIDE = set(registered())
