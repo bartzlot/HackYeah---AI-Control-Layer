@@ -5,7 +5,7 @@ import threading
 import uuid
 from datetime import datetime, timezone
 
-from aicl_contracts import Action, AuditRecord, Decision, Event, Stage
+from aicl_contracts import Action, AuditRecord, Decision, Event, Finding, Stage
 
 from .bus import EventBus
 
@@ -53,7 +53,8 @@ class Audit:
             redaction_count=len(d.redactions), policy_version=d.policy_version, usage=event.usage,
             latency_us=d.latency_us, degraded=d.degraded, explain=d.explain))
 
-    def denied(self, event: Event, reason: str, event_type_: str = "MODEL_DENIED") -> AuditRecord:
-        d = Decision(action=Action.BLOCK, would_action=Action.BLOCK, explain=[reason],
+    def denied(self, event: Event, reason: str, event_type_: str = "MODEL_DENIED",
+               findings: list[Finding] | None = None) -> AuditRecord:
+        d = Decision(action=Action.BLOCK, would_action=Action.BLOCK, explain=[reason], findings=findings or [],
                      decision_id=uuid.uuid4().hex[:16])
         return self.from_decision(event, d, event_type_)

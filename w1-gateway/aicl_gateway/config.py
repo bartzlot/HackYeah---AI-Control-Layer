@@ -29,6 +29,13 @@ def default_config() -> dict[str, Any]:
         "audit_path": os.environ.get("AICL_AUDIT_PATH"),   # JSONL, None = bus only
         "upstream_timeout": 120.0,
         "session_header": "x-session-id",
+        # BUD-01 (T-104). budgets = policy budgets.agents {agent_id: {tokens, usd, period: minute|hour|day|month}};
+        # agents without an entry are uncapped. budget = policy budgets.{unpriced_model, ladder.warn_at}.
+        "budgets": {},
+        "budget": {"unpriced_model": "BLOCK", "warn_at": 0.8},
+        "loop_limits": {"repeat_identical": 4},     # policy loop_limits; N identical calls in a session = BLOCK
+        "prices": None,                             # {model: {"in": usd/Mtok, "out": usd/Mtok}} over DEFAULT_PRICES
+        "budget_db": os.environ.get("AICL_BUDGET_DB", ":memory:"),   # SQLite file keeps spend across restarts
         # console: demo_key = key the playground uses; policy = raw policy dict or callable (controls table,
         # org USD budget); budget_usd overrides the policy budget; fixtures = preload demo records;
         # remote = serve the console (and the demo key) to non-loopback clients; host-only by default,
@@ -41,7 +48,7 @@ def default_config() -> dict[str, Any]:
 def merge_config(config: dict | None) -> dict[str, Any]:
     cfg = default_config()
     for k, v in (config or {}).items():
-        if k in ("upstream_urls", "upstream_keys", "console") and isinstance(v, dict):
+        if k in ("upstream_urls", "upstream_keys", "console", "budget") and isinstance(v, dict):
             cfg[k] = {**cfg[k], **v}
         else:
             cfg[k] = v

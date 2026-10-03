@@ -16,9 +16,11 @@ import httpx
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from aicl_contracts import Action, Decision, DestKind, Event, Part, Stage, ToolCall, Usage
+from aicl_contracts import Action, Decision, DestKind, Event, Finding, Part, Stage, ToolCall, Usage
 
 from .audit import Audit
+from .budget import (DEFAULT_MAX_TOKENS, DEFAULT_PRICES, BudgetLedger, LoopGuard, estimate, last_user_fingerprint,
+                     tool_fingerprint)
 from .bus import EventBus
 from .config import merge_config, route
 from .console_api import ConsoleStore, make_console_router
@@ -47,6 +49,11 @@ def _text_slots(messages: list[dict]) -> list[tuple[int, int | None, str, str]]:
                 if isinstance(p, dict) and isinstance(p.get("text"), str):
                     slots.append((mi, ci, role, p["text"]))
     return slots
+
+
+def bud_finding(rule_id: str, reason: str, **detail) -> Finding:
+    return Finding(control_id="BUD-01", rule_id=rule_id, category="resource", action=Action.BLOCK,
+                   reason_code=rule_id, detail={"reason": reason, **detail})
 
 
 def apply_redactions(texts: list[str], redactions) -> list[str]:
@@ -104,15 +111,19 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
             clients[kind] = c
             owned.append(c)
 
+    bcfg = cfg["budget"]
+    ledger = BudgetLedger(cfg["budget_db"], cfg["budgets"], warn_at=float(bcfg.get("warn_at", 0.8)))
+    loops = LoopGuard(cfg["loop_limits"])
+    prices = {**DEFAULT_PRICES, **(cfg["prices"] or {})}
     ccfg = cfg["console"]
-    store = ConsoleStore(budget_usd=ccfg.get("budget_usd"), policy=ccfg.get("policy"))
+    store = ConsoleStore(budget_usd=ccfg.get("budget_usd"), policy=ccfg.get("policy"), budgets=ledger.snapshot)
     if ccfg.get("fixtures"):
         store.load_file()
     bus.listeners.append(store.append)
 
     app = FastAPI(title="aicl-gateway")
     app.state.bus, app.state.audit, app.state.config, app.state.upstreams = bus, audit, cfg, clients
-    app.state.console = store
+    app.state.console, app.state.ledger, app.state.loops = store, ledger, loops
     models_view = {"local": [m for m, e in cfg["models"].items() if e["kind"] == "local"],
                    "external": [m for m, e in cfg["models"].items() if e["kind"] == "external"]}
     app.include_router(make_console_router(store, {"api_key": ccfg.get("demo_key"), "models": models_view},
@@ -123,6 +134,7 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         for c in owned:
             await c.aclose()
         bus.close()
+        ledger.close()
 
     async def run_decide(event: Event) -> Decision | None:
         try:
@@ -186,9 +198,11 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
             resp.headers["X-AICL-Request-Id"] = ctx["request_id"]
             if resp.status_code < 400 or ctx["action"] == Action.BLOCK:
                 resp.headers["X-AICL-Decision"] = ctx["action"].name
+        if ctx.get("budget_warning"):
+            resp.headers["X-AICL-Budget-Warning"] = ctx["budget_warning"]
         resp.headers["Server-Timing"] = (f"aicl;dur={max(total - ctx['up'], 0):.1f}, upstream;dur={ctx['up']:.1f}, "
                                          f"total;dur={total:.1f}")
-        resp.headers["Access-Control-Expose-Headers"] = "X-AICL-Decision, X-AICL-Request-Id, Server-Timing"
+        resp.headers["Access-Control-Expose-Headers"] = "X-AICL-Decision, X-AICL-Request-Id, X-AICL-Budget-Warning, Server-Timing, Retry-After"
         return resp
 
     async def _chat(request: Request, ctx: dict):
@@ -219,6 +233,15 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
             audit.denied(Event(stage=Stage.PROMPT, **base), f"{why}: {model}")
             return _err(403, "model_denied", f"model {model!r} is not permitted for this agent ({why})")
 
+        # ---- loop guard (before policy: repeated blocked attempts count too) ----
+        sid = base["session_id"]
+        if loops.observe(agent_id, sid, last_user_fingerprint(messages)):
+            ctx["action"] = Action.BLOCK
+            why = f"agent loop: {loops.threshold} identical calls" + (f", session {sid} terminated" if sid else "")
+            audit.denied(Event(stage=Stage.PROMPT, **base), why, "AGENT_LOOP_TERMINATED",
+                         [bud_finding("loop.repeat_identical", why, threshold=loops.threshold)])
+            return _err(403, "agent_loop_terminated", f"Blocked by AI Control Layer: {why}")
+
         # ---- request stage ----
         slots = _text_slots(messages)
         parts = [Part(role=r, text=t, trusted=r != "tool") for _, _, r, t in slots]
@@ -235,6 +258,25 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
                     else:
                         fwd["messages"][mi]["content"][ci]["text"] = text
 
+        # ---- budget: reserve the worst case now, settle with real usage ----
+        if not isinstance(fwd.get("max_tokens"), int) and not isinstance(fwd.get("max_completion_tokens"), int):
+            fwd["max_tokens"] = DEFAULT_MAX_TOKENS     # Ollama default is unlimited; makes the reservation a bound
+        price = prices.get(model) if kind == DestKind.EXTERNAL else None
+        if kind == DestKind.EXTERNAL and price is None and bcfg.get("unpriced_model", "BLOCK") == "BLOCK":
+            ctx["action"] = Action.BLOCK
+            why = f"unpriced external model {model}: budgets cannot be enforced"
+            audit.denied(Event(stage=Stage.PROMPT, **base), why, "BUDGET_EXCEEDED", [bud_finding("budget.unpriced", why)])
+            return _err(403, "unpriced_model", f"Blocked by AI Control Layer: {why}")
+        est_tokens, est_usd = estimate(fwd, price)
+        res, retry, why = ledger.reserve(agent_id, est_tokens, est_usd)
+        if res is None:
+            ctx["action"] = Action.BLOCK
+            audit.denied(Event(stage=Stage.PROMPT, **base), f"budget exceeded for agent {agent_id}: {why}",
+                         "BUDGET_EXCEEDED", [bud_finding("budget.agent", why, retry_after_s=retry)])
+            r = _err(429, "budget_exceeded", f"Blocked by AI Control Layer: {why}; retry after {retry} s")
+            r.headers["Retry-After"] = str(retry)
+            return r
+
         # ---- upstream: own credential only, agent key never forwarded ----
         fwd["model"] = entry.get("upstream_model", model)
         fwd["stream"] = False
@@ -247,19 +289,32 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         try:
             up = await clients[kind.value].post("/v1/chat/completions", json=fwd, headers=headers)
         except (httpx.HTTPError, KeyError) as e:
+            ledger.release(res)
             return _err(502, "upstream_error", f"upstream {kind.value} unreachable: {type(e).__name__}")
         ctx["up"] = (time.perf_counter() - t_up) * 1000
         try:
             resp = up.json()
         except ValueError:
+            ledger.release(res)
             return _err(502, "upstream_error", "upstream returned invalid JSON")
         if up.status_code != 200 or not isinstance(resp, dict) or not resp.get("choices"):
+            ledger.release(res)
             return JSONResponse(resp if isinstance(resp, dict) else {"error": {"message": "bad upstream reply"}},
                                 status_code=up.status_code if up.status_code != 200 else 502)
         resp["model"] = model
         u = resp.get("usage") or {}
         usage = Usage(input_tokens=int(u.get("prompt_tokens") or 0), output_tokens=int(u.get("completion_tokens") or 0),
                       usd=float(u.get("cost_usd") or 0.0), source="reported" if u else "estimated")
+        if not u:   # no usage reported: settle the reservation (pessimistic estimate), flagged as estimated
+            usage = usage.model_copy(update={"input_tokens": est_tokens, "usd": est_usd})
+        elif kind == DestKind.EXTERNAL and not u.get("cost_usd") and price:
+            usage = usage.model_copy(update={"usd": (usage.input_tokens * price["in"]
+                                                     + usage.output_tokens * price["out"]) / 1e6})
+        if kind != DestKind.EXTERNAL:
+            usage = usage.model_copy(update={"usd": 0.0})   # local compute is not API cost
+        ledger.settle(res, usage.input_tokens + usage.output_tokens, usage.usd)
+        if ledger.utilization(agent_id) >= ledger.warn_at:
+            ctx["budget_warning"] = f"{100 * ledger.utilization(agent_id):.0f}% of budget used"
         msg = resp["choices"][0].setdefault("message", {"role": "assistant", "content": ""})
 
         # ---- response stage ----
@@ -283,6 +338,14 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
                     args = {"_raw": fn.get("arguments")}
                 tcs.append(ToolCall(name=str(fn.get("name", "")),
                                     arguments=args if isinstance(args, dict) else {"_value": args}))
+            looped = [t for t in tcs if loops.observe(agent_id, sid, tool_fingerprint(t.name, t.arguments))]
+            if looped:
+                ctx["action"] = Action.BLOCK
+                why = (f"agent loop: tool {looped[0].name} called {loops.threshold} times with identical arguments"
+                       + (f", session {sid} terminated" if sid else ""))
+                audit.denied(Event(stage=Stage.TOOL_ARGS, tool_calls=tcs, **base), why, "AGENT_LOOP_TERMINATED",
+                             [bud_finding("loop.repeat_identical", why, threshold=loops.threshold)])
+                return _err(403, "agent_loop_terminated", f"Blocked by AI Control Layer: {why}")
             td, error = await guard(Event(stage=Stage.TOOL_ARGS, tool_calls=tcs, **base), ctx)
             if td is None:
                 return error
