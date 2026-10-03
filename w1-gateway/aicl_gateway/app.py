@@ -116,7 +116,7 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
     models_view = {"local": [m for m, e in cfg["models"].items() if e["kind"] == "local"],
                    "external": [m for m, e in cfg["models"].items() if e["kind"] == "external"]}
     app.include_router(make_console_router(store, {"api_key": ccfg.get("demo_key"), "models": models_view},
-                                           expose_key=bool(ccfg.get("expose_demo_key"))))
+                                           remote=bool(ccfg.get("remote"))))
 
     @app.on_event("shutdown")
     async def _close():
@@ -180,9 +180,12 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         ctx = {"action": Action.ALLOW, "up": 0.0}
         resp = await _chat(request, ctx)
         total = (time.perf_counter() - t0) * 1000
-        if ctx.get("request_id"):          # a request was identified and decided (not 400 / 401)
-            resp.headers["X-AICL-Decision"] = ctx["action"].name
+        # decision header only when a policy verdict explains the status: not on 400 / 401 (no request yet),
+        # not on an allowed request that then failed upstream (502 / passthrough error)
+        if ctx.get("request_id"):
             resp.headers["X-AICL-Request-Id"] = ctx["request_id"]
+            if resp.status_code < 400 or ctx["action"] == Action.BLOCK:
+                resp.headers["X-AICL-Decision"] = ctx["action"].name
         resp.headers["Server-Timing"] = (f"aicl;dur={max(total - ctx['up'], 0):.1f}, upstream;dur={ctx['up']:.1f}, "
                                          f"total;dur={total:.1f}")
         resp.headers["Access-Control-Expose-Headers"] = "X-AICL-Decision, X-AICL-Request-Id, Server-Timing"

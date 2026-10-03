@@ -14,7 +14,7 @@ from itertools import islice
 from pathlib import Path
 from typing import Any, Callable
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
 CONSOLE_DIR = Path(__file__).parent / "console"
@@ -266,7 +266,18 @@ CSV_COLUMNS = ["ts", "event_id", "request_id", "event_type", "severity", "decisi
                "redaction_count", "usd", "policy_version"]
 
 
+def _cell(v: Any) -> Any:
+    """CSV formula-injection guard: model and tool names come from clients / model output."""
+    if isinstance(v, str) and v[:1] in ("=", "+", "-", "@", chr(9), chr(13)):
+        return "'" + v
+    return v
+
+
 def _csv_row(r: dict[str, Any]) -> list[Any]:
+    return [_cell(v) for v in _csv_raw(r)]
+
+
+def _csv_raw(r: dict[str, Any]) -> list[Any]:
     fs = r.get("findings", [])
     return [r.get("ts"), r.get("event_id"), r.get("request_id"), r.get("event_type"), r.get("severity"),
             dec_name(r.get("decision")), dec_name(r.get("would_decision")) if r.get("would_decision") is not None else "", r.get("stage"), r.get("channel"), r.get("agent_id"),
@@ -279,11 +290,22 @@ def _csv_row(r: dict[str, Any]) -> list[Any]:
 LOOPBACK = {"127.0.0.1", "::1", "localhost"}
 
 
-def make_console_router(store: ConsoleStore, playground: dict | None = None,
-                        expose_key: bool = False) -> APIRouter:
-    """playground = {"api_key", "models"}; the key is handed only to loopback clients unless
-    expose_key (console.expose_demo_key) is set for a firewalled demo host."""
-    router = APIRouter(prefix="/console")
+def is_local(request: Request) -> bool:
+    """Direct loopback client; anything relayed by a proxy (forwarded headers) is not local."""
+    if request.headers.get("x-forwarded-for") or request.headers.get("forwarded"):
+        return False
+    return bool(request.client) and request.client.host in LOOPBACK
+
+
+def make_console_router(store: ConsoleStore, playground: dict | None = None, remote: bool = False) -> APIRouter:
+    """The console (UI, audit API, exports, playground demo key) is host-only (research/13 section 14):
+    non-loopback clients get 403 unless remote=True (console.remote, only on a firewalled demo host)."""
+
+    async def host_only(request: Request) -> None:
+        if not remote and not is_local(request):
+            raise HTTPException(403, "console is host-only (set console.remote on a firewalled demo host)")
+
+    router = APIRouter(prefix="/console", dependencies=[Depends(host_only)])
 
     @router.get("")
     @router.get("/")
@@ -298,12 +320,8 @@ def make_console_router(store: ConsoleStore, playground: dict | None = None,
         return FileResponse(p)
 
     @router.get("/api/playground")
-    async def playground_cfg(request: Request):
-        pg = dict(playground or {"api_key": None, "models": {"local": [], "external": []}})
-        host = request.client.host if request.client else ""
-        if not (expose_key or host in LOOPBACK):
-            pg["api_key"] = None
-        return pg
+    async def playground_cfg():
+        return playground or {"api_key": None, "models": {"local": [], "external": []}}
 
     @router.get("/api/summary")
     async def summary():

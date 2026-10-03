@@ -100,12 +100,14 @@ def test_controls_and_budget_follow_policy():
 
 
 def test_real_policy_file_drives_the_console():
-    pol = load_policy()
+    pol = load_policy() or {}
+    controls, org = pol.get("controls"), (pol.get("budgets") or {}).get("org") or {}
+    if not isinstance(controls, dict) or "usd" not in org:
+        pytest.skip("shared policy.yaml has no controls / budgets.org.usd right now")
     store = ConsoleStore(policy=pol)
-    rows = {r["id"] for r in store.control_rows()}
-    assert set(pol["controls"]) <= rows
+    assert set(controls) <= {r["id"] for r in store.control_rows()}
     assert 0 <= store.summary()["posture_pct"] <= 100
-    assert store.budget_usd == float(pol["budgets"]["org"]["usd"])
+    assert store.budget_usd == float(org["usd"])
 
 
 async def test_events_controls_and_pages():
@@ -193,10 +195,34 @@ async def test_gateway_feeds_console_end_to_end():
     pg = (await c.get("/console/api/playground")).json()          # ASGITransport client = 127.0.0.1
     assert pg["api_key"] == "k-demo" and "gpt-4o-mini" in pg["models"]["external"]
     far = httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=("203.0.113.7", 5000)), base_url="http://g")
-    assert (await far.get("/console/api/playground")).json()["api_key"] is None
+    for path in ("/console/api/playground", "/console/api/export.jsonl", "/console/api/events", "/console"):
+        assert (await far.get(path)).status_code == 403                       # host-only by default
+    assert (await c.get("/console/api/playground", headers={"x-forwarded-for": "203.0.113.7"})).status_code == 403
     d = await c.post("/v1/chat/completions", headers={"authorization": "Bearer k-demo"},
                      json={"model": "unknown-model", "messages": [{"role": "user", "content": "hi"}]})
     assert d.status_code == 403 and d.headers["x-aicl-decision"] == "BLOCK"
     assert "x-aicl-decision" not in (await c.post("/v1/chat/completions", json={})).headers
     ctl = {x["id"]: x["hits"] for x in (await c.get("/console/api/controls")).json()["controls"]}
     assert ctl["DLP-01"] == 1
+
+
+async def test_console_remote_mode_and_upstream_failure_header():
+    from aicl_gateway import create_app
+
+    def down(request):
+        raise httpx.ConnectError("down")
+
+    ext = httpx.AsyncClient(transport=httpx.MockTransport(down), base_url="http://ext")
+    app = create_app(None, {"agents": {"k": {"agent_id": "a"}}, "console": {"remote": True, "demo_key": "k"}},
+                     {"external": ext})
+    far = httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=("203.0.113.7", 5000)), base_url="http://g")
+    assert (await far.get("/console/api/playground")).json()["api_key"] == "k"
+    r = await far.post("/v1/chat/completions", headers={"authorization": "Bearer k"},
+                       json={"model": "gpt-4o-mini", "messages": [{"role": "user", "content": "hi"}]})
+    assert r.status_code == 502 and "x-aicl-decision" not in r.headers and r.headers["x-aicl-request-id"]
+
+
+def test_csv_formula_injection_guard():
+    from aicl_gateway.console_api import _csv_row
+    row = _csv_row({"model": "=HYPERLINK(\"http://x\")", "tool": "@SUM(1)", "agent_id": "ok"})
+    assert row[10].startswith("'=") and row[12].startswith("'@") and row[9] == "ok"

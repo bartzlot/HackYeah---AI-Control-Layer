@@ -31,9 +31,9 @@ def default_config() -> dict[str, Any]:
         "session_header": "x-session-id",
         # console: demo_key = key the playground uses; policy = raw policy dict or callable (controls table,
         # org USD budget); budget_usd overrides the policy budget; fixtures = preload demo records;
-        # expose_demo_key = hand demo_key to non-loopback browsers (only on a firewalled demo host)
-        "console": {"demo_key": None, "fixtures": False, "budget_usd": None, "policy": None,
-                    "expose_demo_key": False},
+        # remote = serve the console (and the demo key) to non-loopback clients; host-only by default,
+        # set it only on a firewalled demo host or inside docker behind a host-only port mapping
+        "console": {"demo_key": None, "fixtures": False, "budget_usd": None, "policy": None, "remote": False},
     }
 
 
