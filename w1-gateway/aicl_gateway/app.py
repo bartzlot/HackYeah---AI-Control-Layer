@@ -220,6 +220,8 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         if (not isinstance(model, str) or not isinstance(messages, list) or not messages
                 or not all(isinstance(m, dict) for m in messages)):
             return _err(400, "invalid_request", "model (string) and messages (non-empty list) are required")
+        if body.get("n") not in (None, 1):   # one choice only: budgets reserve and checks inspect one output
+            return _err(400, "unsupported_n", "n > 1 is not supported by the AI Control Layer")
         stream = bool(body.get("stream"))
         kind, entry = route(cfg, model)
         base = dict(agent_id=agent_id, session_id=request.headers.get(cfg["session_header"]),
@@ -261,9 +263,10 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
 
         # ---- budget: reserve the worst case now, settle with real usage ----
         cap = output_cap(fwd)            # always a positive cap: Ollama treats missing / -1 as unlimited
-        fwd["max_tokens"] = cap
         if "max_completion_tokens" in fwd:
             fwd["max_completion_tokens"] = cap
+        if "max_completion_tokens" not in fwd or "max_tokens" in fwd or kind == DestKind.LOCAL:
+            fwd["max_tokens"] = cap      # (o-series upstreams reject max_tokens next to max_completion_tokens)
         price = prices.get(model) if kind == DestKind.EXTERNAL else None
         if kind == DestKind.EXTERNAL and price is None and bcfg.get("unpriced_model", "BLOCK") == "BLOCK":
             ctx["action"] = Action.BLOCK

@@ -23,6 +23,7 @@ DEFAULT_PRICES: dict[str, dict[str, float]] = {
 }
 DEFAULT_LOOP_LIMITS = {"repeat_identical": 4}
 DEFAULT_MAX_TOKENS = 512          # assumed output when the client sends no max_tokens
+IMAGE_TOKENS = 1500               # flat input charge per image part in the reservation
 LOOP_WINDOW = 20                  # per-session ring of recent call fingerprints
 LOOP_MAX_AGE_S = 600              # fingerprints older than this fall out of the ring (policy max_wall_s)
 LOOP_MAX_KEYS = 10_000            # LRU bound on tracked (agent, session) pairs
@@ -184,7 +185,7 @@ def output_cap(body: dict) -> int:
     """Positive output cap the request will run with: the larger of max_tokens / max_completion_tokens,
     DEFAULT_MAX_TOKENS when neither is a positive integer (Ollama treats -1 / missing as unlimited)."""
     vals = [v for v in (body.get("max_tokens"), body.get("max_completion_tokens"))
-            if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0]
+            if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v > 0]
     return int(max(vals)) if vals else DEFAULT_MAX_TOKENS
 
 
@@ -192,9 +193,21 @@ def estimate_split(body: dict, price: dict | None) -> tuple[int, int, float]:
     """Pessimistic (input tokens, output tokens, usd): ceil(utf8 bytes / 3) over the whole request except
     the model name (messages, tools, response_format; never under-counts, chars / 4 under-counts Polish by
     24 %) plus the output cap."""
-    rest = {k: v for k, v in body.items() if k not in ("model", "stream", "stream_options")}
+    images = [0]
+
+    def strip_images(v):     # an image costs ~IMAGE_TOKENS, not its base64 length / 3
+        if isinstance(v, dict):
+            if v.get("type") in ("image_url", "input_image", "image"):
+                images[0] += 1
+                return "[image]"
+            return {k: strip_images(x) for k, x in v.items()}
+        if isinstance(v, list):
+            return [strip_images(x) for x in v]
+        return v
+
+    rest = strip_images({k: v for k, v in body.items() if k not in ("model", "stream", "stream_options")})
     raw = json.dumps(rest, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
-    tin, out = math.ceil(len(raw) / 3), output_cap(body)
+    tin, out = math.ceil(len(raw) / 3) + images[0] * IMAGE_TOKENS, output_cap(body)
     usd = (tin * price["in"] + out * price["out"]) / 1e6 if price else 0.0
     return tin, out, usd
 

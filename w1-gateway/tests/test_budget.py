@@ -281,3 +281,19 @@ async def test_reservation_released_on_cancel_and_bad_usage():
     assert snap["reserved_tokens"] == 0 and snap["tokens"] > 512    # settled at the pessimistic estimate
     rec = [x for x in app.state.bus.recent(10) if x["stage"] == "response"][0]
     assert rec["usage"]["source"] == "estimated" and rec["usage"]["output_tokens"] == 512
+
+
+async def test_second_review_n_infinity_images_and_completion_tokens():
+    app, c, ext = gateway()
+    r = await chat(c, "x", n=4)
+    assert r.status_code == 400 and r.json()["error"]["code"] == "unsupported_n" and not ext.state.calls
+    assert (await chat(c, "x", n=1)).status_code == 200
+    assert output_cap({"max_tokens": float("inf")}) == 512
+    await chat(c, "y", max_completion_tokens=64)
+    assert ext.state.calls[-1]["max_completion_tokens"] == 64 and "max_tokens" not in ext.state.calls[-1]
+    await chat(c, "z", model="qwen3.5:2b-q4_K_M", max_completion_tokens=64)   # Ollama needs max_tokens
+    big = "data:image/png;base64," + "A" * 300_000
+    body = {"messages": [{"role": "user", "content": [{"type": "text", "text": "what is this"},
+                                                      {"type": "image_url", "image_url": {"url": big}}]}]}
+    tin, _, _ = estimate_split(body, None)
+    assert 1500 <= tin < 1600
