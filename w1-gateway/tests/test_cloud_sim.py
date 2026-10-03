@@ -174,3 +174,12 @@ async def test_string_tool_arguments_not_double_encoded():
     c, _ = client(Script([{"tool_calls": [{"name": "f", "arguments": '{"a": 1}'}]}]))
     r = (await c.post("/v1/chat/completions", json=req())).json()
     assert r["choices"][0]["message"]["tool_calls"][0]["function"]["arguments"] == '{"a": 1}'
+
+
+def test_cloud_sim_binds_loopback_by_default_and_gateway_default_url_matches(monkeypatch):
+    from cloud_sim.__main__ import serve_args
+    assert serve_args({}) == {"host": "127.0.0.1", "port": 18200}
+    assert serve_args({"AICL_CLOUDSIM_HOST": "0.0.0.0", "AICL_CLOUDSIM_PORT": "9000"}) == {"host": "0.0.0.0", "port": 9000}
+    from aicl_gateway.config import default_config
+    monkeypatch.delenv("AICL_CLOUDSIM_URL", raising=False)
+    assert default_config()["upstream_urls"]["external"] == f"http://localhost:{serve_args({})['port']}"

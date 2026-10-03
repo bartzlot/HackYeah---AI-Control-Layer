@@ -1,9 +1,19 @@
+"""python -m cloud_sim: serve the priced mock upstream. Binds 127.0.0.1 by default; containers set
+AICL_CLOUDSIM_HOST=0.0.0.0 (the compose port mapping keeps it host-only)."""
 import os
 
-import uvicorn
+DEFAULT_HOST, DEFAULT_PORT = "127.0.0.1", 18200
 
-from .app import create_app
+
+def serve_args(env=None) -> dict:
+    env = os.environ if env is None else env
+    return {"host": env.get("AICL_CLOUDSIM_HOST") or DEFAULT_HOST,
+            "port": int(env.get("AICL_CLOUDSIM_PORT") or DEFAULT_PORT)}
+
 
 if __name__ == "__main__":
-    uvicorn.run(create_app(), host=os.environ.get("AICL_CLOUDSIM_HOST", "0.0.0.0"),
-                port=int(os.environ.get("AICL_CLOUDSIM_PORT", "18200")))
+    import uvicorn
+
+    from .app import create_app
+
+    uvicorn.run(create_app(), **serve_args())
