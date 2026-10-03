@@ -133,7 +133,9 @@ controls:
     fail: degrade
     classifier: {model: piguard-onnx, timeout_ms: 120, run_on: [untrusted, after_signal]}
     knn: {index: "feed:semantic", k: 5, timeout_ms: 40}
-    judge: {enabled: true, model: "qwen3.5:2b-q4_K_M", timeout_ms: 1500, on_timeout: {user: WARN, untrusted: BLOCK}}
+    # timeout_ms: ONE deadline for all gray parts of an event (later parts get on_timeout when it runs out);
+    # 8000 fits a 2B model on CPU (64 output tokens) with the model warm (`make warm`); on a GPU 2000 is plenty
+    judge: {enabled: true, model: "qwen3.5:2b-q4_K_M", timeout_ms: 8000, on_timeout: {user: WARN, untrusted: BLOCK}}
     thresholds: {}           # empty = profile defaults; e.g. {injection: {block: 0.80}} overrides
   TOOL-01:                   # tool authorization; default deny; BLOCK > REQUIRE_APPROVAL > ALLOW
     # 1) the tool must be in agents.<id>.tools (globs); 2) rules below: tool glob + `when` on args

@@ -55,7 +55,8 @@ services:
     ports: ["127.0.0.1:11434:11434"]
     volumes: [ollama-models:/root/.ollama]
     environment:
-      OLLAMA_KEEP_ALIVE: 30m
+      OLLAMA_KEEP_ALIVE: 24h   # keep the model loaded once `make warm` loaded it (a cold load eats the judge deadline)
+      OLLAMA_NUM_PARALLEL: 2   # the judge must not queue behind a long local answer
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 10s
