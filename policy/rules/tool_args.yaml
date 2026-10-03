@@ -1,34 +1,37 @@
 # Tool-argument exploit rules. TOOL-01 applies every rule of an exploit category (code_exec,
 # unsafe_deserialization, model_supply_chain, tool_abuse; this file and historical.yaml) to tool-call
-# arguments rendered as `key=value` lines, at action_untrusted. INJ-03 also sees them in chat text at
-# action_user (LOG here: talking about rm -rf is fine, a tool call running it is not).
-# Inline match / no_match tests gate the reload. Synthetic strings only.
+# arguments rendered as `key=value` lines, at action_untrusted. An optional `tools:` list of tool-name
+# globs limits a rule to those tools (model-download rules only look at model tools). INJ-03 also sees
+# these rules in chat text at action_user (LOG here: talking about rm -rf is fine, a tool call running it
+# is not). Inline match / no_match tests gate the reload. Synthetic strings only.
 version: aicl-rules/1
 rules:
   - id: TOOL-ARG-001
     name: recursive forced delete
     category: tool_abuse
     severity: critical
-    pattern: '\brm\s+(-[a-z]*r[a-z]*f[a-z]*|-[a-z]*f[a-z]*r[a-z]*|-r\s+-f|-f\s+-r|--recursive\s+--force|--force\s+--recursive)(\s|$)'
+    pattern: '\brm\b(?=[^\n|;&]*\s(-[a-z]*r[a-z]*|--recursive)(\s|$))(?=[^\n|;&]*\s(-[a-z]*f[a-z]*|--force)(\s|$))'
     action_untrusted: BLOCK
     action_user: LOG
-    match: ['command=rm -rf /', 'cmd=sudo rm -fr ~/projects', 'rm -r -f /var/data']
-    no_match: ['command=rm notes.txt', 'remove the -rf flag from the docs', 'command=ls -rf']
+    match: ['command=rm -rf /', 'cmd=sudo rm -fr ~/projects', 'rm -r -f /var/data', 'rm -r --force /', 'rm --recursive --force /srv']
+    no_match: ['command=rm notes.txt', 'remove the -rf flag from the docs', 'command=ls -rf', 'rm -r old_dir', 'rm -f x.tmp']
   - id: TOOL-ARG-002
-    name: pickle-format model file fetched by a tool
+    name: pickle-format model file fetched by a model tool
     category: model_supply_chain
     severity: high
+    tools: ["*.pull", "*.download", "*download*", "model.*", "models.*", "hf.*", "huggingface.*", "ollama.*"]
     pattern: '\b(file|filename|path|weights|artifact)=\S*\.(pkl|pickle|pt|pth|ckpt|bin)\b'
     action_untrusted: BLOCK
     action_user: LOG
     match: ['file=pytorch_model.bin', 'weights=models/w.ckpt']
     no_match: ['file=model.safetensors', 'file=report.pdf']
   - id: TOOL-ARG-003
-    name: model pulled from a non-allowlisted registry
+    name: model pulled from a non-allowlisted registry (allowlist huggingface.co, hf.co, registry.ollama.ai)
     category: model_supply_chain
     severity: high
-    pattern: '\b(model|name|repo|repository|source)=(https?://)?(?!huggingface\.co/|hf\.co/|registry\.ollama\.ai/)[\w-]+(\.[\w-]+)*\.[a-z]{2,}/\S+'
+    tools: ["*.pull", "*.download", "*download*", "model.*", "models.*", "hf.*", "huggingface.*", "ollama.*"]
+    pattern: '\b(model|name|repo|repository|source|url)=(?>(?:[a-z][\w+.-]*://)?)(?!(huggingface\.co|hf\.co|registry\.ollama\.ai)/)[^\s/]*[.:@][^\s/]*/\S+'
     action_untrusted: BLOCK
     action_user: LOG
-    match: ['name=evil.example/acme/llm', 'repo=https://models.evil.example/acme/llm']
-    no_match: ['name=qwen3.5:2b-q4_K_M', 'repo=hf.co/acme/llm', 'model=gpt-4o-mini']
+    match: ['name=evil.example/acme/llm', 'repo=https://models.evil.example/acme/llm', 'name=evil.example:5000/acme/llm', 'name=203.0.113.5/acme/llm', 'name=https://hf.co@evil.example/acme/llm']
+    no_match: ['name=qwen3.5:2b-q4_K_M', 'repo=hf.co/acme/llm', 'repo=https://huggingface.co/acme/llm', 'model=gpt-4o-mini', 'repo=acme/llm', 'name=registry.ollama.ai/library/qwen3.5']
