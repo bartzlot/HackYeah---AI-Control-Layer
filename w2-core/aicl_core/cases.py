@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 from typing import Any
 
 from ruamel.yaml import YAML
@@ -71,6 +72,19 @@ def case_policy(base: Policy, case: Case, extra: dict | None = None) -> Policy:
     return pol.derive(extra) if extra else pol
 
 
+_MACRO = re.compile(r"\{\{(zw|tags):?([^}]*)\}\}")
+
+
+def expand(text: str) -> str:
+    """Fixture macros keep invisible characters out of reviewable source:
+    {{zw}} -> U+200B zero-width space; {{tags:abc}} -> abc as Unicode tag characters (U+E0000 + ord)."""
+    def sub(m: re.Match) -> str:
+        if m.group(1) == "zw":
+            return chr(0x200B)
+        return "".join(chr(0xE0000 + ord(c)) for c in m.group(2))
+    return _MACRO.sub(sub, text)
+
+
 def build_event(case: Case) -> Event:
     s, inp = case.setup, case.input
     model = s.get("destination")
@@ -79,7 +93,7 @@ def build_event(case: Case) -> Event:
     common = dict(agent_id=s.get("agent", DEFAULT_AGENT), session_id=s.get("session"), model=model,
                   destination=dest, profile=case.profile, request_id=f"case-{case.control}-{case.id}")
     if "messages" in inp:
-        parts = [Part(role=m.get("role", "user"), text=str(m.get("content", "")),
+        parts = [Part(role=m.get("role", "user"), text=expand(str(m.get("content", ""))),
                       trusted=m.get("trusted", m.get("role", "user") != "tool")) for m in inp.get("messages", [])]
         return Event(stage=Stage.PROMPT, channel="llm", parts=parts, **common)
     if case.path == "output" or "response" in inp:
@@ -91,7 +105,7 @@ def build_event(case: Case) -> Event:
         return Event(stage=Stage.TOOL_ARGS, channel="tool" if case.path == "tool" else "mcp", tool_calls=tcs, **common)
     if "tool_result" in inp:
         ch = case.path if case.path in ("tool", "mcp", "memory") else "tool"
-        return Event(stage=Stage.TOOL_RESULT, channel=ch, parts=[Part(role="tool", text=str(inp["tool_result"]),
+        return Event(stage=Stage.TOOL_RESULT, channel=ch, parts=[Part(role="tool", text=expand(str(inp["tool_result"])),
                                                                        trusted=False)], **common)
     raise ValueError(f"{case.name}: no usable input")
 
@@ -111,6 +125,10 @@ def check(case: Case, event: Event, d: Decision) -> list[str]:
     for c in e.get("controls") or []:
         if c not in ctrls:
             errs.append(f"control {c} not in findings {sorted(ctrls)}")
+    evs = {f.detail.get("event_type") for f in d.findings if d.action > Action.ALLOW or f.action > Action.ALLOW}
+    for ev_type in e.get("events") or []:
+        if ev_type not in evs:
+            errs.append(f"event {ev_type} not in {sorted(x for x in evs if x)}")
     if "findings" in e and e["findings"] == [] and d.findings:
         errs.append(f"expected no findings, got {[f.control_id + '/' + f.rule_id for f in d.findings]}")
     if "redacted_contains" in e or "redacted_not_contains" in e:

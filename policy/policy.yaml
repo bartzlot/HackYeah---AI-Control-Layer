@@ -92,7 +92,7 @@ destinations:
 destination_matrix:
   public:       {local: ALLOW, external: ALLOW, unknown: BLOCK}
   internal:     {local: ALLOW, external: REDACT, unknown: BLOCK}
-  confidential: {local: ALLOW, external: {strict: BLOCK, balanced: BLOCK, permissive: REDACT}, unknown: BLOCK}
+  confidential: {local: ALLOW, external: {strict: BLOCK, balanced: REDACT, permissive: REDACT}, unknown: BLOCK}
   restricted:   {local: ALLOW, external: BLOCK, unknown: BLOCK}
 
 # ---------- 5. controls (what) ----------
@@ -104,7 +104,7 @@ controls:
     mode: enforce
     action: {prompt: REDACT, tool_args: BLOCK, response: REDACT}
     entropy: context_only
-    github_crc: require
+    github_crc: prefer        # prefer = CRC-valid tokens score higher, others still count | require = only CRC-valid
     redaction_tag: "[REDACTED_{type}]"
   DLP-02:                    # PII (validated: PESEL checksum, IBAN mod97, Luhn)
     mode: enforce
@@ -123,8 +123,10 @@ controls:
     matrix: destination_matrix
   INJ-03:                    # signature rules: policy/rules/historical.yaml + feed rules, EN + PL
     mode: enforce
-    rule_files: [policy/rules/historical.yaml]
-    action: {user: WARN, untrusted: BLOCK}   # untrusted = tool result / RAG / MCP / memory
+    rule_files: [policy/rules/historical.yaml, policy/rules/injection.yaml]   # every rules/*.yaml is loaded
+    action: {user: WARN, untrusted: BLOCK}   # default when a rule has no action_user / action_untrusted; untrusted = tool result / RAG / MCP / memory
+    # user turns: injection-family rules (injection, prompt_extraction, jailbreak) BLOCK when their severity score
+    # (low .40, medium .65, high .80, critical .95) >= profiles.<p>.injection.block; quoted educational mentions only LOG
     mention_exceptions: true
   INJ-04:                    # semantic cascade: classifier -> kNN -> judge on gray band
     mode: {strict: enforce, balanced: enforce, permissive: shadow}

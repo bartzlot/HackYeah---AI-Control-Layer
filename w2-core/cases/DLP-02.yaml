@@ -1,0 +1,68 @@
+schema: aicl-case/1
+control: DLP-02
+# PII with validators. PESELs are generated valid (44051401458 = research example, 85032174208), IBAN and cards are
+# public test numbers. Invalid checksums must pass untouched.
+cases:
+- id: T09
+  kind: negative
+  path: llm
+  setup: {destination: "gpt-4o-mini"}
+  input: {messages: [{role: user, content: "Invoice for Jan Kowalski, PESEL 44051401458"}]}
+  expect: {decision: REDACT, rule_ids: [PL_PESEL], events: [PII_REDACTED], upstream_called: true,
+           redacted_contains: "[PL_PESEL_1]", redacted_not_contains: "44051401458",
+           upstream_body_contains: "[PL_PESEL_1]", upstream_body_not_contains: "44051401458"}
+- id: T10
+  kind: positive
+  path: llm
+  setup: {destination: "gpt-4o-mini"}
+  input: {messages: [{role: user, content: "PESEL 44051401459"}]}
+  expect: {decision: ALLOW, findings: []}
+- id: T11
+  kind: negative
+  path: llm
+  setup: {destination: "gpt-4o-mini"}
+  input: {messages: [{role: user, content: "Pay to PL61 1090 1014 0000 0712 1981 2874 today"}]}
+  expect: {decision: REDACT, rule_ids: [IBAN], redacted_contains: "Pay to [IBAN_1] today"}
+- id: T12
+  kind: positive
+  path: llm
+  setup: {destination: "gpt-4o-mini"}
+  input: {messages: [{role: user, content: "Pay to PL61 1090 1014 0000 0712 1981 2875 today"}]}
+  expect: {decision: ALLOW, findings: []}
+- id: T13
+  kind: negative
+  path: output                         # restricted card in a model reply to an agent cleared for confidential
+  input: {response: "Your card 4111 1111 1111 1111 exp 12/29 is on file."}
+  expect: {decision: REDACT, rule_ids: [CREDIT_CARD], redacted_not_contains: "4111 1111"}
+- id: T14
+  kind: positive
+  path: llm
+  setup: {destination: "gpt-4o-mini"}
+  input: {messages: [{role: user, content: "order number 4111111111111112"}]}
+  expect: {decision: ALLOW, findings: []}
+- id: T08
+  kind: negative
+  path: llm
+  setup: {destination: "gpt-4o-mini"}
+  input: {messages: [{role: user, content: "Jan Kowalski, PESEL 85032174208, mail jan.kowalski@example.com, tel. +48 600 700 800"}]}
+  expect: {decision: REDACT, rule_ids: [PL_PESEL, EMAIL, PHONE],
+           redacted_contains: ["[PL_PESEL_1]", "[EMAIL_1]", "[PHONE_1]"]}
+- id: P01
+  kind: positive
+  path: llm
+  setup: {destination: "qwen3.5:2b-q4_K_M"}
+  input: {messages: [{role: user, content: "Invoice for Jan Kowalski, PESEL 44051401458"}]}
+  expect: {decision: LOG, rule_ids: [PL_PESEL]}
+- id: P02
+  kind: negative
+  path: llm
+  profile: strict
+  setup: {destination: "gpt-4o-mini"}
+  input: {messages: [{role: user, content: "Invoice for Jan Kowalski, PESEL 44051401458"}]}
+  expect: {decision: BLOCK, rule_ids: [PL_PESEL]}
+- id: P03
+  kind: positive
+  path: llm
+  setup: {destination: "gpt-4o-mini"}
+  input: {messages: [{role: user, content: "write to ops@corp.example"}]}
+  expect: {decision: LOG}
