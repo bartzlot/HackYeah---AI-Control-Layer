@@ -16,6 +16,7 @@ Cut order if late: loop guard -> CSV export (JSONL stays) -> judge as WARN-only.
 - [x] T-001 [lead] (T1) bootstrap: uv workspace Python 3.13 (aicl_contracts, aicl_core, aicl_gateway); Makefile (up, down, test, deploy); docker-compose.yml (gateway, cloud-sim, ollama); .env.example [20] | deps: - | claimed: lead/krzys13@seatA 2026-10-03T20:29Z | done: 2026-10-03T20:30Z
 - [~] T-002 [lead] (T1) contracts/aicl_contracts.py: Event (kind, channel, parts, agent_id, session_id, destination, tool_calls, usage), Finding, Decision (lattice ALLOW < LOG < WARN < REDACT < BLOCK, redactions, explain, policy_version, latency_us), Control protocol; contracts/case.example.yaml; audit record fields [2, 13, 15] | deps: T-001 | claimed: lead/krzys13@seatA 2026-10-03T20:30Z
 - [ ] T-003 [lead] (T1) policy/policy.yaml, documented: profiles strict / balanced / permissive (injection thresholds, BLOCK vs REDACT for PII); agents (key, allowed models and tools); destinations local (qwen3.5:2b-q4_K_M) / external (cloud-sim) / unknown + data-class matrix; controls DLP-01, DLP-02, DLP-05, INJ-03, INJ-04, TOOL-01, BUD-01; budgets (tokens, USD per agent); policy/rules/historical.yaml (~10 rules: code exec, unsafe deserialization, model-repo supply chain) [12] | deps: T-002
+- [ ] T-004 [lead] deps: add pyyaml to w1-gateway pyproject, include cloud_sim in wheel packages; task.sh: replace `hostname -s` (fails in Git Bash) | deps: T-001
 
 ## w2-core (A)
 - [ ] T-201 [w2] (T1) policy engine + decide(): ruamel.yaml + pydantic load, 1 s polling reload, last-good on invalid, policy_version = sha256; control registry, action lattice, explain trace (control, rule, span), span redaction ([REDACTED_AWS_KEY], [PL_PESEL]) [5, 12] | deps: T-003
@@ -25,7 +26,7 @@ Cut order if late: loop guard -> CSV export (JSONL stays) -> judge as WARN-only.
 
 ## w1-gateway (B)
 - [ ] T-101 [w1] (T1) GCP: project + gcloud, Compute Engine VM e2-standard-4 with Docker, firewall 18080 only from the demo IP, Ollama on CPU + `ollama pull qwen3.5:2b-q4_K_M` (fallback qwen3.5:0.8b) | deps: -
-- [~] T-102 [w1] (T1) cloud-sim: OpenAI-compatible priced mock ("commercial" model), usage in responses, scripted mode (replies and tool_calls from YAML) for tests [22] | deps: T-001 | claimed: w1/krzys13@seatB 2026-10-03T20:34Z
+- [x] T-102 [w1] (T1) cloud-sim: OpenAI-compatible priced mock ("commercial" model), usage in responses, scripted mode (replies and tool_calls from YAML) for tests [22] | deps: T-001 | claimed: w1/krzys13@seatB 2026-10-03T20:34Z | done: 2026-10-03T21:00Z
 - [ ] T-103 [w1] (T1) gateway: /v1/chat/completions + /v1/models, API key -> agent, model allowlist, router (Ollama / cloud-sim / unknown), decide() on request and response, upstream credential injection, audit JSONL + SSE bus [3, 4] | deps: T-002, T-102
 - [ ] T-104 [w1] (T1) budget + loop guard: SQLite, tokens and USD per agent, reserve then settle, 429 + Retry-After; 4 identical calls in a session = BLOCK [10] | deps: T-103
 - [ ] T-105 [w1] (T1) dashboard /console (vanilla JS + Chart.js + SSE): tiles (requests, blocked, redacted, cost, budget, posture = % controls enforced), controls table, live events with explain, playground with destination selector, audit export JSONL / CSV; fixtures until T-103 lands [14] | deps: T-103
