@@ -15,7 +15,15 @@ ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = yaml.safe_load((ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
 SERVICES = COMPOSE["services"]
 DOCKERFILE = (ROOT / "w1-gateway" / "Dockerfile").read_text(encoding="utf-8")
-CODE_DIRS = ["w1-gateway/aicl_gateway", "w1-gateway/cloud_sim", "w2-core/aicl_core", "contracts"]
+PIECES = ["contracts", "w1-gateway", "w2-core", "w3-detect", "w4-semantic", "w5-console"]
+
+
+def code_files():
+    """Shipped Python of every piece (tests excluded), so variables added later by any piece are covered."""
+    for piece in PIECES:
+        for f in (ROOT / piece).rglob("*.py"):
+            if not {"tests", ".venv", "__pycache__"} & set(f.relative_to(ROOT).parts):
+                yield f
 
 
 def interpolate(s: str) -> str:
@@ -30,10 +38,13 @@ def published(service: str) -> list[str]:
 # ---- compose ----
 
 @pytest.mark.parametrize("service", ["gateway", "cloud-sim", "ollama"])
-def test_ports_are_host_only_by_default(service):
-    ports = published(service)
-    assert ports, f"{service} publishes no port"
-    for p in ports:
+def test_core_services_publish_a_port(service):
+    assert published(service), f"{service} publishes no port"
+
+
+@pytest.mark.parametrize("service", sorted(SERVICES))
+def test_every_published_port_is_host_only_by_default(service):
+    for p in published(service):
         assert p.startswith("127.0.0.1:"), f"{service} publishes {p} beyond loopback"
 
 
@@ -139,9 +150,10 @@ def env_example() -> dict[str, str]:
 
 def test_env_example_documents_every_variable_the_code_reads():
     used = set()
-    for d in CODE_DIRS:
-        for f in (ROOT / d).rglob("*.py"):
-            used |= set(re.findall(r"AICL_[A-Z0-9_]+", f.read_text(encoding="utf-8")))
+    for f in code_files():
+        # a name ending in "_" is a prefix (f"AICL_KEY_{name}"), not a variable
+        used |= set(re.findall(r"AICL_[A-Z0-9_]*[A-Z0-9]\b", f.read_text(encoding="utf-8")))
+    assert used, "scan found no AICL_* variables at all"
     missing = used - set(env_example())
     assert not missing, f"undocumented in .env.example: {sorted(missing)}"
 
@@ -154,9 +166,15 @@ def test_env_example_has_only_synthetic_values():
 
 def test_env_example_defaults_match_compose():
     env = env_example()
-    assert env["AICL_GATEWAY_BIND"] == "127.0.0.1"
-    assert env["AICL_GATEWAY_PORT"] == "18080"
-    assert env["AICL_OLLAMA_MODEL"] in SERVICES["ollama-pull"]["command"][0]
+    bind, port, _ = published("gateway")[0].split(":")
+    assert env["AICL_GATEWAY_BIND"] == bind
+    assert env["AICL_GATEWAY_PORT"] == port
+    assert env["AICL_OLLAMA_MODEL"] == interpolate(SERVICES["ollama-pull"]["command"][0])
+    assert env["AICL_CLOUDSIM_PORT"] == published("cloud-sim")[0].split(":")[-1]
+
+
+def test_env_example_listeners_stay_on_loopback():
+    assert env_example()["AICL_CLOUDSIM_HOST"] == "127.0.0.1"
 
 
 # ---- scripts/task.sh ----
@@ -165,7 +183,10 @@ def test_task_sh_hostname_falls_back_when_short_flag_is_missing():
     assert "$(hostname -s 2>/dev/null || hostname)" in (ROOT / "scripts" / "task.sh").read_text(encoding="utf-8")
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash not installed")
+BASH = shutil.which("bash")
+
+
+@pytest.mark.skipif(BASH is None or "system32" in BASH.lower(), reason="no real bash (missing or the WSL launcher)")
 def test_task_sh_parses():
-    r = subprocess.run(["bash", "-n", "scripts/task.sh"], cwd=ROOT, capture_output=True, text=True)
+    r = subprocess.run([BASH, "-n", "scripts/task.sh"], cwd=ROOT, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
