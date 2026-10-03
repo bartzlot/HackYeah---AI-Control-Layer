@@ -1,14 +1,28 @@
-"""Runs every <piece>/cases/*.yaml through decide(), plus the mutation proof: each negative case
-must FAIL when its own control is switched off (so the suite really catches that control)."""
-import pytest
+"""Runs every <piece>/cases/*.yaml whose control is enforced inside decide(), plus the mutation proof:
+each negative case must FAIL when its own control is switched off (so the suite really catches it).
 
-from aicl_core.cases import build_event, case_policy, check, collect_cases
-
+Controls enforced by the gateway itself (budgets and the loop guard, BUD-01) cannot be decided by
+decide(): their cases are driven through the gateway over ASGI with the scripted cloud-sim upstream
+(w1-gateway/tests/test_cases.py, unified by the T-204 runner). A case for a control that neither
+side knows fails here, so a typo in `control:` never silently skips a case."""
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
+import pytest
 
-CASES = collect_cases(REPO)
+from aicl_core import registered
+from aicl_core.cases import build_event, case_policy, check, collect_cases
+
+REPO = Path(__file__).resolve().parents[2]
+GATEWAY_CONTROLS = {"BUD-01"}          # enforced in w1-gateway (budget ledger, loop guard)
+
+ALL = collect_cases(REPO)
+DECIDE = set(registered())
+CASES = [c for c in ALL if c.control in DECIDE]
+
+
+def test_every_case_has_a_known_driver():
+    unknown = sorted({c.name for c in ALL if c.control not in DECIDE | GATEWAY_CONTROLS})
+    assert not unknown, f"cases for controls neither decide() nor the gateway enforce: {unknown}"
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda c: c.name)

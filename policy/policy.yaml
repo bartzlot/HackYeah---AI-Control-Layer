@@ -136,6 +136,11 @@ controls:
     judge: {enabled: true, model: "qwen3.5:2b-q4_K_M", timeout_ms: 1500, on_timeout: {user: WARN, untrusted: BLOCK}}
     thresholds: {}           # empty = profile defaults; e.g. {injection: {block: 0.80}} overrides
   TOOL-01:                   # tool authorization; default deny; BLOCK > REQUIRE_APPROVAL > ALLOW
+    # 1) the tool must be in agents.<id>.tools (globs); 2) rules below: tool glob + `when` on args
+    #    (sql select_only, domain_in, domain_not_in, resolves_to_private, eq, in, regex); a tool with ALLOW rules
+    #    whose conditions all fail gets `default`; 3) exploit argument rules from policy/rules/*.yaml
+    #    (code_exec, unsafe_deserialization, model_supply_chain, tool_abuse: curl | sh, rm -rf, pickle.loads,
+    #    trust_remote_code=True, foreign model pull) at their action_untrusted. REQUIRE_APPROVAL = BLOCK in the MVP.
     mode: enforce
     default: BLOCK
     rules:
