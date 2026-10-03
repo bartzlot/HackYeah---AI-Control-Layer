@@ -22,6 +22,14 @@ from .policy import Policy, _plain
 from .redact import apply_redactions
 
 DEFAULT_AGENT = "analyst-agent"   # allowed both the local and the external model in policy.yaml
+# auto = decide() when the control is registered there, plus the gateway when the input is routable;
+# decide = decide() only; gateway = the real gateway only (gateway-enforced controls such as BUD-01);
+# judge-fake = the gateway with the INJ-04 judge installed over a fake Ollama (setup.judge pins its answer)
+RUNNERS = ("auto", "decide", "gateway", "judge-fake")
+# every expect key either runner understands; anything else is a typo and fails the case
+EXPECT_KEYS = frozenset({"decision", "would_decision", "rule_ids", "controls", "findings", "events",
+                         "redacted_contains", "redacted_not_contains", "http_status", "upstream_called", "retry_after",
+                         "upstream_body_contains", "upstream_body_not_contains", "judge_called", "degraded"})
 
 
 @dataclass
@@ -36,6 +44,7 @@ class Case:
     setup: dict = field(default_factory=dict)
     input: dict = field(default_factory=dict)
     expect: dict = field(default_factory=dict)
+    runner: str = "auto"      # auto | decide | gateway | judge-fake (file-level `runner:`, a case may override)
 
     @property
     def name(self) -> str:
@@ -49,13 +58,17 @@ def load_case_file(path: Path) -> list[Case]:
     control = doc.get("control")
     if not control:
         raise ValueError(f"{path}: control missing")
+    file_runner = doc.get("runner", "auto")
     out = []
     for c in doc.get("cases") or []:
         if c.get("kind") not in ("positive", "negative"):
             raise ValueError(f"{path}: case {c.get('id')}: kind must be positive|negative")
+        runner = c.get("runner", file_runner)
+        if runner not in RUNNERS:
+            raise ValueError(f"{path}: case {c.get('id')}: runner must be one of {', '.join(RUNNERS)}")
         out.append(Case(control=c.get("control", control), id=str(c["id"]), kind=c["kind"], path=c.get("path", "llm"),
                         raw=c, file=path, profile=c.get("profile"), setup=c.get("setup") or {},
-                        input=c.get("input") or {}, expect=c.get("expect") or {}))
+                        input=c.get("input") or {}, expect=c.get("expect") or {}, runner=runner))
     return out
 
 
@@ -113,6 +126,9 @@ def build_event(case: Case) -> Event:
 def check(case: Case, event: Event, d: Decision) -> list[str]:
     """Return the list of failed expectations (empty = case passes)."""
     e, errs = case.expect, []
+    unknown = set(e) - EXPECT_KEYS
+    if unknown:
+        errs.append(f"unknown expect keys {sorted(unknown)}")
     if "decision" in e and d.action != Action.parse(e["decision"]):
         errs.append(f"decision {d.action.name} != {e['decision']}")
     if "would_decision" in e and d.would_action != Action.parse(e["would_decision"]):

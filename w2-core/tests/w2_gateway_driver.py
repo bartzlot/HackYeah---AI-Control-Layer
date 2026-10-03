@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 
 from aicl_contracts import Action, Event
+from aicl_core import registered
 from aicl_core.cases import DEFAULT_AGENT, Case, expand
 from aicl_core.policy import Policy
 
@@ -28,11 +29,72 @@ GATEWAY_CONTROLS = {"BUD-01"}          # enforced in the gateway itself (budget 
 DECIDE_ONLY_KEYS = {"would_decision", "events"}
 GATEWAY_KEYS = {"decision", "http_status", "events", "rule_ids", "controls", "findings", "upstream_called",
                 "retry_after", "upstream_body_contains", "upstream_body_not_contains", "redacted_contains",
-                "redacted_not_contains"}
+                "redacted_not_contains", "judge_called", "degraded"}
+JUDGE_REPLIES = {"benign": ("benign", "none"), "suspicious": ("suspicious", "low"), "malicious": ("malicious", "high")}
+
+
+def runs_on_gateway(case: Case, decide_controls: set[str]) -> bool:
+    """Which cases the gateway driver runs (the decide() runner takes runner auto/decide of decide controls)."""
+    if case.runner in ("gateway", "judge-fake"):
+        return True
+    if case.runner == "decide":
+        return False
+    return gateway_path(case) and (case.control in GATEWAY_CONTROLS or case.control in decide_controls)
+
+
+def runs_on_decide(case: Case, decide_controls: set[str]) -> bool:
+    return case.runner in ("auto", "decide") and case.control in decide_controls
+
+
+JUDGE_KEYS = ("judge_called", "degraded")
+
+
+def without_judge_keys(case: Case) -> Case:
+    """For the judge-off mutation run: judge_called / degraded are trivially False without a judge, so they
+    must not be what makes the case fail; the verdict (decision, status, events) has to."""
+    return Case(**{**case.__dict__, "expect": {k: v for k, v in case.expect.items() if k not in JUDGE_KEYS}})
+
+
+def with_judge_answer(case: Case, answer: str) -> Case:
+    return Case(**{**case.__dict__, "setup": {**case.setup, "judge": answer}})
+
+
+def judge_fake(case: Case, control_off: bool):
+    """runner judge-fake: INJ-04 judge (w1-gateway aicl_gateway.judge) registered in the engine AFTER INJ-03
+    with a fake Ollama answering setup.judge (benign | suspicious | malicious | timeout); control off = not
+    installed. Returns (calls list, cleanup). The engine registry is process-global: always clean up."""
+    from aicl_core import engine as eng
+    calls: list[dict] = []
+    if control_off:
+        return calls, lambda: None
+    from aicl_gateway.judge import install
+    word = case.setup.get("judge", "benign")
+    if word not in (*JUDGE_REPLIES, "timeout"):
+        raise ValueError(f"{case.name}: setup.judge must be benign | suspicious | malicious | timeout")
+
+    def fake(body, timeout):
+        calls.append(body)
+        if word == "timeout":
+            raise TimeoutError("fake judge timeout")
+        verdict, level = JUDGE_REPLIES[word]
+        return {"message": {"content": json.dumps({"prompt_injection": level, "data_exfiltration": "none",
+                                                   "jailbreak": "none", "tool_abuse": "none", "verdict": verdict})}}
+
+    saved = eng.REGISTRY.get("INJ-04")
+    install(eng.register, "http://judge.invalid", chat_fn=fake)
+
+    def cleanup():
+        if saved is None:
+            eng.REGISTRY.pop("INJ-04", None)
+        else:
+            eng.REGISTRY["INJ-04"] = saved
+    return calls, cleanup
 
 
 def gateway_path(case: Case) -> bool:
     s, inp = case.setup, case.input
+    if case.runner == "decide":
+        return False
     if case.path not in ("llm", "output", "tool"):
         return False
     if s.get("destination_class") or "tool_result" in inp:
@@ -80,7 +142,7 @@ async def run_gateway_case(case: Case, policy: Policy, decide, *, control_off: b
     # so the mutation test can see ACCESS-01 switched off
     cfg: dict[str, Any] = {"agents": {KEY: {"agent_id": agent, "models": None, "profile": case.profile}},
                            "audit_path": None, "budget_db": ":memory:"}   # never a shared file from the env
-    gated = case.control in GATEWAY_CONTROLS
+    gated = case.control in GATEWAY_CONTROLS or case.runner == "gateway"
     cfg["budgets"] = {agent: s["budget"]} if gated and "budget" in s and not control_off else {}
     cfg["loop_limits"] = {"repeat_identical": 10_000 if (gated and control_off) else
                           int((policy.raw.get("loop_limits") or {}).get("repeat_identical", 4))}
@@ -90,25 +152,31 @@ async def run_gateway_case(case: Case, policy: Policy, decide, *, control_off: b
     def bound(event: Event):
         return decide(event, policy=policy)
 
-    app = create_app(bound, cfg, ups)
-    if gated and s.get("spent") and not control_off:
-        app.state.ledger.record(agent, int(s["spent"].get("tokens", 0)), float(s["spent"].get("usd", 0.0)))
-    records: list[dict] = []
-    app.state.bus.listeners.append(records.append)
     headers = {"authorization": f"Bearer {KEY}"}
     if s.get("session"):
         headers["x-session-id"] = s["session"]
     body = _body(case)
-    try:
+    records: list[dict] = []
+    judge_calls: list[dict] = []
+    cleanup, app = (lambda: None), None
+    try:                                  # everything after the judge registration is covered by cleanup()
+        if case.runner == "judge-fake":
+            judge_calls, cleanup = judge_fake(case, control_off)
+        app = create_app(bound, cfg, ups)
+        if gated and s.get("spent") and not control_off:
+            app.state.ledger.record(agent, int(s["spent"].get("tokens", 0)), float(s["spent"].get("usd", 0.0)))
+        app.state.bus.listeners.append(records.append)
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gw") as c:
             for _ in range(repeat):
                 n_ext, n_loc, n_rec = len(ext.state.calls), len(loc.state.calls), len(records)
                 r = await c.post("/v1/chat/completions", headers=headers, json=body)
     finally:
+        cleanup()
         for u in ups.values():
             await u.aclose()
-        app.state.ledger.close()          # ASGITransport runs no lifespan: release per-case resources here
-        app.state.bus.close()
+        if app is not None:               # ASGITransport runs no lifespan: release per-case resources here
+            app.state.ledger.close()
+            app.state.bus.close()
     sent = ext.state.calls[n_ext:] + loc.state.calls[n_loc:]          # upstream bodies of the LAST request
     try:
         payload = r.json()
@@ -120,6 +188,7 @@ async def run_gateway_case(case: Case, policy: Policy, decide, *, control_off: b
             "retry_after": r.headers.get("retry-after"), "events": [x.get("event_type") for x in records[n_rec:]],
             "rule_ids": sorted({f.get("rule_id") for f in findings}),
             "controls": sorted({f.get("control_id") for f in findings}),
+            "judge_called": bool(judge_calls), "degraded": any(x.get("degraded") for x in records[n_rec:]),
             "upstream_called": bool(sent), "upstream_body": json.dumps(sent, ensure_ascii=False),
             "content": msg.get("content") or "", "tool_calls": msg.get("tool_calls") or [], "payload": payload}
 
@@ -134,13 +203,17 @@ def check_gateway(case: Case, got: dict) -> list[str]:
     unknown = set(e) - GATEWAY_KEYS - DECIDE_ONLY_KEYS
     if unknown:
         bad.append(f"unknown expect keys {sorted(unknown)} (check them or list them as decide-only)")
+    if not runs_on_decide(case, set(registered())):      # the decide() runner never sees this case
+        unchecked = set(e) & (DECIDE_ONLY_KEYS - {"events"})
+        if unchecked:
+            bad.append(f"expect keys {sorted(unchecked)} cannot be checked by runner {case.runner}")
     if "decision" in e:
         want = Action.parse(e["decision"]).name
         if got["decision"] != want:
             bad.append(f"X-AICL-Decision {got['decision']} != {want}")
     if "http_status" in e and got["status"] != e["http_status"]:
         bad.append(f"status {got['status']} != {e['http_status']}")
-    if case.control in GATEWAY_CONTROLS:
+    if case.control in GATEWAY_CONTROLS or case.runner in ("gateway", "judge-fake"):   # audit event names
         for ev in _as_list(e.get("events")):
             if ev not in got["events"]:
                 bad.append(f"event {ev} not in {got['events']}")
@@ -154,6 +227,9 @@ def check_gateway(case: Case, got: dict) -> list[str]:
         bad.append(f"expected no findings, audit has {got['rule_ids']}")
     if "upstream_called" in e and got["upstream_called"] != e["upstream_called"]:
         bad.append(f"upstream_called {got['upstream_called']} != {e['upstream_called']}")
+    for k in ("judge_called", "degraded"):
+        if k in e and got[k] != bool(e[k]):
+            bad.append(f"{k} {got[k]} != {e[k]}")
     if e.get("retry_after") and not (got["retry_after"] or "").isdigit():
         bad.append("missing Retry-After")
     for needle in _as_list(e.get("upstream_body_contains")):
