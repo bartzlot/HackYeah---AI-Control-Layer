@@ -64,7 +64,8 @@ async def run_gateway_case(case: Case, policy: Policy, decide, *, control_off: b
     agent = s.get("agent", DEFAULT_AGENT)
     # models: None = the gateway routes any known tag and leaves the allowlist to decide() (ACCESS-01),
     # so the mutation test can see ACCESS-01 switched off
-    cfg: dict[str, Any] = {"agents": {KEY: {"agent_id": agent, "models": None, "profile": case.profile}}}
+    cfg: dict[str, Any] = {"agents": {KEY: {"agent_id": agent, "models": None, "profile": case.profile}},
+                           "audit_path": None, "budget_db": ":memory:"}   # never a shared file from the env
     gated = case.control == "BUD-01"
     cfg["budgets"] = {agent: s["budget"]} if gated and "budget" in s and not control_off else {}
     cfg["loop_limits"] = {"repeat_identical": 10_000 if (gated and control_off) else
@@ -84,12 +85,15 @@ async def run_gateway_case(case: Case, policy: Policy, decide, *, control_off: b
     if s.get("session"):
         headers["x-session-id"] = s["session"]
     body = _body(case)
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gw") as c:
-        for _ in range(repeat):
-            n_calls = len(ext.state.calls) + len(loc.state.calls)
-            n_rec = len(records)
-            r = await c.post("/v1/chat/completions", headers=headers, json=body)
-    sent = (ext.state.calls + loc.state.calls)[n_calls:]
+    try:
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://gw") as c:
+            for _ in range(repeat):
+                n_ext, n_loc, n_rec = len(ext.state.calls), len(loc.state.calls), len(records)
+                r = await c.post("/v1/chat/completions", headers=headers, json=body)
+    finally:
+        for u in ups.values():
+            await u.aclose()
+    sent = ext.state.calls[n_ext:] + loc.state.calls[n_loc:]          # upstream bodies of the LAST request
     try:
         payload = r.json()
     except ValueError:
