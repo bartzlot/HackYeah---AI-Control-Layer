@@ -1,0 +1,52 @@
+# aicl-case/1 - BUD-01 budgets (tokens, USD per agent; reserve then settle; 429 + Retry-After) and the
+# agent loop guard (N identical calls in a session = BLOCK). Owner: w1 (T-104).
+# Gateway-level cases (path llm): the runner drives the gateway with the scripted cloud-sim upstream.
+# setup keys used here:
+#   destination: model tag the request uses (gpt-4o-mini = external, priced; qwen3.5:2b-q4_K_M = local)
+#   budget:      the agent's cap for this case {tokens, usd, period} (policy budgets.agents.<agent>)
+#   session:     X-Session-Id header
+#   repeat:      send the same request this many times; expect applies to the last one
+#   tool_calls:  scripted upstream tool calls returned on every turn (tool loop cases)
+# expect keys: decision (X-AICL-Decision), http_status, events (audit event types of the last request),
+#   upstream_called (last request reached the upstream), retry_after (429 carries Retry-After).
+schema: aicl-case/1
+control: BUD-01
+cases:
+- id: BUD-01-A1
+  kind: positive
+  path: llm
+  setup: {destination: "gpt-4o-mini", budget: {tokens: 200000, usd: 0.50, period: day}}
+  input: {messages: [{role: user, content: "Summarise the Q3 sales notes in three bullets."}]}
+  expect: {decision: ALLOW, http_status: 200, events: [REQUEST_ALLOWED], upstream_called: true}
+- id: BUD-01-B1
+  kind: negative
+  path: llm
+  setup: {destination: "gpt-4o-mini", budget: {tokens: 200000, usd: 0.0001, period: day}}
+  input: {messages: [{role: user, content: "Write a 2000 token market report."}], max_tokens: 2000}
+  expect: {decision: BLOCK, http_status: 429, events: [BUDGET_EXCEEDED], upstream_called: false, retry_after: true}
+- id: BUD-01-B2
+  kind: negative
+  path: llm
+  setup: {destination: "qwen3.5:2b-q4_K_M", budget: {tokens: 300, usd: 0.0, period: day}}
+  input: {messages: [{role: user, content: "Explain our onboarding process in detail."}]}   # 512 default max_tokens > 300
+  expect: {decision: BLOCK, http_status: 429, events: [BUDGET_EXCEEDED], upstream_called: false, retry_after: true}
+- id: BUD-01-A2
+  kind: positive
+  path: llm
+  setup: {destination: "gpt-4o-mini", session: case-loop-a2, repeat: 3}
+  input: {messages: [{role: user, content: "What is the status of ticket 4711?"}]}
+  expect: {decision: ALLOW, http_status: 200, upstream_called: true}
+- id: BUD-01-B3
+  kind: negative
+  path: llm
+  setup: {destination: "gpt-4o-mini", session: case-loop-b3, repeat: 4}
+  input: {messages: [{role: user, content: "What is the status of ticket 4711?"}]}
+  expect: {decision: BLOCK, http_status: 403, events: [AGENT_LOOP_TERMINATED], upstream_called: false}
+- id: BUD-01-B4
+  kind: negative
+  path: llm
+  setup: {destination: "gpt-4o-mini", session: case-loop-b4, repeat: 4,
+          tool_calls: [{name: corp.read_database, arguments: {query: "SELECT * FROM orders WHERE id = 7"}}]}
+  input: {messages: [{role: user, content: "Find order 7"}, {role: assistant, content: "checking"},
+                     {role: tool, content: "no rows yet"}]}
+  expect: {decision: BLOCK, http_status: 403, events: [AGENT_LOOP_TERMINATED]}
