@@ -175,3 +175,8 @@ mark.hit{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit
 .chart-empty .btn{font-size:12px;padding:4px 10px;color:var(--accent);margin-top:2px}
 #top-rules th,#top-rules td{padding:9px 8px}#top-rules td.wrap{min-width:0;word-break:normal;overflow-wrap:break-word}
 #top-rules td.empty{white-space:normal}
+
+/* T-123: who caught it */
+.badge.lay-deterministic{color:#0d9488}
+.badge.lay-ai{color:var(--violet,#7c3aed)}
+.batch-row{cursor:pointer}

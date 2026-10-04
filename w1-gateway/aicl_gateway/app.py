@@ -127,6 +127,8 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
     # the local judge (one Ollama call at a time) must not starve other requests' decisions
     decide_pool = ThreadPoolExecutor(max_workers=int(cfg.get("decide_workers") or 64), thread_name_prefix="decide")
     store = ConsoleStore(budget_usd=ccfg.get("budget_usd"), policy=ccfg.get("policy"), budgets=ledger.snapshot)
+    if ccfg.get("catalog"):
+        store.catalog = ccfg["catalog"]     # display names of the live policy's rules (T-123)
     if ccfg.get("fixtures"):
         store.load_file()
     elif cfg.get("audit_path"):
@@ -141,7 +143,17 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         return {"api_key": ccfg.get("demo_key"),
                 "models": {k: [m for m, e in models.items() if e.get("kind") == k] for k in ("local", "external")}}
 
-    app.include_router(make_console_router(store, playground_view, remote=bool(ccfg.get("remote")),
+    async def run_demo_batch() -> dict:
+        """T-123: the preset prompts through this very app (ASGI, no socket), audit records read from the store."""
+        key = ccfg.get("demo_key")
+        if not key:
+            raise LookupError("no demo key: set AICL_KEY_DEMO")
+        from .demo_batch import run_batch
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://aicl.local",
+                                     timeout=cfg["upstream_timeout"]) as c:
+            return await run_batch(c, key, lambda rid: store.list(100, rid), catalog=store.catalog())
+
+    app.include_router(make_console_router(store, playground_view, remote=bool(ccfg.get("remote")), demo_batch=run_demo_batch,
                                            info={"dns": lambda: getattr(getattr(app.state, "dns", None), "stats", {}),
                                                  "policy": lambda: (ccfg.get("info") or dict)(),
                                                  "interception": lambda: (ccfg.get("interception") or list)(),

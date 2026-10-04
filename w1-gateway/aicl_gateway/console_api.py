@@ -19,20 +19,18 @@ from typing import Any, Callable
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 
+from . import names
+
 CONSOLE_DIR = Path(__file__).parent / "console"
 FIXTURES = CONSOLE_DIR / "fixtures.jsonl"
 
 # Static catalog: display name, severity and category per control id. Mode and default action come
 # from policy.yaml when a policy is attached (controls_from_policy); this list is the offline default.
+_SEV = {"DLP-01": ("critical", "secret"), "DLP-02": ("high", "pii"), "DLP-05": ("high", "pii"), "INJ-03": ("high", "injection"),
+        "INJ-04": ("high", "injection"), "TOOL-01": ("critical", "tool_abuse"), "BUD-01": ("medium", "resource")}
 CATALOG: dict[str, dict[str, str]] = {
-    "DLP-01": {"name": "Secret detection (AWS, GitHub, PEM, JWT)", "severity": "critical", "category": "secret"},
-    "DLP-02": {"name": "PII detection with validators (PESEL, IBAN, card, e-mail)", "severity": "high", "category": "pii"},
-    "DLP-05": {"name": "Destination DLP (data class x local / external / unknown)", "severity": "high", "category": "pii"},
-    "INJ-03": {"name": "Injection signatures + historical exploit rules", "severity": "high", "category": "injection"},
-    "INJ-04": {"name": "Semantic injection judge (local LLM, gray band)", "severity": "high", "category": "injection"},
-    "TOOL-01": {"name": "Tool authorization + argument rules", "severity": "critical", "category": "tool_abuse"},
-    "BUD-01": {"name": "Budgets (tokens, USD) + loop guard", "severity": "medium", "category": "resource"},
-}
+    cid: {"name": names.CONTROLS[cid][0], "description": names.CONTROLS[cid][1], "severity": sev, "category": cat,
+          "layer": names.layer_of(cid)} for cid, (sev, cat) in _SEV.items()}
 DEFAULT_ACTIONS = {"DLP-01": "REDACT", "DLP-02": "REDACT", "DLP-05": "BLOCK", "INJ-03": "BLOCK", "INJ-04": "WARN",
                    "TOOL-01": "BLOCK", "BUD-01": "BLOCK"}
 DEFAULT_CONTROLS: list[dict[str, Any]] = [
@@ -78,7 +76,9 @@ def controls_from_policy(policy: dict[str, Any]) -> list[dict[str, Any]]:
     rows = []
     for cid in dict.fromkeys([*CATALOG, *pcs]):
         c = pcs.get(cid)
-        meta = CATALOG.get(cid, {"name": str(cid), "severity": "medium", "category": "other"})
+        nm = names.CONTROLS.get(cid)
+        meta = CATALOG.get(cid) or {"name": nm[0] if nm else names.humanize(cid), "description": nm[1] if nm else "Control from the policy.",
+                                    "severity": "medium", "category": "other", "layer": names.layer_of(cid)}
         if not isinstance(c, dict):
             rows.append({"id": cid, **meta, "mode": "off", "action": DEFAULT_ACTIONS.get(cid, "BLOCK")})
             continue
@@ -158,6 +158,7 @@ class ConsoleStore:
         self._budgets = budgets             # ledger snapshot: per-agent spend vs limits (T-104)
         self._records: deque[dict[str, Any]] = deque(maxlen=maxlen)
         self._subs: set[asyncio.Queue] = set()
+        self.catalog: "Callable[[], names.Catalog]" = names.Catalog   # names of controls and rules (T-123); main.py wires the live policy
 
     def policy(self) -> dict[str, Any] | None:
         p = self._policy
@@ -185,6 +186,7 @@ class ConsoleStore:
 
     # -- ingest ---------------------------------------------------------
     def append(self, record: dict[str, Any]) -> None:
+        names.enrich(record)                # detection_layer for the feed and the exports (T-123)
         self._records.append(record)
         for q in list(self._subs):
             try:
@@ -213,7 +215,7 @@ class ConsoleStore:
         loaded = 0
         for line in lines:
             try:
-                self._records.append(json.loads(line))
+                self._records.append(names.enrich(json.loads(line)))
                 loaded += 1
             except ValueError:
                 continue
@@ -307,12 +309,14 @@ class ConsoleStore:
             "bypass_alerts": sum(1 for r in self._records if r.get("event_type") == "BYPASS_SUSPECTED"),
             "overhead_ms": _pcts([(r.get("latency_us") or {}).get("total") for r in recs], 1000.0),
             "top_rules": self.top_rules(),
+            "by_layer": _count(r["detection_layer"] for r in recs if r.get("detection_layer") and dec_rank(r.get("decision")) >= 3),
         }
 
     def top_rules(self, limit: int = 5) -> list[dict[str, Any]]:
         """Rules whose BLOCK finding decided a blocked record (shadow-mode findings do not count): rule id,
         control, name, count, last seen. Newest first among equal counts."""
         rows: dict[tuple[str, str], dict[str, Any]] = {}
+        cat = self.catalog()
         for r in self.decisions():
             if dec_rank(r.get("decision")) != 4:
                 continue
@@ -325,6 +329,7 @@ class ConsoleStore:
                     continue
                 seen.add(key)
                 row = rows.setdefault(key, {"rule_id": key[1], "control_id": key[0], "control_name": CATALOG.get(key[0], {}).get("name", ""),
+                                            "rule_name": cat.rule(key[1], key[0])["name"], "layer": names.layer_of(key[0]),
                                             "category": f.get("category", ""), "count": 0, "last_seen": ""})
                 row["count"] += 1
                 row["last_seen"] = max(row["last_seen"], str(r.get("ts") or ""))
@@ -486,7 +491,8 @@ def is_local(request: Request) -> bool:
 
 def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], dict] | None" = None,
                         remote: bool = False, info: "dict[str, Callable[[], Any]] | None" = None,
-                        deny_cidrs: "list[str] | None" = None, admin_token: str | None = None) -> APIRouter:
+                        deny_cidrs: "list[str] | None" = None, admin_token: str | None = None,
+                        demo_batch: "Callable[[], Any] | None" = None) -> APIRouter:
     """The console (UI, audit API, exports, playground demo key) is host-only (research/13 section 14):
     non-loopback clients get 403 unless remote=True (console.remote, only on a firewalled demo host)."""
 
@@ -550,6 +556,32 @@ def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], di
         if out is None:
             return JSONResponse({"error": "unknown event"}, status_code=404)
         return out
+
+    @router.get("/api/catalog")
+    async def catalog():
+        """T-123: display name + one-line description for every control and rule id, and the detection layer."""
+        return store.catalog().as_dict()
+
+    @router.get("/api/demo/presets")
+    async def demo_presets():
+        from .demo_batch import PRESETS
+        return {"presets": [{"id": p.id, "title": p.title, "control": p.control, "model": p.model, "expect": list(p.expect),
+                             "repeat": p.repeat, "notes": p.notes} for p in PRESETS]}
+
+    batch_lock = asyncio.Lock()
+
+    @router.post("/api/demo/batch")
+    async def demo_batch_run():
+        """T-123 'Run demo batch': every preset through the gateway in this process; one batch at a time."""
+        if demo_batch is None:
+            raise HTTPException(501, "the demo batch is not wired in this process")
+        if batch_lock.locked():
+            raise HTTPException(409, "a demo batch is already running")
+        async with batch_lock:
+            try:
+                return await demo_batch()
+            except LookupError as e:
+                raise HTTPException(409, str(e))
 
     @router.get("/api/clients")
     async def clients():

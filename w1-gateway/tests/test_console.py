@@ -128,7 +128,11 @@ async def test_exports():
     _, c = make()
     j = await c.get("/console/api/export.jsonl")
     lines = [json.loads(x) for x in j.text.splitlines()]
-    assert lines == fixture_records()
+    # T-123: the export adds detection_layer to each record, derived by the console; everything else is verbatim
+    def bare(rec):
+        return {k: v for k, v in rec.items() if k != "detection_layer"}
+    assert [bare(x) for x in lines] == [bare(x) for x in fixture_records()]
+    assert all("detection_layer" in x for x in lines)
     r = await c.get("/console/api/export.csv")
     rows = list(csv.DictReader(io.StringIO(r.text)))
     assert len(rows) == len(lines)

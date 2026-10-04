@@ -139,6 +139,7 @@
 <section id="page-policy" class="page">
   <div id="pol-banner" class="banner">Loading policy...</div>
   <div class="grid3" id="pol-cards"></div>
+  <div class="card" id="pol-names" style="margin-bottom:14px"></div>
   <div class="card" style="margin-bottom:14px"><h2>Budgets <span class="hint">saved into policy.yaml, applied at once</span></h2><p class="lockhint">Read-only: click <b>Unlock editing</b> (top right) to change budgets, the policy, protections or AI domains.</p>
     <div class="tablewrap"><table id="bud-edit"><thead><tr><th>Who</th><th>Tokens / period</th><th>USD / period</th><th>Period</th><th>Used now</th></tr></thead><tbody></tbody></table></div>
     <div class="toolbar" style="margin-top:12px"><button id="bud-save" class="primary needs-admin">Save budgets</button><span id="bud-msg" class="muted"></span></div>
@@ -161,6 +162,15 @@
 </section>
 
 <section id="page-playground" class="page">
+  <div class="card" style="margin-bottom:14px">
+    <h2>Demo batch <span class="hint">one click, <span id="batch-count">11</span> prompts, each stopped by a different control</span></h2>
+    <p class="muted" id="batch-list">Clean prompt, AWS key, PESEL, confidential project, injections (EN + PL), curl | sh, .env read, a paraphrase for the local judge, an unknown model, a runaway loop.</p>
+    <div class="toolbar"><button id="batch-run" class="primary">Run demo batch</button><span id="batch-msg" class="muted"></span></div>
+    <div id="batch-out" style="display:none">
+      <div class="tiles" id="batch-tiles"></div>
+      <div class="tablewrap"><table id="batch-table" class="click"><thead><tr><th>#</th><th>Prompt</th><th>Final action</th><th>Control / rule</th><th>Caught by</th><th class="num">decide ms</th><th class="num">judge ms</th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </div>
   <div class="card">
     <label>Prompt</label>
     <textarea id="pg-text" rows="5">My PESEL is 44051401359 and my key is AKIAIOSFODNN7EXAMPLE, summarise my contract.</textarea>

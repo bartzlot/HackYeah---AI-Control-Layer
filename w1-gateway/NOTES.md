@@ -51,3 +51,18 @@
   model call answered) / degraded (last call failed or the unreachable breaker is open) / off (disabled in policy), model (the
   tag Ollama really runs), p50 / p95 of the model-call wall time, verdict-cache hits. Counters are per process and reset on restart.
 - `summary.top_rules` lists the rules whose BLOCK finding decided a blocked record (shadow-mode findings do not count).
+
+## Demo batch, display names, detection layer (T-123)
+- `aicl_gateway/demo_batch.py`: 11 presets (B1..B11) through `/v1/chat/completions`, each shown by a different control: clean, DLP-01 AWS key, DLP-02 PESEL,
+  DLP-05 confidential project, INJ-03 EN + PL in a tool result, TOOL-01 curl | sh and .env read (cloud-sim demo script), INJ-04 judge on a paraphrase,
+  ACCESS-01 unknown model, BUD-01 loop burst. One row per prompt: final action, control + rule (+ display names), layer, decide() ms, judge ms + model +
+  verdict + confidence; summary = p50 / p95 + throughput. Console: Try it -> Run demo batch (`POST /console/api/demo/batch`, runs inside the gateway process,
+  one at a time, host-only like the console). Terminal: `uv run python scripts/demo_batch.py [--url ...] [--json]` (needs the stack and AICL_KEY_DEMO).
+- The tool presets need cloud-sim's demo script (`AICL_CLOUDSIM_SCRIPT=demo`, the compose default); T-123 added the `Show me the app settings` step (.env read).
+- `aicl_gateway/names.py`: display name + one-line description per control and rule id (`GET /console/api/catalog`; rule names come from the loaded rule files,
+  the policy's TOOL-01 rules and a built-in table; an unnamed id gets a readable fallback). Ids and the audit are unchanged. Shown in the live feed, the explain
+  drawer + timeline, Protections, top rules and a 'What the ids mean' card on the Policy page.
+- `detection_layer` (`deterministic` | `ai`): INJ-04 (classifier, kNN, judge) is `ai`, everything else `deterministic`; a record's layer is the layer of the enforced
+  finding(s) at its action (tie: deterministic), null for a clean request. The audit contract has no such field (AuditRecord forbids extra keys), so the console derives it:
+  it is on the live feed, the SSE stream and the exports, NOT in the audit JSONL on disk. Requested from the lead: `[lead] contracts: AuditRecord.detection_layer`.
+- No new case files: T-123 adds no control behaviour (every control keeps its allowed + blocked cases); the presets are pinned in `tests/test_demo_batch.py`.
