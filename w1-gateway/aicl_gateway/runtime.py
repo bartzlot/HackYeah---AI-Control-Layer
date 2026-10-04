@@ -6,7 +6,7 @@ The console header chip reads GET /console/api/status, built here from the live 
   dns    the AICL resolver (AICL_DNS_LISTEN), live while its server threads run
   ca     the root CA certificate file under AICL_CA_ROOT
   upstream_overrides   AICL_UPSTREAM_<PROVIDER> (offline demo: the provider is the local mock)
-Mode = transparent when passthrough is on and the TLS listener runs, else base_url. Mode B (explicit
+Mode = off when interception.mode is off, transparent when the TLS listener runs, else base_url. Mode B (explicit
 HTTPS_PROXY) has no CONNECT handler yet (BACKLOG, v4 parked), so this process never reports proxy.
 """
 from __future__ import annotations
@@ -31,12 +31,14 @@ class Runtime:
 
 def _server(s: Any) -> dict:
     cfg = s.config
-    return {"on": bool(getattr(s, "started", False)), "bind": cfg.host, "port": cfg.port}
+    # uvicorn never resets started after shutdown: a listener told to exit is off
+    return {"on": bool(getattr(s, "started", False)) and not s.should_exit, "bind": cfg.host, "port": cfg.port}
 
 
 def _alive(d: Any) -> bool:
     try:
-        return d.udp.isAlive() and d.tcp.isAlive()
+        # Dns.stop() closes the socket synchronously; the server thread may still be winding down
+        return d.udp.isAlive() and d.tcp.isAlive() and d.udp.server.socket.fileno() != -1
     except Exception:  # noqa: BLE001 - not started yet / already stopped
         return False
 
@@ -71,7 +73,8 @@ def status(rt: Runtime, raw: dict, served: tuple | None = None) -> dict:
     overrides = {name: _clean_url(os.environ[f"AICL_UPSTREAM_{name.upper()}"])
                  for name in sorted(cfg.get("providers") or {}) if os.environ.get(f"AICL_UPSTREAM_{name.upper()}")}
     passthrough = pmode != "off"
-    mode = "transparent" if passthrough and tls["on"] else "base_url"
+    # interception.mode off disables every passthrough route (Passthrough.route), only the managed API stays
+    mode = "off" if not passthrough else "transparent" if tls["on"] else "base_url"
 
     warnings: list[str] = []
     if pmode == "transparent" and not tls["on"]:

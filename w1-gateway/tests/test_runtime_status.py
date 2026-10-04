@@ -81,14 +81,14 @@ async def test_serve_with_tls_and_dns_is_transparent_and_follows_the_live_listen
                   AICL_DNS_LISTEN=f"127.0.0.1:{dns_port}")
     app, servers, dns = serve.build(env)
     tls = servers[1]
-    s = await get_status(app)
-    assert s["listeners"]["tls"]["on"] is False and s["listeners"]["dns"]["on"] is False   # built, not started
-    assert s["mode"] == "base_url" and s["listeners"]["http"]["on"] is False
-
     th = threading.Thread(target=tls.run, daemon=True)
-    th.start()
-    dns.start(sweep_s=3600)
     try:
+        s = await get_status(app)
+        assert s["listeners"]["tls"]["on"] is False and s["listeners"]["dns"]["on"] is False   # built, not started
+        assert s["mode"] == "base_url" and s["listeners"]["http"]["on"] is False
+
+        th.start()
+        dns.start(sweep_s=3600)
         wait_listening(tls, tls_port)
         wait_ready(dns_port)
         s = await get_status(app)
@@ -105,7 +105,8 @@ async def test_serve_with_tls_and_dns_is_transparent_and_follows_the_live_listen
     finally:
         dns.stop()
         tls.should_exit = True
-        th.join(timeout=5)
+        if th.is_alive():
+            th.join(timeout=5)
         app.state.engine.store.stop()
 
 
@@ -123,7 +124,7 @@ async def test_policy_off_with_listeners_running_warns_passthrough_disabled(tmp_
         tls.should_exit = True
         th.join(timeout=5)
         app.state.engine.store.stop()
-    assert (s["mode"], s["passthrough"]) == ("base_url", False)
+    assert (s["mode"], s["passthrough"]) == ("off", False)
     assert any("passthrough is disabled" in w for w in s["warnings"])
 
 

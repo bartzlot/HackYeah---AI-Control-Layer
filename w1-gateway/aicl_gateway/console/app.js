@@ -421,8 +421,7 @@
   }
   async function loadHeader() {
     try {
-      await loadMode().catch(() => {});
-      const p = await getJSON(API + "/policy");
+      const [, p] = await Promise.all([loadMode().catch(() => {}), getJSON(API + "/policy")]);
       const c = $("#chip-policy");
       c.textContent = (p.error ? "policy error, last good " : "policy ") + (p.version || "").slice(0, 10);
       c.className = "chip" + (p.error ? " err" : "");
