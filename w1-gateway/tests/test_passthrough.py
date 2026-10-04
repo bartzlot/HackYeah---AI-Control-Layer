@@ -326,3 +326,11 @@ async def test_empty_tool_list_means_no_tool(rig):
                        "tools: []}]\n")
     r = await post(c, cc_body("TOOL: git status"))
     assert r.headers["x-aicl-decision"] == "BLOCK" and "tool call blocked" in sse_text(r)
+
+
+def test_claude_code_system_reminders_are_system_scaffold_not_user_input():
+    from aicl_gateway.passthrough import AnthropicMessages
+    body = cc_body([{"type": "text", "text": "<system-reminder>\nCLAUDE.md: use uv\n</system-reminder>"},
+                    {"type": "text", "text": "fix the bug"}])
+    roles = [(s.part.role, s.part.trusted) for s in AnthropicMessages().parse(body).slots]
+    assert roles[-2:] == [("system", True), ("user", True)]

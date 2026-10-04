@@ -175,7 +175,10 @@ class Judge:
         ps = [_p(v, LEVEL_P) for v in levels.values()] + [_p(out.get("verdict"), VERDICT_P)]
         if any(p is None for p in ps):
             raise JudgeError("judge output violates the enum schema")
-        res = {"p": max(ps), "verdict": out["verdict"], **levels,
+        p = max(ps)
+        if out["verdict"] == "benign":   # a small model can say "benign" and still mark a level high: a block needs
+            p = min(p, VERDICT_P["suspicious"])   # the judge to commit to a non-benign verdict (benign = WARN at most)
+        res = {"p": p, "verdict": out["verdict"], **levels,
                "eval_ms": round(((resp.get("total_duration") or 0) / 1e6), 1)}
         with self._cache_lock:
             self._cache[key] = (now, res)

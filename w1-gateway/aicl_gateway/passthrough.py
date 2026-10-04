@@ -187,7 +187,13 @@ class AnthropicMessages:
                     continue
                 t = b.get("type")
                 if t == "text" and isinstance(b.get("text"), str):
-                    slots.append(Slot(("messages", mi, "content", ci, "text"), Part(role=role, text=b["text"])))
+                    # Claude Code wraps its own context (CLAUDE.md, tool lists, environment) in <system-reminder>
+                    # blocks inside user turns: system-prompt scaffold, still scanned by every deterministic
+                    # control, but not sent to the semantic judge (no attacker channel, and a false positive there
+                    # would block every session)
+                    scaffold = role == "user" and b["text"].lstrip().startswith("<system-reminder>")
+                    slots.append(Slot(("messages", mi, "content", ci, "text"),
+                                      Part(role="system" if scaffold else role, text=b["text"])))
                 elif t == "tool_result":     # output of a tool the agent ran: web pages, files, command output
                     tc = b.get("content")
                     if isinstance(tc, str):

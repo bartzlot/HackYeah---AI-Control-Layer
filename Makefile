@@ -1,11 +1,12 @@
 # AICL Makefile (lead). Targets: demo up down logs models warm test deploy
+#   v4: demo-transparent demo-transparent-offline live live-transparent bench
 SHELL := /bin/bash
 GCP_VM ?= aicl-vm
 GCP_ZONE ?= europe-central2-a
 -include .env
 MODEL ?= $(or $(AICL_OLLAMA_MODEL),qwen3.5:2b-q4_K_M)
 
-.PHONY: demo up down logs models warm test deploy sync
+.PHONY: demo up down logs models warm test deploy sync demo-transparent demo-transparent-offline transparent-down live live-transparent bench
 
 # whole demo stack from zero: build + start, pull the model, load it so the first judge call is warm
 demo: up models warm
@@ -37,3 +38,17 @@ test: sync
 deploy:
 	gcloud compute scp --recurse --zone $(GCP_ZONE) . $(GCP_VM):~/aicl
 	gcloud compute ssh --zone $(GCP_ZONE) $(GCP_VM) --command "cd ~/aicl && docker compose up -d --build"
+
+# ---- v4 transparent interception (research/14) ----
+# corp network in miniature: devbox with Claude Code, DNS = AICL, AICL CA trusted, no route around the gateway
+demo-transparent:
+	bash scripts/demo-transparent.sh
+demo-transparent-offline:
+	AICL_OFFLINE=1 bash scripts/demo-transparent.sh
+transparent-down:
+	docker compose -f docker-compose.transparent.yml --profile offline down
+# real Claude Code through a running gateway (host: base URL mode / devbox: transparent mode); spends real tokens
+live:
+	uv run pytest -m live tests/live/test_live_claude_code.py -v
+live-transparent:
+	uv run pytest -m live tests/live/test_live_transparent.py -v
