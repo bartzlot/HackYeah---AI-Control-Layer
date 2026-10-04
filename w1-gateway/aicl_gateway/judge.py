@@ -34,7 +34,7 @@ from typing import Any, Callable
 import httpx
 
 from aicl_contracts import Action, Ctx, Event, Finding, Span, Stage
-from aicl_core.util import normalized_view
+from aicl_core.util import normalized_view, view_span
 
 from . import semantic
 
@@ -64,11 +64,7 @@ MENTION_NOTE = " A user only asking what an attack phrase means, without asking 
 
 # paraphrase cues (EN + PL), matched on the normalized view (diacritics folded, zero-width removed);
 # deliberately broad: they only open the gray band
-CUES = re.compile(
-    r"(?i)\b(ignore|disregard|forget|override|bypass|pretend|roleplay|role-play|jailbreak|developer mode|dan\b|"
-    r"system prompt|hidden (prompt|instructions|rules|setup)|previous (instructions|rules)|your (instructions|rules)|"
-    r"reveal|exfiltrat|unfiltered|no (rules|restrictions|limits)|act as|you are now|"
-    r"zignoruj|ignoruj|zapomnij|pomin|udawaj|instrukcj|polecen|prompt systemowy|bez ograniczen)")
+CUES = semantic.CUES
 
 
 def window(text: str, focus: int = 0) -> str:
@@ -369,28 +365,37 @@ class Judge:
                  and not (p.role == "assistant" and event.stage == Stage.PROMPT)]
         for idx, part in reversed(parts):     # newest first: the deadline budget goes to text not seen before
             untrusted = (not part.trusted) or part.role == "tool" or event.stage == Stage.TOOL_RESULT
-            r = self.classifier.score(part.text, max_windows=max_windows, deadline=deadline)
-            lang = semantic.language(part.text)
-            k = self.knn.query(semantic.text_windows(part.text, focus=r["window"])) if self.knn else None
+            view, omap = normalized_view(part.text)   # zero-width / tag characters out, diacritics folded
+            r = self.classifier.score(view, max_windows=max_windows, deadline=deadline)
+            wa, wb = r["window"]
+            mid = (wa + wb) // 2                     # language of the text around the suspicious window, not the padding
+            lang = semantic.language(view[max(0, mid - 750):mid + 750])
+            k = (self.knn.query(semantic.text_windows(view, focus=r["window"]), deadline=deadline)
+                 if self.knn else None)
             score = semantic.combine(r["p"], k["p"] if k else None, lang, t)
             verdict, why = semantic.cascade(score, t)
-            detail = {"detection_layer": "ai-classifier", "untrusted": untrusted, "lang": lang,
+            partial = bool(r["partial"] or (k and k.get("partial")))
+            detail = {"detection_layer": "ai-classifier", "untrusted": untrusted, "lang": lang, "partial": partial,
                       "classifier": {"model": self.classifier.model_id, "p": None if r["p"] is None else round(r["p"], 4),
                                      "windows": r["windows"], "scored": r["scored"], "partial": r["partial"],
                                      "cached": r["cached"], "ms": r["ms"]},
                       "embedding": None if not k else {"model": self.knn.model_id, "p": k["p"], "nearest": k["top"],
-                                                       "ms": k["ms"]},
+                                                       "ms": k["ms"], "partial": k.get("partial", False)},
                       "score": None if score is None else round(score, 4), "thresholds": t}
-            span = [Span(part=idx, start=r["window"][0], end=r["window"][1] or len(part.text), type="injection",
+            s0, s1 = view_span(omap, wa, wb, len(part.text)) if wb > wa else (0, len(part.text))
+            span = [Span(part=idx, start=s0, end=s1, type="injection",
                          sha256_8=hashlib.sha256(part.text.encode()).hexdigest()[:8])]
-            if r["p"] is None and r["windows"]:
-                detail["degraded"] = True     # nothing scored in time: the deterministic controls still saw it
-                verdict, why = ("gray", "classifier ran out of time") if idx in signal else ("pass", "")
-                if verdict == "pass":
+            if partial:
+                detail["degraded"] = True     # the deadline or the window budget left text unscored
+            if score is None:
+                if not (untrusted or idx in signal):
                     findings.append(Finding(control_id=self.control_id, rule_id="classifier.unscored", category="injection",
-                                            action=Action.LOG, reason_code="classifier deadline passed before any window was scored",
-                                            spans=span, detail=detail))
+                                            action=Action.LOG, spans=span, detail={**detail, "degraded": True},
+                                            reason_code="no cascade stage scored the text in time (user turn)"))
                     continue
+                verdict, why = "gray", "no cascade stage scored the text in time"
+            if verdict == "pass" and idx in signal and j["enabled"]:
+                verdict, why = "gray", f"signature hit on this part, cascade score {score:.2f}"   # as in the judge-only path
             if verdict == "block":
                 findings.append(Finding(
                     control_id=self.control_id, rule_id="classifier.injection", category="injection", action=Action.BLOCK,
@@ -401,22 +406,36 @@ class Judge:
                 if j["enabled"]:
                     if jdeadline is None:
                         jdeadline = time.monotonic() + j["timeout_s"]
-                    a, b = r["window"]
                     findings.append(self._judge_one(event, ctx, idx, f"classifier cascade: {why}",
-                                                    window(part.text, (a + b) // 2), jdeadline, j,
-                                                    {"cascade": detail}))
+                                                    window(view, (wa + wb) // 2), jdeadline, j, {"cascade": detail}))
+                elif score is None:
+                    act = self._on_timeout(untrusted, j)
+                    findings.append(Finding(
+                        control_id=self.control_id, rule_id="classifier.unscored", category="injection", action=act,
+                        spans=span, detail={**detail, "degraded": True},
+                        reason_code=f"{why}; judge disabled -> on_timeout {act.name}"))
                 else:
                     findings.append(Finding(
                         control_id=self.control_id, rule_id="classifier.gray", category="injection", action=Action.WARN,
                         score=round(score, 3), threshold=t["block"], spans=span,
                         reason_code=f"local classifier cascade: {why}; judge disabled -> WARN", detail=detail))
-            elif idx in signal or (r["p"] or 0) >= t["gray"]:
-                # a signature or the classifier alone was suspicious and the cascade cleared it: document why
+            elif idx in signal or (r["p"] or 0) >= t["gray"] or (partial and untrusted):
+                # documented, never silent: a signature or the classifier alone was suspicious and the cascade cleared
+                # it, or an untrusted part was only partly scored (detail.degraded)
                 findings.append(Finding(
-                    control_id=self.control_id, rule_id="classifier.clear", category="injection", action=Action.LOG,
-                    score=None if score is None else round(score, 3), threshold=t["block"], spans=span,
-                    reason_code=f"local classifier cascade cleared it: {why} ({lang})", detail=detail))
+                    control_id=self.control_id, rule_id="classifier.partial" if partial else "classifier.clear",
+                    category="injection", action=Action.LOG, score=round(score, 3), threshold=t["block"], spans=span,
+                    reason_code=f"local classifier cascade cleared it: {why} ({lang})" +
+                                ("; text only partly scored" if partial else ""), detail=detail))
         return findings
+
+    @staticmethod
+    def _on_timeout(untrusted: bool, j: dict) -> Action:
+        word = str(j["on_to"].get("untrusted" if untrusted else "user", "BLOCK" if untrusted else "WARN"))
+        try:
+            return Action.parse("BLOCK" if word.strip().upper() == "REQUIRE_APPROVAL" else word.strip())
+        except (KeyError, ValueError):
+            return Action.BLOCK               # unknown on_timeout word: fail closed
 
     def evaluate(self, event: Event, ctx: Ctx) -> list[Finding]:
         params = ctx.params

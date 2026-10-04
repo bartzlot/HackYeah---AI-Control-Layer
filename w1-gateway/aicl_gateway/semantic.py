@@ -40,11 +40,13 @@ Tokenize = Callable[[str], tuple[list[int], list[tuple[int, int]]]]   # text -> 
 Infer = Callable[[list[int]], float]                                   # one window of ids (with specials) -> p(injection)
 Embed = Callable[[list[str]], np.ndarray]                              # texts -> L2-normalised rows
 
-# the same broad EN + PL paraphrase cues as the judge: they pick which windows go first when a part is longer
-# than the window budget, and which window the kNN stage also looks at
+# broad EN + PL paraphrase cues on the normalized view (zero-width removed, diacritics folded): they open the
+# judge-only gray band and, here, pick which windows go first when a part is longer than the window budget.
+# judge.CUES is this pattern (one list for both paths)
 CUES = re.compile(
-    r"(?i)\b(ignore|disregard|forget|override|bypass|pretend|roleplay|jailbreak|developer mode|"
-    r"system prompt|instructions|reveal|exfiltrat|unfiltered|no (rules|restrictions|limits)|act as|you are now|"
+    r"(?i)\b(ignore|disregard|forget|override|bypass|pretend|roleplay|role-play|jailbreak|developer mode|dan\b|"
+    r"system prompt|hidden (prompt|instructions|rules|setup)|previous (instructions|rules|directions)|"
+    r"your (instructions|rules)|instructions|reveal|exfiltrat|unfiltered|no (rules|restrictions|limits)|act as|you are now|"
     r"zignoruj|ignoruj|zapomnij|pomin|udawaj|instrukcj|polecen|prompt systemowy|bez ograniczen)")
 
 
@@ -148,15 +150,19 @@ class Classifier:
         order = list(range(len(spans)))
         if len(spans) > max_windows:
             # budget: windows holding cue words first, then the first and last window, then evenly spaced
-            hot = []
+            # budget: half the windows for the densest cue windows, the rest spread evenly over the whole text
+            # (first and last included), so a decoy full of cue words cannot hide a payload elsewhere
+            dens: dict[int, int] = {}
             if cues is not None:
                 starts = [m.start() for m in cues.finditer(text)]
                 for i, (s, e) in enumerate(spans):
                     a, b = offs[s][0], offs[e - 1][1]
-                    if any(a <= c < b for c in starts):
-                        hot.append(i)
-            rest = [0, len(spans) - 1] + [round(k * (len(spans) - 1) / max(1, max_windows - 1)) for k in range(max_windows)]
-            order = list(dict.fromkeys(hot + rest))[:max_windows]
+                    n = sum(1 for c in starts if a <= c < b)
+                    if n:
+                        dens[i] = n
+            hot = sorted(dens, key=lambda i: (-dens[i], i))[: max_windows // 2]
+            even = [round(k * (len(spans) - 1) / max(1, max_windows - 1)) for k in range(max_windows)]
+            order = list(dict.fromkeys(hot + even + sorted(dens)))[:max_windows]
         scores: dict[int, float] = {}
         todo: list[tuple[int, str, list[int]]] = []
         cached = 0
@@ -258,29 +264,40 @@ class Knn:
             self.cache.put(key, res)
         return res
 
-    def query(self, texts: Sequence[str]) -> dict[str, Any]:
+    def query(self, texts: Sequence[str], *, deadline: float | None = None) -> dict[str, Any]:
+        """Embeds the texts in order until the deadline (at least the first one); `partial` when some were skipped."""
         t0 = time.monotonic()
         texts = [t for t in texts if t and t.strip()]
         if not texts or self.w is None:
-            return {"p": None, "top": [], "ms": 0.0}
-        best = max((self._one(t) for t in texts), key=lambda r: r["p"])
+            return {"p": None, "top": [], "ms": 0.0, "partial": False}
+        done = []
+        for t in texts:
+            if done and deadline is not None and time.monotonic() >= deadline:
+                break
+            done.append(self._one(t))
+        best = max(done, key=lambda r: r["p"])
         ms = (time.monotonic() - t0) * 1000.0
         self.lat_ms.append(ms)
-        return {**best, "ms": round(ms, 1)}
+        return {**best, "ms": round(ms, 1), "partial": len(done) < len(texts)}
 
 
 # distinctive Polish function words (no "i", "to", "na", "do": they are English too) plus Polish letters
 _PL = re.compile(r"(?i)\b(w|z|sie|nie|jest|oraz|ktor\w*|dla|przez|tylko|wszystk\w*|twoj\w*|moj\w*|jestes|prosze|"
                  r"napisz|dodaj|zignoruj|teraz|zeby|czy|jak|ze|od|po|jako|bez|tego|tym|sa|byc|mnie|mi)\b"
-                 "|[\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c]")
+                 "|\\b[a-z]+[\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c]\\w*|\\b[\u0105\u0107\u0119\u0142\u0144\u00f3\u015b\u017a\u017c]+[a-z]\\w*")
 _EN = re.compile(r"(?i)\b(the|and|to|of|a|in|is|you|your|for|with|this|that|be|are|on|it|as|all|from|now|please|i|my|me)\b")
 
 
 def language(text: str) -> str:
-    """'pl' or 'en' by function-word counts in the first 4000 characters. The classifier is trained on English:
-    on Polish text it scores almost everything as an injection, so Polish is decided by the multilingual head."""
+    """'pl' or 'en' by counting WORDS (a word with Polish letters counts once, so padding with diacritics does not
+    flip it). Call it on the window the classifier found most suspicious, not on the start of the part, so filler
+    elsewhere cannot switch the classifier off. The classifier is trained on English: on Polish text it scores
+    almost everything as an injection, so Polish is decided by the multilingual head."""
     t = text[:4000]
-    return "pl" if len(_PL.findall(t)) > len(_EN.findall(t)) else "en"
+    words = re.findall(r"\w+", t)
+    pl = len(_PL.findall(t))
+    en = len(_EN.findall(t))
+    return "pl" if pl > en and pl >= max(2, len(words) // 20) else "en"
 
 
 def text_windows(text: str, *, size: int = 1500, stride: int = 1200, max_windows: int = 8,
@@ -293,8 +310,10 @@ def text_windows(text: str, *, size: int = 1500, stride: int = 1200, max_windows
     if starts[-1] + size < len(text):
         starts.append(len(text) - size)
     cue = [m.start() for m in CUES.finditer(text)]
-    hot = [s for s in starts if any(s <= c < s + size for c in cue)]
-    order = list(dict.fromkeys(hot + [starts[0], starts[-1]] + starts))[:max_windows]
+    dens = {s: sum(1 for c in cue if s <= c < s + size) for s in starts}
+    hot = sorted((s for s in starts if dens[s]), key=lambda s: (-dens[s], s))[: max_windows // 2]
+    even = [starts[round(k * (len(starts) - 1) / max(1, max_windows - 1))] for k in range(max_windows)]
+    order = list(dict.fromkeys(hot + even))[:max_windows]
     out = [text[s:s + size] for s in order]
     if focus and focus[1] > focus[0]:
         a = max(0, min(focus[0], len(text) - size))
