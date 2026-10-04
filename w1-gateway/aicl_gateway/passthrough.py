@@ -17,6 +17,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -92,6 +93,29 @@ def usage_usd(a: "Answer", usage: Usage, price: dict | None) -> float:
     plain = max(0, usage.input_tokens - a.cache_read - a.cache_write)
     return (plain * price["in"] + a.cache_read * price["in"] * CACHE_READ_X
             + a.cache_write * price["in"] * CACHE_WRITE_X + usage.output_tokens * price["out"]) / 1e6
+
+
+class BodyError(ValueError):
+    pass
+
+
+def _no_dupes(pairs):
+    d = {}
+    for k, v in pairs:
+        if k in d:      # a provider parser may keep the FIRST value while we inspected the last one
+            raise BodyError(f"duplicate JSON key {k!r}")
+        d[k] = v
+    return d
+
+
+def strict_json(raw: bytes) -> Any:
+    """JSON with duplicate keys and pathological nesting refused (never inspect one view, forward another)."""
+    try:
+        return json.loads(raw, object_pairs_hook=_no_dupes)
+    except RecursionError as e:
+        raise BodyError("JSON nested too deeply") from e
+    except UnicodeDecodeError as e:
+        raise BodyError(f"body is not UTF-8: {e}") from e
 
 
 def _set_path(obj: Any, path: tuple, value: Any) -> None:
@@ -303,8 +327,13 @@ class AnthropicMessages:
 
 
 def _cache_tokens(u: dict) -> tuple[int, int]:
+    """(cache reads, cache writes in 5-minute-write units: a 1-hour write costs 2x base = 1.6 x the 1.25x rate)."""
     try:
-        return int(u.get("cache_read_input_tokens") or 0), int(u.get("cache_creation_input_tokens") or 0)
+        read = int(u.get("cache_read_input_tokens") or 0)
+        write = int(u.get("cache_creation_input_tokens") or 0)
+        cc = u.get("cache_creation") if isinstance(u.get("cache_creation"), dict) else {}
+        one_h = int(cc.get("ephemeral_1h_input_tokens") or 0)
+        return read, write + round(one_h * (2.0 / CACHE_WRITE_X - 1.0))
     except (TypeError, ValueError):
         return 0, 0
 
@@ -365,7 +394,8 @@ class Passthrough:
     def client(self, name: str, prov: dict) -> httpx.AsyncClient:
         c = self.clients.get(name)
         if c is None:
-            base = prov.get("upstream") or "https://" + prov["hosts"][0]
+            # AICL_UPSTREAM_<PROVIDER> overrides the policy (offline demo: the local Anthropic mock)
+            base = os.environ.get(f"AICL_UPSTREAM_{name.upper()}") or prov.get("upstream") or "https://" + prov["hosts"][0]
             c = httpx.AsyncClient(base_url=base, timeout=httpx.Timeout(self.timeout, connect=10.0))
             self.clients[name] = c
             self._owned.append(c)
@@ -375,22 +405,36 @@ class Passthrough:
     async def handle(self, request: Request, name: str, prov: dict, upath: str, cfg: dict) -> Response:
         t0 = time.perf_counter()
         ctx = {"up": 0.0, "action": Action.ALLOW, "rid": "req_" + uuid.uuid4().hex[:12]}
-        adapter = ADAPTERS.get(prov.get("protocol"))
-        if not icpt.is_canonical(upath):    # /v1//messages, /v1/%6Dessages: never let a spelling skip inspection
+        try:
+            resp = await self._dispatch(request, name, prov, upath, cfg, ctx)
+        except Exception as e:  # noqa: BLE001 - nothing unexpected may ever forward a request: fail closed
             ctx["action"] = Action.BLOCK
-            resp = JSONResponse({"type": "error", "error": {"type": "invalid_request_error",
-                                 "message": f"[AICL] non-canonical request path {upath.split('?')[0]!r}"}},
-                                status_code=400)
-        elif request.method == "POST" and adapter is not None and icpt.is_inspected(prov, upath):
-            resp = await self._inspect(request, name, prov, upath, cfg, adapter, ctx)
-        else:
-            resp = await self._proxy(request, name, prov, upath, cfg, ctx)
+            resp = JSONResponse({"type": "error", "error": {"type": "api_error", "message":
+                                 f"[AICL] gateway error, request not forwarded ({type(e).__name__})"}},
+                                status_code=500)
         total = (time.perf_counter() - t0) * 1000
         resp.headers["x-aicl-request-id"] = ctx["rid"]
         resp.headers["x-aicl-decision"] = ctx["action"].name
         resp.headers["server-timing"] = (f"aicl;dur={max(total - ctx['up'], 0):.1f}, upstream;dur={ctx['up']:.1f}, "
                                          f"total;dur={total:.1f}")
         return resp
+
+    def _refuse(self, ctx: dict, status: int, message: str, etype: str = "invalid_request_error") -> Response:
+        ctx["action"] = Action.BLOCK
+        return JSONResponse({"type": "error", "error": {"type": etype, "message": "[AICL] " + message}},
+                            status_code=status)
+
+    async def _dispatch(self, request: Request, name: str, prov: dict, upath: str, cfg: dict, ctx: dict) -> Response:
+        adapter = ADAPTERS.get(prov.get("protocol"))
+        if not icpt.is_canonical(upath):    # /v1//messages, /V1/messages, /v1/%6Dessages: refuse every spelling trick
+            return self._refuse(ctx, 400, f"non-canonical request path {upath.split('?')[0]!r}")
+        if icpt.is_inspected(prov, upath):
+            if adapter is None:             # listed for inspection but no parser for it yet: fail closed
+                return self._refuse(ctx, 400, f"{prov.get('protocol')} is not inspectable by this gateway yet")
+            if request.method != "POST":
+                return self._refuse(ctx, 405, f"{request.method} {upath.split('?')[0]} is not allowed", "not_found_error")
+            return await self._inspect(request, name, prov, upath, cfg, adapter, ctx)
+        return await self._proxy(request, name, prov, upath, cfg, ctx, adapter)
 
     def _who(self, request: Request, raw: dict) -> dict:
         ip = request.client.host if request.client else None
@@ -442,8 +486,11 @@ class Passthrough:
         if len(body_bytes) > int(cfg["max_body_kb"]) * 1024:
             return self._block(adapter, cfg, "hard", f"request body {len(body_bytes) // 1024} KB is over "
                                f"interception.max_body_kb {cfg['max_body_kb']}", None, ctx)
+        if request.headers.get("content-encoding", "identity").lower() not in ("", "identity"):
+            return adapter.error(400, "invalid_request_error", "[AICL] compressed request bodies are not "
+                                 "accepted (they cannot be inspected)", rid)
         try:
-            body = json.loads(body_bytes)
+            body = strict_json(body_bytes)
             if not isinstance(body, dict):
                 raise ValueError("not an object")
             parsed = adapter.parse(body)
@@ -471,15 +518,7 @@ class Passthrough:
                                f"(decision {d.decision_id})", parsed, ctx)
         out_bytes = body_bytes
         if d.action == Action.REDACT and d.redactions:
-            fwd = copy.deepcopy(body)
-            by_part: dict[int, list] = {}
-            for r in d.redactions:
-                by_part.setdefault(r.part, []).append(r)
-            for idx, reds in by_part.items():
-                if 0 <= idx < len(parsed.slots):
-                    s = parsed.slots[idx]
-                    _set_path(fwd, s.path, apply_spans(s.part.text, reds))
-            out_bytes = json.dumps(fwd, ensure_ascii=False).encode("utf-8")
+            out_bytes = json.dumps(self._redacted(body, parsed, d), ensure_ascii=False).encode("utf-8")
 
         # ---- budget: reserve the worst case, settle with reported usage
         prices = prices_from_policy(raw_policy)
@@ -565,33 +604,62 @@ class Passthrough:
             return Response(adapter.rebuild_sse(state, new_text, drop, note), status_code=200, headers=rh)
         return JSONResponse(adapter.rebuild_json(resp_json, new_text, drop, note), headers=rh)
 
-    async def _proxy(self, request: Request, name: str, prov: dict, upath: str, cfg: dict, ctx: dict) -> Response:
-        """Not inspected: stream both ways unchanged (or 404 when interception.proxy_other_paths is false)."""
+    async def _proxy(self, request: Request, name: str, prov: dict, upath: str, cfg: dict, ctx: dict,
+                     adapter=None) -> Response:
+        """Not inspected. Bodyless methods stream through. A request WITH a body is either a prompt-shaped JSON
+        (count_tokens and friends: request-stage decide + redaction, answer streamed) or a path listed in
+        providers.<p>.raw_paths (token refresh, telemetry: forwarded as is, audited); anything else is refused.
+        interception.proxy_other_paths: false closes everything not inspected."""
         raw_policy = self.policy() or {}
         who = self._who(request, raw_policy)
         base = self._base(who, prov, name, None, None, ctx["rid"])
+        path_only = upath.split("?", 1)[0]
         if not cfg["proxy_other_paths"]:
-            ctx["action"] = Action.BLOCK
             self.audit.denied(Event(stage=Stage.PROMPT, **base), f"path not allowed: {request.method} {upath}",
                               "REQUEST_BLOCKED")
-            return JSONResponse({"type": "error", "error": {"type": "not_found_error",
-                                 "message": f"[AICL] {upath} is not allowed by the AICL policy"}}, status_code=404)
+            return self._refuse(ctx, 404, f"{path_only} is not allowed by the AICL policy", "not_found_error")
+        body = await request.body()
+        if len(body) > int(cfg["max_body_kb"]) * 1024:
+            return self._refuse(ctx, 413, f"request body over interception.max_body_kb {cfg['max_body_kb']}",
+                                "request_too_large")
+        note = "passthrough"
+        if body and request.method not in ("GET", "HEAD", "OPTIONS"):
+            if icpt.path_matches(prov.get("raw_paths") or [], path_only):
+                note = "passthrough raw_paths"
+            else:
+                obj = None
+                if adapter is not None and request.headers.get("content-encoding", "identity").lower() in ("", "identity"):
+                    try:
+                        obj = strict_json(body)
+                    except ValueError:
+                        obj = None
+                if not (isinstance(obj, dict) and isinstance(obj.get("messages"), list)):
+                    self.audit.denied(Event(stage=Stage.PROMPT, **base), f"uninspectable body: {request.method} "
+                                      f"{path_only}", "REQUEST_BLOCKED")
+                    return self._refuse(ctx, 400, f"{request.method} {path_only} carries a body AICL cannot inspect "
+                                        f"(add it to providers.{name}.inspect or raw_paths)")
+                parsed = adapter.parse(obj)
+                base = self._base(who, prov, name, parsed.model, parsed.session, ctx["rid"])
+                d = await self._decide(Event(stage=Stage.PROMPT, parts=[s.part for s in parsed.slots], **base), ctx)
+                if d.action == Action.BLOCK:
+                    return self._refuse(ctx, 400, f"request blocked by policy: {_why(d)} (decision {d.decision_id})")
+                if d.action == Action.REDACT and d.redactions:
+                    body = json.dumps(self._redacted(obj, parsed, d), ensure_ascii=False).encode("utf-8")
+                note = "passthrough request-inspected"
         headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP}
         headers["accept-encoding"] = "identity"
-        body = await request.body()
         t_up = time.perf_counter()
         try:
             req = self.client(name, prov).build_request(request.method, upath, content=body or None, headers=headers)
             up = await self.client(name, prov).send(req, stream=True)
         except httpx.HTTPError as e:
-            return JSONResponse({"type": "error", "error": {"type": "api_error",
-                                 "message": f"[AICL] upstream {name} unreachable: {type(e).__name__}"}},
-                                status_code=502)
+            return self._refuse(ctx, 502, f"upstream {name} unreachable: {type(e).__name__}", "api_error")
         ctx["up"] = (time.perf_counter() - t_up) * 1000
-        d = Decision(action=Action.ALLOW, decision_id=uuid.uuid4().hex[:16],
-                     explain=[f"passthrough {request.method} {upath.split('?')[0]} -> {up.status_code}"])
+        d = Decision(action=ctx["action"], decision_id=uuid.uuid4().hex[:16],
+                     explain=[f"{note} {request.method} {path_only} -> {up.status_code}"])
         self.audit.from_decision(Event(stage=Stage.PROMPT, **base), d, "PASSTHROUGH")
-        rh = {k: v for k, v in up.headers.items() if k.lower() not in RESP_DROP}
+        # raw bytes are relayed, so content-encoding stays (only hop-by-hop and length headers are dropped)
+        rh = {k: v for k, v in up.headers.items() if k.lower() not in RESP_DROP - {"content-encoding"}}
 
         async def body_iter():
             try:
@@ -600,3 +668,15 @@ class Passthrough:
             finally:
                 await up.aclose()
         return StreamingResponse(body_iter(), status_code=up.status_code, headers=rh)
+
+    @staticmethod
+    def _redacted(obj: dict, parsed: "Parsed", d: Decision) -> dict:
+        fwd = copy.deepcopy(obj)
+        by_part: dict[int, list] = {}
+        for r in d.redactions:
+            by_part.setdefault(r.part, []).append(r)
+        for idx, reds in by_part.items():
+            if 0 <= idx < len(parsed.slots):
+                s = parsed.slots[idx]
+                _set_path(fwd, s.path, apply_spans(s.part.text, reds))
+        return fwd

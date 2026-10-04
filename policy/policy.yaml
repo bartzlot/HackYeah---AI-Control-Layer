@@ -219,9 +219,11 @@ interception:
   mode: transparent
   credentials: passthrough
   providers:                 # Host / SNI -> provider; only `inspect` paths are parsed and decided, others proxied
-    anthropic: {hosts: [api.anthropic.com], protocol: anthropic_messages, upstream: "https://api.anthropic.com", inspect: ["/v1/messages"]}
+    anthropic: {hosts: [api.anthropic.com], protocol: anthropic_messages, upstream: "https://api.anthropic.com", inspect: ["/v1/messages"],
+                raw_paths: ["/v1/oauth/token", "/api/oauth/*", "/api/event_logging/*"]}   # bodies forwarded uninspected (auth refresh, telemetry)
     openai:    {hosts: [api.openai.com], protocol: openai_responses, upstream: "https://api.openai.com", inspect: ["/v1/responses", "/v1/chat/completions"]}
-  proxy_other_paths: true    # false = 404 for every path not in `inspect` (e.g. block /v1/files uploads)
+  proxy_other_paths: true    # bodyless requests stream through; a body is request-inspected (prompt-shaped JSON),
+                             # listed in raw_paths, or refused; false = 404 for every path not in `inspect`
   max_body_kb: 4096          # coding agents send ~275 tool definitions per request
   unknown_client: {action: ALLOW, principal: unknown-client, profile: strict}   # no clients: entry matched
   dns:

@@ -188,7 +188,8 @@ class ToolFirewall:
         pol, p = ctx.params["_policy"], ctx.params
         if event.upstream_host:     # v4 passthrough client: clients[].tools (globs), none listed = every tool
             who = interception.client_for(pol.raw, event.client_ip, event.credential_hash, event.user_agent)
-            allowed, where = list(who.get("tools") or ["*"]), f"clients[{event.agent_id}].tools"
+            tools = who.get("tools")      # None = not restricted; [] = no tool at all
+            allowed, where = (["*"] if tools is None else list(tools)), f"clients[{event.agent_id}].tools"
         else:
             agent = pol.agent(event.agent_id) or {}
             allowed, where = list(agent.get("tools") or []), f"agents.{event.agent_id}.tools"

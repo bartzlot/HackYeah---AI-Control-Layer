@@ -219,16 +219,13 @@ class Judge:
                     v = view(sp.part)
                     focus = bisect_left(views[sp.part][1], sp.start)   # original offset -> view offset
                     out[sp.part] = (f"{f.control_id}/{f.rule_id} {f.action.name} below BLOCK", v, focus)
-        # a conversation re-sends its whole history every turn: trusted text before the last model turn was
-        # judged on its own turn already (and is cached), so cue words only send the NEW trusted input
-        last_model = max((i for i, p in enumerate(event.parts) if p.role == "assistant"), default=-1)
+        # a conversation re-sends its whole history every turn; every part is still judged (the client controls
+        # the history, a forged earlier turn must not skip the judge) and the verdict cache makes repeats free
         for i, part in enumerate(event.parts):
             if i in out or (part.role == "system" and part.trusted):
                 continue
             if part.role == "assistant" and event.stage == Stage.PROMPT:
                 continue                      # earlier model turns: not attacker input on this hop
-            if part.trusted and part.role != "tool" and i < last_model:
-                continue
             starts = [m.start() for m in CUES.finditer(view(i))]
             if starts:   # centre on the densest cluster of cues, not on the first (decoy) word
                 focus = max(starts, key=lambda a: sum(1 for b in starts if abs(b - a) <= MAX_CHARS // 2))

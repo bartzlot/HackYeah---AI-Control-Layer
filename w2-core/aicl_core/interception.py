@@ -58,7 +58,7 @@ def _str_list(v: Any) -> bool:
 KEYS = {
     "interception": {"mode", "credentials", "providers", "proxy_other_paths", "max_body_kb", "unknown_client", "dns",
                      "tls", "block_style"},
-    "provider": {"hosts", "protocol", "upstream", "inspect"},
+    "provider": {"hosts", "protocol", "upstream", "inspect", "raw_paths"},
     "unknown_client": {"action", "principal", "profile"},
     "dns": {"listen", "gateway_ip", "upstream", "doh_sinkhole", "log_queries"},
     "tls": {"ca_cert", "ca_key", "leaf_days"},
@@ -121,6 +121,9 @@ def validate(raw: dict) -> None:
         for x in p["inspect"]:
             if not x.startswith("/") or canonical_path(x) != x.rstrip("/"):
                 raise ValueError(f"{where}.inspect: {x!r} must be a plain absolute path")
+        if "raw_paths" in p and not (isinstance(p["raw_paths"], list) and all(isinstance(x, str) and x.startswith("/")
+                                                                          for x in p["raw_paths"])):
+            raise ValueError(f"{where}.raw_paths must be a list of absolute path globs")
         if "upstream" in p and not (isinstance(p["upstream"], str) and p["upstream"].startswith(("http://", "https://"))):
             raise ValueError(f"{where}.upstream must be an http(s) URL")
         for h in p["hosts"]:
@@ -228,8 +231,17 @@ def canonical_path(path: str) -> str:
 
 
 def is_canonical(path: str) -> bool:
+    """Plain lower-case path: no percent-encoding, no //, no dot segments, no ;params, no whitespace.
+    Provider API paths are all lower-case, and a lenient upstream must never see a spelling we did not inspect."""
     raw = path.split("?", 1)[0]
+    if raw != raw.lower() or any(c in raw for c in "%; \t\\"):
+        return False
     return raw == canonical_path(raw) or raw == canonical_path(raw) + "/"
+
+
+def path_matches(globs: list[str], path: str) -> bool:
+    p = canonical_path(path)
+    return any(fnmatch.fnmatchcase(p, g) for g in globs)
 
 
 def is_inspected(provider: dict, path: str) -> bool:

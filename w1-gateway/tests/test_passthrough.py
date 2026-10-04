@@ -260,3 +260,69 @@ def test_cost_uses_prompt_cache_multipliers():
     u = Usage(input_tokens=100_100, output_tokens=50)
     usd = usage_usd(a, u, {"in": 1.0, "out": 5.0})          # haiku 4.5
     assert abs(usd - (100 * 1.0 + 100_000 * 0.1 + 50 * 5.0) / 1e6) < 1e-12
+
+
+# ---- review findings: nothing reaches the provider uninspected ---------------------------------
+
+async def test_inspected_path_without_an_adapter_fails_closed(rig, monkeypatch):
+    from aicl_gateway import passthrough as pt
+    monkeypatch.setattr(pt, "ADAPTERS", {k: v for k, v in pt.ADAPTERS.items() if k != "anthropic_messages"})
+    app, c, mock, _ = rig()
+    r = await post(c, cc_body(f"key {AWS_EXAMPLE}"))
+    assert r.status_code == 400 and "not inspectable" in r.json()["error"]["message"] and not mock.state.seen
+
+
+async def test_count_tokens_body_is_request_inspected(rig):
+    app, c, mock, _ = rig()
+    r = await post(c, cc_body(f"key {AWS_EXAMPLE}"), path="/v1/messages/count_tokens")
+    assert r.status_code == 200 and r.headers["x-aicl-decision"] == "REDACT"
+
+
+@pytest.mark.parametrize("method, path, body, status", [
+    ("POST", "/v1/messages/batches", {"requests": [{"custom_id": "1", "params": {"messages": []}}]}, 400),
+    ("POST", "/V1/messages", None, 400),
+    ("POST", "/v1/messages%20", None, 400),
+    ("PUT", "/v1/messages", None, 405),
+])
+async def test_body_carrying_tricks_are_refused(rig, method, path, body, status):
+    app, c, mock, _ = rig()
+    data = json.dumps(body if body is not None else cc_body(f"key {AWS_EXAMPLE}"))
+    r = await c.request(method, path, content=data, headers=HDR)
+    assert r.status_code == status and "[AICL]" in r.text
+    assert not mock.state.seen
+
+
+async def test_duplicate_json_keys_are_refused(rig):
+    app, c, mock, _ = rig()
+    raw = ('{"model": "claude-sonnet-5-5", "max_tokens": 10, "messages": [{"role": "user", "content": "key '
+           + AWS_EXAMPLE + '"}], "messages": [{"role": "user", "content": "hi"}]}')
+    r = await c.post("/v1/messages", content=raw, headers=HDR)
+    assert r.status_code == 400 and "duplicate JSON key" in r.json()["error"]["message"] and not mock.state.seen
+
+
+async def test_pathological_nesting_is_a_400_not_a_crash(rig):
+    app, c, mock, _ = rig()
+    r = await c.post("/v1/messages", content="[" * 200_000, headers=HDR)
+    assert r.status_code == 400 and not mock.state.seen
+
+
+async def test_compressed_request_bodies_are_refused(rig):
+    import gzip
+    app, c, mock, _ = rig()
+    r = await c.post("/v1/messages", content=gzip.compress(json.dumps(cc_body(AWS_EXAMPLE)).encode()),
+                     headers={**HDR, "content-encoding": "gzip"})
+    assert r.status_code == 400 and "compressed" in r.json()["error"]["message"] and not mock.state.seen
+
+
+async def test_raw_paths_are_forwarded_without_inspection_but_audited(rig):
+    app, c, mock, _ = rig()
+    r = await c.post("/v1/oauth/token", content='{"grant_type": "refresh_token"}', headers=HDR)
+    assert r.status_code == 404                     # the mock has no such route: it reached the upstream
+    assert any("raw_paths" in x["explain"][0] for x in audit(app) if x["event_type"] == "PASSTHROUGH")
+
+
+async def test_empty_tool_list_means_no_tool(rig):
+    app, c, _, _ = rig("clients: [{match: {cidr: 127.0.0.0/8}, principal: demo-dev, models: ['claude-*'], "
+                       "tools: []}]\n")
+    r = await post(c, cc_body("TOOL: git status"))
+    assert r.headers["x-aicl-decision"] == "BLOCK" and "tool call blocked" in sse_text(r)
