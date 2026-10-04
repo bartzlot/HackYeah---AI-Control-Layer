@@ -130,3 +130,43 @@ T-[0-9]{3}
 head
 -n
 1
+- [ ] T-014 [lead] (T1) compose transparent demo: internal network (no route out) with dns (static ip) + gateway (static ip, :443, second network with egress) + demo-client container (Node + Claude Code CLI, resolver = AICL DNS, CA via NODE_EXTRA_CA_CERTS + OS store); make ca, make demo-transparent; .env.example documents ANTHROPIC_API_KEY for the live demo only (never in tests); tests/test_transparent_compose.py [14 s.1, s.9] | deps: OK add [w1] (T1) TLS + CA: aicl ca init / leaf / export (cryptography; P-256 root; one leaf with SAN = every intercepted host, regenerated on policy change); gateway TLS listener :443 with the leaf; install guide per OS (Windows certutil, macOS security add-trusted-cert, Linux update-ca-certificates) + NODE_EXTRA_CA_CERTS / SSL_CERT_FILE / REQUESTS_CA_BUNDLE; tests build a CA in tmp and verify the chain + SAN list [14 s.5] by lead/Przemyslaw_Raczynski@przemek-pc
+1
+/
+tail
+-n
+1
+/
+grep
+-o
+T-[0-9]{3}
+/
+head
+-n
+1, OK add [w1] (T1) DNS resolver (dnslib, UDP + TCP :53): intercepted hosts -> A gateway_ip, empty AAAA; doh_sinkhole names -> NXDOMAIN; everything else forwarded to interception.dns.upstream; reload with the policy; every query = one audit record (client ip, name, type, intercepted, answer) [14 s.5] by lead/Przemyslaw_Raczynski@przemek-pc
+1
+/
+tail
+-n
+1
+/
+grep
+-o
+T-[0-9]{3}
+/
+head
+-n
+1, OK add [w1] (T1) passthrough router: Host / SNI -> provider + protocol from interception.providers; client Authorization / x-api-key / OAuth bearer forwarded unchanged (credentials: passthrough; managed mode keeps current gateway keys); every non-inspected path (HEAD /api/hello, /v1/messages/count_tokens, /v1/models, unknown) proxied byte-for-byte with streaming and audited; upstream resolved via interception.dns.upstream, never via our DNS; identity = client_ip + sha256(key)[:8] + user agent -> clients: map; real Claude Code works in mode A (ANTHROPIC_BASE_URL) [14 s.2, s.6] by lead/Przemyslaw_Raczynski@przemek-pc
+1
+/
+tail
+-n
+1
+/
+grep
+-o
+T-[0-9]{3}
+/
+head
+-n
+1
