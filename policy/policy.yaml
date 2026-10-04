@@ -163,11 +163,20 @@ controls:
     # user turns: injection-family rules (injection, prompt_extraction, jailbreak) BLOCK when their severity score
     # (low .40, medium .65, high .80, critical .95) >= profiles.<p>.injection.block; quoted educational mentions only LOG
     mention_exceptions: true
-  INJ-04:                    # semantic cascade: classifier -> kNN -> judge on gray band
+  INJ-04:                    # local semantic cascade (research/14 s.12): classifier + embedding head -> judge on the gray band
     mode: {strict: enforce, balanced: enforce, permissive: shadow}
     fail: degrade
-    classifier: {model: piguard-onnx, timeout_ms: 120, run_on: [untrusted, after_signal]}
-    knn: {index: "feed:semantic", k: 5, timeout_ms: 40}
+    # stage 1: ONNX prompt-injection classifier (models/classifier, DeBERTa-v3, English-centric), stage 2: multilingual
+    # embedding head over policy/semantic/examples.yaml (models/embedder). Score = 0.3 x classifier + 0.7 x head on
+    # English, the head alone on Polish. score >= block -> BLOCK; [gray, block) -> judge (or WARN without it).
+    # Calibrated by scripts/eval_classifier.py on tests/eval/injection_eval.yaml. No models/ -> judge-only path.
+    classifier:
+      enabled: true
+      block: {strict: 0.75, balanced: 0.85, permissive: 0.93}
+      gray: {strict: 0.35, balanced: 0.45, permissive: 0.60}
+      w_classifier: 0.3
+      timeout_ms: 1500       # one deadline per event for both stages; windows left unscored are marked partial
+      max_windows: 16        # per part (256 tokens each, cue windows first); history re-sent each turn is cached
     # timeout_ms: ONE deadline for all gray parts of an event (later parts get on_timeout when it runs out);
     # 8000 fits a 2B model on CPU (64 output tokens) with the model warm (`make warm`); on a GPU 2000 is plenty
     judge: {enabled: true, model: "qwen3.5:2b-q4_K_M", timeout_ms: 8000, on_timeout: {user: WARN, untrusted: BLOCK}}

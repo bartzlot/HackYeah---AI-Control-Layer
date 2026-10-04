@@ -7,6 +7,7 @@ Everything comes from the one policy file (hot reloaded by the w2 engine) plus A
   AICL_POLICY                  policy path (default policy/policy.yaml)
   AICL_OLLAMA_URL              local upstream (Ollama: OpenAI-compatible /v1 for chat, /api/chat for the judge)
   AICL_OLLAMA_MODEL            Ollama tag actually called for the policy's local model (CPU fallback, e.g. 0.8b)
+  AICL_MODELS_DIR              INJ-04 classifier + embedding head (make models-onnx); unset = judge-only cascade
   AICL_CLOUDSIM_URL            external upstream (priced cloud-sim mock)
   AICL_UPSTREAM_KEY_EXTERNAL   credential injected towards the external upstream (agents never hold it)
   AICL_DATA_DIR, AICL_AUDIT_PATH, AICL_BUDGET_DB   audit JSONL and budget SQLite (directories are created)
@@ -30,6 +31,7 @@ from typing import Any, Callable
 from aicl_core.engine import Engine, register
 
 from . import judge as judge_mod
+from . import semantic
 from . import policy_admin, runtime
 from .app import create_app
 from .budget import config_from_policy
@@ -134,6 +136,7 @@ def create_app_from_env(env: dict | None = None, *, upstreams: dict | None = Non
     # calls the same Ollama tag as the chat route (AICL_OLLAMA_MODEL renames the policy's local model).
     model_map = {tag: e["upstream_model"] for tag, e in cfg["models"].items() if e.get("upstream_model")}
     judge = judge_mod.install(register, cfg["upstream_urls"]["local"], chat_fn=judge_chat, model_map=model_map)
+    judge.classifier, judge.knn = semantic.load_from_env(env)    # INJ-04 stages 1 + 2 (AICL_MODELS_DIR)
     if env.get("AICL_KEY_DEMO") == EXAMPLE_DEMO_KEY and env.get("AICL_GATEWAY_BIND") not in (None, "", "127.0.0.1"):
         log.warning("AICL_KEY_DEMO is the public .env.example value and the gateway is bound to %s: "
                     "set a fresh key in .env", env.get("AICL_GATEWAY_BIND"))

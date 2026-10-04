@@ -36,6 +36,8 @@ import httpx
 from aicl_contracts import Action, Ctx, Event, Finding, Span, Stage
 from aicl_core.util import normalized_view
 
+from . import semantic
+
 CONTROL_ID = "INJ-04"
 DEFAULT_MODEL = "qwen3.5:2b-q4_K_M"
 DEFAULT_TIMEOUT_MS = 3000            # CPU VM; policy INJ-04.judge.timeout_ms overrides
@@ -120,6 +122,8 @@ class Judge:
         self._last_ok = self._last_err = 0.0          # wall-clock time of the last good / failed model call
         self._last_err_text = ""
         self._last_failed = False
+        self.classifier: semantic.Classifier | None = None   # T-401 stage 1 (main.py loads models/)
+        self.knn: semantic.Knn | None = None                 # T-402 stage 2
 
     def _note(self, ok: bool, model: str, ms: float | None = None, err: str = "") -> None:
         with self._cache_lock:
@@ -290,59 +294,144 @@ class Judge:
                 out[i] = ("cue words without a signature match", view(i), focus)
         return out
 
-    def evaluate(self, event: Event, ctx: Ctx) -> list[Finding]:
+    # -- shared judge call --------------------------------------------------------------------
+    def _judge_cfg(self, ctx: Ctx) -> dict[str, Any]:
         params = ctx.params
         jcfg = params.get("judge") or {}
-        if jcfg.get("enabled") is False:
+        pol = params.get("_policy")
+        prof = (pol.profile_cfg(ctx.profile).get("injection") if pol is not None else None) or {}
+        over = ((params.get("thresholds") or {}).get("injection")) or {}
+        model = str(jcfg.get("model") or DEFAULT_MODEL)
+        return {"enabled": jcfg.get("enabled") is not False,
+                "block": float(over.get("block", prof.get("block", 0.6))),
+                "judge_low": float(over.get("judge_low", prof.get("judge_low", 0.3))),
+                "model": self.model_map.get(model, model),
+                "timeout_s": float(jcfg.get("timeout_ms") or DEFAULT_TIMEOUT_MS) / 1000.0,
+                "on_to": jcfg.get("on_timeout") or {}}
+
+    def _judge_one(self, event: Event, ctx: Ctx, idx: int, why: str, text: str, deadline: float, j: dict,
+                   extra: dict | None = None) -> Finding:
+        part = event.parts[idx]
+        untrusted = (not part.trusted) or part.role == "tool" or event.stage == Stage.TOOL_RESULT
+        channel = "untrusted " + ROLES.get(part.role, "content") if untrusted else ROLES.get(part.role, "other")
+        span = [Span(part=idx, start=0, end=len(part.text), type="injection",
+                     sha256_8=hashlib.sha256(part.text.encode()).hexdigest()[:8])]
+        model, block, judge_low = j["model"], j["block"], j["judge_low"]
+        left = deadline - time.monotonic()
+        try:
+            if left <= 0.05:
+                raise TimeoutError("event judge deadline passed")
+            res = self.classify(text, channel, model, left)
+        except (TimeoutError, JudgeError) as e:
+            self._note(False, model, err=f"{type(e).__name__}: {e}"[:160])
+            word = str(j["on_to"].get("untrusted" if untrusted else "user", "BLOCK" if untrusted else "WARN"))
+            try:
+                act = Action.parse("BLOCK" if word.strip().upper() == "REQUIRE_APPROVAL" else word.strip())
+            except (KeyError, ValueError):
+                act = Action.BLOCK               # unknown on_timeout word: fail closed
+            return Finding(
+                control_id=self.control_id, rule_id="judge.unavailable", category="injection", action=act,
+                reason_code=f"judge {type(e).__name__}: {e}; gray band ({why}) -> {act.name}",
+                spans=span, detail={"degraded": True, "untrusted": untrusted, "model": model, **(extra or {})})
+        p = res["p"]
+        act = Action.BLOCK if p >= block else Action.WARN if p >= judge_low else Action.LOG
+        return Finding(
+            control_id=self.control_id, rule_id=f"judge.{res['verdict']}", category="injection", action=act,
+            score=round(p, 3), threshold=block, spans=span,
+            reason_code=(f"local judge {model}: {res['verdict']} (p {p:.2f} vs {ctx.profile} block {block:.2f});"
+                         f" gray band: {why}"),
+            detail={"levels": {c: res[c] for c in CATEGORIES}, "untrusted": untrusted, "model": model,
+                    "cached": bool(res.get("cached")), "eval_ms": res.get("eval_ms"), "detection_layer": "ai-judge",
+                    "event_type": "INJECTION_BLOCKED" if act == Action.BLOCK else None, **(extra or {})})
+
+    # -- classifier-first cascade (T-401 / T-402 / T-209) ----------------------------------------
+    def _thresholds(self, ccfg: dict, profile: str) -> dict[str, float]:
+        out = dict(semantic.DEFAULTS)
+        for k in out:
+            v = ccfg.get(k, out[k])
+            out[k] = float(v.get(profile, out[k]) if isinstance(v, dict) else v)
+        return out
+
+    def _cascade(self, event: Event, ctx: Ctx, ccfg: dict) -> list[Finding]:
+        prior = [f for f in ctx.params.get("_prior", []) if f.control_id != self.control_id]
+        if any(f.action >= Action.BLOCK and self._enforced(f, ctx) for f in prior):
+            return []                         # an enforced veto already decides the event: no model work
+        t = self._thresholds(ccfg, ctx.profile)
+        j = self._judge_cfg(ctx)
+        start = time.monotonic()
+        deadline = start + float(ccfg.get("timeout_ms") or 1500) / 1000.0
+        jdeadline = None
+        max_windows = int(ccfg.get("max_windows") or 16)
+        signal = {sp.part for f in prior if f.category in INJECTION_FAMILY for sp in f.spans}
+        findings: list[Finding] = []
+        parts = [(i, p) for i, p in enumerate(event.parts)
+                 if (p.text or "").strip() and not (p.role == "system" and p.trusted)
+                 and not (p.role == "assistant" and event.stage == Stage.PROMPT)]
+        for idx, part in reversed(parts):     # newest first: the deadline budget goes to text not seen before
+            untrusted = (not part.trusted) or part.role == "tool" or event.stage == Stage.TOOL_RESULT
+            r = self.classifier.score(part.text, max_windows=max_windows, deadline=deadline)
+            lang = semantic.language(part.text)
+            k = self.knn.query(semantic.text_windows(part.text, focus=r["window"])) if self.knn else None
+            score = semantic.combine(r["p"], k["p"] if k else None, lang, t)
+            verdict, why = semantic.cascade(score, t)
+            detail = {"detection_layer": "ai-classifier", "untrusted": untrusted, "lang": lang,
+                      "classifier": {"model": self.classifier.model_id, "p": None if r["p"] is None else round(r["p"], 4),
+                                     "windows": r["windows"], "scored": r["scored"], "partial": r["partial"],
+                                     "cached": r["cached"], "ms": r["ms"]},
+                      "embedding": None if not k else {"model": self.knn.model_id, "p": k["p"], "nearest": k["top"],
+                                                       "ms": k["ms"]},
+                      "score": None if score is None else round(score, 4), "thresholds": t}
+            span = [Span(part=idx, start=r["window"][0], end=r["window"][1] or len(part.text), type="injection",
+                         sha256_8=hashlib.sha256(part.text.encode()).hexdigest()[:8])]
+            if r["p"] is None and r["windows"]:
+                detail["degraded"] = True     # nothing scored in time: the deterministic controls still saw it
+                verdict, why = ("gray", "classifier ran out of time") if idx in signal else ("pass", "")
+                if verdict == "pass":
+                    findings.append(Finding(control_id=self.control_id, rule_id="classifier.unscored", category="injection",
+                                            action=Action.LOG, reason_code="classifier deadline passed before any window was scored",
+                                            spans=span, detail=detail))
+                    continue
+            if verdict == "block":
+                findings.append(Finding(
+                    control_id=self.control_id, rule_id="classifier.injection", category="injection", action=Action.BLOCK,
+                    score=round(score, 3), threshold=t["block"], spans=span,
+                    reason_code=f"local classifier cascade: {why} ({ctx.profile}, {lang})",
+                    detail={**detail, "event_type": "INJECTION_BLOCKED"}))
+            elif verdict == "gray":
+                if j["enabled"]:
+                    if jdeadline is None:
+                        jdeadline = time.monotonic() + j["timeout_s"]
+                    a, b = r["window"]
+                    findings.append(self._judge_one(event, ctx, idx, f"classifier cascade: {why}",
+                                                    window(part.text, (a + b) // 2), jdeadline, j,
+                                                    {"cascade": detail}))
+                else:
+                    findings.append(Finding(
+                        control_id=self.control_id, rule_id="classifier.gray", category="injection", action=Action.WARN,
+                        score=round(score, 3), threshold=t["block"], spans=span,
+                        reason_code=f"local classifier cascade: {why}; judge disabled -> WARN", detail=detail))
+            elif idx in signal or (r["p"] or 0) >= t["gray"]:
+                # a signature or the classifier alone was suspicious and the cascade cleared it: document why
+                findings.append(Finding(
+                    control_id=self.control_id, rule_id="classifier.clear", category="injection", action=Action.LOG,
+                    score=None if score is None else round(score, 3), threshold=t["block"], spans=span,
+                    reason_code=f"local classifier cascade cleared it: {why} ({lang})", detail=detail))
+        return findings
+
+    def evaluate(self, event: Event, ctx: Ctx) -> list[Finding]:
+        params = ctx.params
+        ccfg = params.get("classifier") or {}
+        if self.classifier is not None and ccfg.get("enabled", True) is not False:
+            return self._cascade(event, ctx, ccfg)
+        j = self._judge_cfg(ctx)              # no models/: the judge-only path (T-106)
+        if not j["enabled"]:
             return []
         gray = self._gray_parts(event, ctx)
         if not gray:
             return []
-        pol = params.get("_policy")
-        prof = (pol.profile_cfg(ctx.profile).get("injection") if pol is not None else None) or {}
-        over = ((params.get("thresholds") or {}).get("injection")) or {}
-        block = float(over.get("block", prof.get("block", 0.6)))
-        judge_low = float(over.get("judge_low", prof.get("judge_low", 0.3)))
-        model = str(jcfg.get("model") or DEFAULT_MODEL)
-        model = self.model_map.get(model, model)
-        timeout_s = float(jcfg.get("timeout_ms") or DEFAULT_TIMEOUT_MS) / 1000.0
-        on_to = jcfg.get("on_timeout") or {}
-        deadline = time.monotonic() + timeout_s      # one budget for the whole event
-        findings: list[Finding] = []
-        for idx, (why, view, focus) in sorted(gray.items()):
-            part = event.parts[idx]
-            untrusted = (not part.trusted) or part.role == "tool" or event.stage == Stage.TOOL_RESULT
-            channel = "untrusted " + ROLES.get(part.role, "content") if untrusted else ROLES.get(part.role, "other")
-            span = [Span(part=idx, start=0, end=len(part.text), type="injection",
-                         sha256_8=hashlib.sha256(part.text.encode()).hexdigest()[:8])]
-            left = deadline - time.monotonic()
-            try:
-                if left <= 0.05:
-                    raise TimeoutError("event judge deadline passed")
-                res = self.classify(window(view, focus), channel, model, left)
-            except (TimeoutError, JudgeError) as e:
-                self._note(False, model, err=f"{type(e).__name__}: {e}"[:160])
-                word = str(on_to.get("untrusted" if untrusted else "user", "BLOCK" if untrusted else "WARN"))
-                try:
-                    act = Action.parse("BLOCK" if word.strip().upper() == "REQUIRE_APPROVAL" else word.strip())
-                except (KeyError, ValueError):
-                    act = Action.BLOCK               # unknown on_timeout word: fail closed
-                findings.append(Finding(
-                    control_id=self.control_id, rule_id="judge.unavailable", category="injection", action=act,
-                    reason_code=f"judge {type(e).__name__}: {e}; gray band ({why}) -> {act.name}",
-                    spans=span, detail={"degraded": True, "untrusted": untrusted, "model": model}))
-                continue
-            p = res["p"]
-            act = Action.BLOCK if p >= block else Action.WARN if p >= judge_low else Action.LOG
-            findings.append(Finding(
-                control_id=self.control_id, rule_id=f"judge.{res['verdict']}", category="injection", action=act,
-                score=round(p, 3), threshold=block, spans=span,
-                reason_code=(f"local judge {model}: {res['verdict']} (p {p:.2f} vs {ctx.profile} block {block:.2f});"
-                             f" gray band: {why}"),
-                detail={"levels": {c: res[c] for c in CATEGORIES}, "untrusted": untrusted, "model": model,
-                        "cached": bool(res.get("cached")), "eval_ms": res.get("eval_ms"),
-                        "event_type": "INJECTION_BLOCKED" if act == Action.BLOCK else None}))
-        return findings
+        deadline = time.monotonic() + j["timeout_s"]      # one budget for the whole event
+        return [self._judge_one(event, ctx, idx, why, window(view, focus), deadline, j)
+                for idx, (why, view, focus) in sorted(gray.items())]
 
 
 def install(engine_register: Callable[[Any], Any], ollama_url: str, **kw) -> Judge:
