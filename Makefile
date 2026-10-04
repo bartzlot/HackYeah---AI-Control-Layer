@@ -6,7 +6,7 @@ GCP_ZONE ?= europe-central2-a
 -include .env
 MODEL ?= $(or $(AICL_OLLAMA_MODEL),qwen3.5:2b-q4_K_M)
 
-.PHONY: demo up down logs models warm test deploy sync demo-transparent demo-transparent-offline transparent-down live live-transparent bench
+.PHONY: demo up down logs models warm test deploy sync verify verify-live demo-transparent demo-transparent-offline transparent-down live live-transparent bench
 
 # whole demo stack from zero: build + start, pull the model, load it so the first judge call is warm
 demo: up models warm
@@ -55,3 +55,8 @@ live-transparent:
 # performance telemetry: decide() and gateway overhead on Claude Code sized traffic -> reports/bench.json
 bench:
 	uv run python scripts/bench.py
+# requirements traceability: run the suites and write reports/requirements_report.md (PDF requirement -> tests)
+verify:
+	uv run python scripts/verify.py
+verify-live:
+	uv run python scripts/verify.py --live

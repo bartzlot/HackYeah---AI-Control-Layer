@@ -1,0 +1,160 @@
+# Requirements traceability: every requirement of the CRIETRIA PDF (research/brief.md) -> the tests that prove it.
+# Evidence forms:  path::test_function  (pytest, parametrized ids included)  |  case:CONTROL:ID  (case file)
+# kind: pos = allowed / works, neg = blocked / redacted / rejected, live = real CLI or browser (make live*).
+# tests/test_requirements_matrix.py checks every reference exists and that control requirements have pos + neg;
+# scripts/verify.py (make verify) runs the suites and writes reports/requirements_report.md.
+version: 1
+requirements:
+  - id: R-3.1
+    pdf: "3.1 AI Control Layer developers can easily integrate (agent to model, agent to tools)"
+    evidence:
+      - {t: "w1-gateway/tests/test_passthrough.py::test_clean_request_is_byte_identical_and_key_forwarded_unchanged", kind: pos}
+      - {t: "w1-gateway/tests/test_passthrough.py::test_base_url_mode_routes_prefix_and_bare_paths", kind: pos}
+      - {t: "w1-gateway/tests/test_ca_dns_tls.py::test_tls_handshake_for_the_provider_name_and_inspected_passthrough", kind: pos}
+      - {t: "w1-gateway/tests/test_ca_dns_tls.py::test_intercepted_host_resolves_to_the_gateway_over_udp_and_tcp", kind: pos}
+      - {t: "w1-gateway/tests/test_passthrough_openai.py::test_clean_codex_turn_is_byte_identical", kind: pos}
+      - {t: "w1-gateway/tests/test_skeleton.py::test_walking_skeleton_end_to_end", kind: pos}
+      - {t: "tests/live/test_live_transparent.py::test_zero_config_claude_code_goes_through_aicl", kind: live}
+      - {t: "tests/live/test_live_claude_code.py::test_plain_request_works_natively", kind: live}
+      - {t: "tests/live/test_live_codex.py::test_codex_answer_arrives_natively", kind: live}
+  - id: R-3.1b
+    pdf: "3.1b Simple architecture diagram"
+    evidence:
+      - {t: "tests/test_requirements_matrix.py::test_readme_has_an_architecture_diagram", kind: pos}
+  - id: R-3.2
+    pdf: "3.2 Documented policy file with strictness levels and budget rules"
+    control: true
+    evidence:
+      - {t: "tests/test_requirements_matrix.py::test_policy_is_documented_with_profiles_and_budgets", kind: pos}
+      - {t: "case:DLP-05:D03", kind: neg}
+      - {t: "case:DLP-05:D03b", kind: neg}
+      - {t: "case:DLP-05:D04", kind: pos}
+      - {t: "w1-gateway/tests/test_judge.py::test_profile_thresholds_change_the_outcome", kind: pos}
+      - {t: "w1-gateway/tests/test_budget.py::test_config_from_real_policy", kind: pos}
+  - id: R-3.3
+    pdf: "3.3 Interactive dashboard: controls, posture, blocked threats, cost"
+    evidence:
+      - {t: "w1-gateway/tests/test_console.py::test_summary_matches_fixtures", kind: pos}
+      - {t: "w1-gateway/tests/test_passthrough.py::test_console_v4_views", kind: pos}
+      - {t: "w1-gateway/tests/test_console.py::test_t105_live_sse_delivers_new_event_with_explain", kind: pos}
+      - {t: "tests/live/test_live_console_ui.py::test_console_ui_end_to_end_in_a_real_browser", kind: live}
+  - id: R-3.4
+    pdf: "3.4 Executable test suite incl. budget limits and exploit mitigation"
+    control: true
+    evidence:
+      - {t: "w2-core/tests/test_w2_runner.py::test_meta_budget_and_exploit_cases_exist", kind: pos}
+      - {t: "case:BUD-01:BUD-01-A1", kind: pos}
+      - {t: "case:BUD-01:BUD-01-B1", kind: neg}
+      - {t: "case:TOOL-01:CA02", kind: neg}
+      - {t: "case:INJ-03:H01", kind: neg}
+  - id: R-4.1
+    pdf: "4.1 Centralized policy engine: controls, thresholds (block vs redact), allowed models, budgets"
+    control: true
+    evidence:
+      - {t: "w2-core/tests/test_w2_t013_interception.py::test_invalid_edit_keeps_last_good_and_valid_edit_applies_live", kind: neg}
+      - {t: "w1-gateway/tests/test_policy_admin.py::test_valid_policy_edit_is_applied_at_once", kind: pos}
+      - {t: "w1-gateway/tests/test_policy_admin.py::test_invalid_policy_edit_is_rejected_and_the_live_file_stays", kind: neg}
+      - {t: "w1-gateway/tests/test_policy_admin.py::test_budget_patch_keeps_comments_and_applies_to_the_ledger", kind: pos}
+      - {t: "w1-gateway/tests/test_passthrough.py::test_live_policy_edit_turns_redaction_off", kind: pos}
+      - {t: "w1-gateway/tests/test_passthrough.py::test_model_outside_the_clients_allowlist_is_refused", kind: neg}
+      - {t: "case:ACCESS-01:A02", kind: neg}
+      - {t: "tests/live/test_live_transparent.py::test_live_policy_edit_on_the_host_applies_to_the_next_request", kind: live}
+  - id: R-4.2.1
+    pdf: "4.2.1 Deterministic controls: PII / secret patterns, authentication and access"
+    control: true
+    evidence:
+      - {t: "case:DLP-01:S01", kind: pos}
+      - {t: "case:DLP-01:S02", kind: neg}
+      - {t: "case:DLP-02:T10", kind: pos}
+      - {t: "case:DLP-02:T09", kind: neg}
+      - {t: "case:ACCESS-01:A01", kind: pos}
+      - {t: "case:ACCESS-01:A03", kind: neg}
+      - {t: "w1-gateway/tests/test_passthrough.py::test_secret_in_prompt_is_redacted_before_it_leaves", kind: neg}
+      - {t: "w1-gateway/tests/test_passthrough.py::test_unknown_client_block_policy", kind: neg}
+      - {t: "tests/live/test_live_transparent.py::test_secret_never_reaches_anthropic", kind: live}
+  - id: R-4.2.2
+    pdf: "4.2.2 Semantic (AI-based) controls"
+    control: true
+    evidence:
+      - {t: "case:INJ-04:INJ-04-A1", kind: pos}
+      - {t: "case:INJ-04:INJ-04-B1", kind: neg}
+      - {t: "w1-gateway/tests/test_judge.py::test_verdict_maps_to_lattice", kind: neg}
+      - {t: "w1-gateway/tests/test_judge.py::test_a_benign_verdict_never_blocks_even_with_a_high_level", kind: pos}
+      - {t: "w2-core/tests/test_w2_runner.py::test_judge_negative_fails_when_the_judge_says_benign", kind: pos}
+  - id: R-4.3
+    pdf: "4.3 Budget and resource governance (tokens, money, compute, loops)"
+    control: true
+    evidence:
+      - {t: "w1-gateway/tests/test_budget.py::test_reserve_settle_release_and_caps", kind: pos}
+      - {t: "w1-gateway/tests/test_budget.py::test_concurrent_gateway_requests_respect_cap", kind: neg}
+      - {t: "w1-gateway/tests/test_budget.py::test_gateway_tool_loop_blocks_fourth_identical_call", kind: neg}
+      - {t: "w1-gateway/tests/test_passthrough.py::test_budget_exhausted_is_a_native_402_and_usage_is_settled", kind: neg}
+      - {t: "w1-gateway/tests/test_passthrough.py::test_cost_uses_prompt_cache_multipliers", kind: pos}
+      - {t: "w1-gateway/tests/test_passthrough_openai.py::test_codex_budget_stop_is_a_402", kind: neg}
+      - {t: "tests/live/test_live_transparent.py::test_budget_stop_is_native", kind: live}
+  - id: R-4.4
+    pdf: "4.4 Historical attack mitigation (code execution, unsafe deserialization, model supply chain); signatures fed from an external system"
+    control: true
+    evidence:
+      - {t: "case:INJ-03:H01", kind: neg}
+      - {t: "case:INJ-03:H02", kind: neg}
+      - {t: "case:TOOL-01:T27", kind: neg}
+      - {t: "case:TOOL-01:CA01", kind: pos}
+      - {t: "case:TOOL-01:CA04", kind: neg}
+      - {t: "w1-gateway/tests/test_passthrough.py::test_dangerous_tool_call_is_replaced_by_native_text", kind: neg}
+      - {t: "w1-gateway/tests/test_passthrough.py::test_safe_tool_call_passes_untouched", kind: pos}
+      - {t: "w1-gateway/tests/test_feed.py::test_signed_bundle_is_applied_and_enforced_at_once", kind: pos}
+      - {t: "w1-gateway/tests/test_feed.py::test_tampered_bundle_is_rejected_and_rules_stay", kind: neg}
+      - {t: "tests/live/test_live_codex.py::test_dangerous_shell_call_never_runs", kind: live}
+  - id: R-4.5
+    pdf: "4.5 Real-time metrics and exportable audit logs for security teams"
+    evidence:
+      - {t: "w1-gateway/tests/test_console.py::test_exports", kind: pos}
+      - {t: "w1-gateway/tests/test_console.py::test_sse_first_event_and_live_append", kind: pos}
+      - {t: "w1-gateway/tests/test_console.py::test_csv_formula_injection_guard", kind: neg}
+      - {t: "w1-gateway/tests/test_passthrough.py::test_console_v4_views", kind: pos}
+  - id: R-4.6
+    pdf: "4.6 Self-testing suite with positive (allowed) and negative (blocked) cases per control"
+    control: true
+    evidence:
+      - {t: "w2-core/tests/test_w2_runner.py::test_meta_each_control_has_positive_and_negative_case", kind: pos}
+      - {t: "w2-core/tests/test_w2_cases.py::test_negative_case_fails_with_control_off", kind: neg}
+      - {t: "w2-core/tests/test_w2_cases.py::test_case", kind: pos}
+  - id: R-6.1
+    pdf: "6 Judges: ad-hoc prompts against the running layer"
+    evidence:
+      - {t: "w1-gateway/tests/test_console.py::test_t105_playground_destination_selector_routes_each_destination", kind: pos}
+      - {t: "tests/live/test_live_console_ui.py::test_console_ui_end_to_end_in_a_real_browser", kind: live}
+  - id: R-6.2
+    pdf: "6 Judges: modify configuration / feeds (rules, remove controls, thresholds) and see it apply in real time"
+    control: true
+    evidence:
+      - {t: "w1-gateway/tests/test_passthrough.py::test_live_policy_edit_turns_redaction_off", kind: pos}
+      - {t: "w1-gateway/tests/test_policy_admin.py::test_invalid_policy_edit_is_rejected_and_the_live_file_stays", kind: neg}
+      - {t: "w1-gateway/tests/test_passthrough.py::test_budget_edit_applies_without_any_traffic", kind: pos}
+      - {t: "w1-gateway/tests/test_feed.py::test_a_rule_failing_its_own_inline_test_never_goes_live", kind: neg}
+      - {t: "tests/live/test_live_transparent.py::test_live_policy_edit_on_the_host_applies_to_the_next_request", kind: live}
+  - id: R-6.3
+    pdf: "6 Performance telemetry"
+    evidence:
+      - {t: "w1-gateway/tests/test_passthrough.py::test_clean_request_is_byte_identical_and_key_forwarded_unchanged", kind: pos}
+      - {t: "w2-core/tests/test_w2_perf_view.py::test_ascii_fast_path_equals_the_reference_implementation", kind: pos}
+      - {t: "tests/test_requirements_matrix.py::test_performance_telemetry_is_reproducible", kind: pos}
+  - id: R-8.1
+    pdf: "8 Robustness: evasion and bypass resistance"
+    control: true
+    evidence:
+      - {t: "w1-gateway/tests/test_passthrough.py::test_non_canonical_path_is_refused", kind: neg}
+      - {t: "w1-gateway/tests/test_passthrough.py::test_duplicate_json_keys_are_refused", kind: neg}
+      - {t: "w1-gateway/tests/test_passthrough.py::test_body_carrying_tricks_are_refused", kind: neg}
+      - {t: "w1-gateway/tests/test_judge.py::test_cues_match_obfuscated_and_diacritic_text", kind: neg}
+      - {t: "w1-gateway/tests/test_ca_dns_tls.py::test_doh_resolver_is_sinkholed_and_flagged", kind: neg}
+      - {t: "w1-gateway/tests/test_ca_dns_tls.py::test_net01_lookup_without_a_gateway_request_raises_a_bypass_alert", kind: neg}
+      - {t: "w1-gateway/tests/test_ca_dns_tls.py::test_a_client_without_the_aicl_ca_fails_closed", kind: neg}
+      - {t: "w1-gateway/tests/test_passthrough_openai.py::test_stream_without_completed_is_inspected_from_output_item_done", kind: neg}
+      - {t: "w1-gateway/tests/test_passthrough.py::test_safe_tool_call_passes_untouched", kind: pos}
+      - {t: "tests/live/test_live_transparent.py::test_other_resolvers_and_direct_ips_have_no_route", kind: live}
+      - {t: "tests/live/test_live_transparent.py::test_indirect_injection_in_a_file_is_blocked", kind: live}
+known_gaps:
+  - "MCP gateway (agent to MCP server proxy): in BACKLOG.md; agents' MCP tool calls are inspected only when they travel inside an LLM request / response (tool_use, tool_result)."
+  - "Codex logged in with a ChatGPT account (chatgpt.com, behind Cloudflare) and web apps: out of scope (research/14 s.3)."
