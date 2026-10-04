@@ -93,6 +93,33 @@ def budget_from_policy(policy: dict[str, Any]) -> float | None:
 
 
 _NAMES = ["ALLOW", "LOG", "WARN", "REDACT", "BLOCK"]
+NON_DECISION = {"PASSTHROUGH", "DNS_QUERY", "BYPASS_SUSPECTED"}
+
+
+def tool_of(user_agent: str) -> str:
+    ua = (user_agent or "").lower()
+    for needle, name in (("claude-cli", "Claude Code"), ("claude-code", "Claude Code"), ("codex", "Codex"), ("anthropic-sdk", "Anthropic SDK"),
+                         ("openai/", "OpenAI SDK"), ("python-httpx", "httpx"), ("curl", "curl")):
+        if needle in ua:
+            return name
+    return (user_agent or "unknown").split("/")[0][:24]
+
+
+def _count(items) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for x in items:
+        out[str(x)] = out.get(str(x), 0) + 1
+    return dict(sorted(out.items(), key=lambda kv: -kv[1]))
+
+
+def _pcts(values, scale: float = 1.0) -> dict[str, float]:
+    v = sorted(x / scale for x in values if isinstance(x, (int, float)))
+    if not v:
+        return {"p50": 0.0, "p95": 0.0, "max": 0.0}
+
+    def pick(q: float) -> float:
+        return v[min(len(v) - 1, int(round(q * (len(v) - 1))))]
+    return {"p50": round(pick(0.5), 2), "p95": round(pick(0.95), 2), "max": round(v[-1], 2)}
 
 
 def dec_name(v: Any) -> str:
@@ -191,10 +218,15 @@ class ConsoleStore:
     def all(self) -> list[dict[str, Any]]:
         return list(self._records)
 
+    def decisions(self) -> list[dict[str, Any]]:
+        """Records that are policy decisions on AI traffic (not DNS lookups, not proxied probes)."""
+        return [r for r in self._records if r.get("stage") not in ("lifecycle", "dns")
+                and r.get("event_type") not in NON_DECISION]
+
     def summary(self) -> dict[str, Any]:
         """KPIs (research/13 section 14): one request = one request_id; its final decision is the max
         over all its records (prompt, response, tool_args)."""
-        recs = [r for r in self._records if r.get("stage") != "lifecycle"]
+        recs = self.decisions()
         final: dict[str, int] = {}
         bucket: dict[str, str] = {}          # request -> minute of its first record
         for i, r in enumerate(recs):
@@ -238,7 +270,66 @@ class ConsoleStore:
             "timeline": [{"t": k, **v} for k, v in sorted(timeline.items())],
             "events_total": len(recs),
             "agent_budgets": self.agent_budgets(),
+            "clients": len({r.get("agent_id") for r in recs if r.get("protocol")}),
+            "protocols": _count(r.get("protocol") or "managed" for r in recs if r.get("stage") == "prompt"),
+            "bypass_alerts": sum(1 for r in self._records if r.get("event_type") == "BYPASS_SUSPECTED"),
+            "overhead_ms": _pcts([(r.get("latency_us") or {}).get("total") for r in recs], 1000.0),
         }
+
+    # -- v4 views (research/14 s.9) ---------------------------------------------------------------
+    def clients(self) -> list[dict[str, Any]]:
+        """Who is behind the AI traffic: principal + address + tool, with spend and outcomes."""
+        rows: dict[tuple, dict[str, Any]] = {}
+        final: dict[tuple, dict[str, int]] = {}
+        for r in self.decisions():
+            key = (r.get("agent_id") or "anonymous", r.get("client_ip") or "-")
+            row = rows.setdefault(key, {"principal": key[0], "client_ip": key[1], "tools": set(), "protocols": set(),
+                                        "models": set(), "tokens": 0, "usd": 0.0, "last": "", "hosts": set()})
+            if r.get("user_agent"):
+                row["tools"].add(tool_of(r["user_agent"]))
+            if r.get("protocol"):
+                row["protocols"].add(r["protocol"])
+            if r.get("model"):
+                row["models"].add(r["model"])
+            if r.get("upstream_host"):
+                row["hosts"].add(r["upstream_host"])
+            u = r.get("usage") or {}
+            row["tokens"] += (u.get("input_tokens") or 0) + (u.get("output_tokens") or 0)
+            row["usd"] += u.get("usd") or 0.0
+            row["last"] = max(row["last"], str(r.get("ts") or ""))
+            f = final.setdefault(key, {})
+            rid = r.get("request_id") or r.get("event_id")
+            f[rid] = max(f.get(rid, 0), dec_rank(r.get("decision")))
+        out = []
+        for key, row in rows.items():
+            fin = list(final.get(key, {}).values())
+            out.append({**{k: (sorted(v) if isinstance(v, set) else v) for k, v in row.items()},
+                        "usd": round(row["usd"], 6), "requests": len(fin), "blocked": sum(1 for v in fin if v == 4),
+                        "redacted": sum(1 for v in fin if v == 3)})
+        return sorted(out, key=lambda x: x["last"], reverse=True)
+
+    def network(self, resolver: dict[str, Any] | None = None) -> dict[str, Any]:
+        dns = [r for r in self._records if r.get("stage") == "dns"]
+        hosts = _count(r.get("upstream_host") for r in dns if r.get("upstream_host"))
+        bypass = [r for r in self._records if r.get("event_type") == "BYPASS_SUSPECTED"]
+        passthrough = [r for r in self._records if r.get("event_type") == "PASSTHROUGH"]
+        return {"dns_records": len(dns), "intercepted_by_host": hosts,
+                "bypass_alerts": [{"ts": r.get("ts"), "client_ip": r.get("client_ip"), "principal": r.get("agent_id"),
+                                   "what": (r.get("explain") or [""])[0]} for r in reversed(bypass[-50:])],
+                "passthrough": {"total": len(passthrough),
+                                "paths": _count((r.get("explain") or [""])[0].split(" -> ")[0] for r in passthrough)},
+                "resolver": resolver or {}}
+
+    def performance(self) -> dict[str, Any]:
+        """Decision latency per control (research/13 s.13): p50 / p95 / max in ms over the stored records."""
+        per: dict[str, list[float]] = {}
+        for r in self.decisions():
+            for k, v in (r.get("latency_us") or {}).items():
+                if isinstance(v, (int, float)):
+                    per.setdefault(k, []).append(v)
+        rows = [{"control": k, "count": len(v), **_pcts(v, 1000.0)} for k, v in per.items()]
+        rows.sort(key=lambda x: (x["control"] != "total", -x["p95"]))
+        return {"controls": rows}
 
     def agent_budgets(self) -> list[dict[str, Any]]:
         if not self._budgets:
@@ -309,7 +400,7 @@ def is_local(request: Request) -> bool:
 
 
 def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], dict] | None" = None,
-                        remote: bool = False) -> APIRouter:
+                        remote: bool = False, info: "dict[str, Callable[[], Any]] | None" = None) -> APIRouter:
     """The console (UI, audit API, exports, playground demo key) is host-only (research/13 section 14):
     non-loopback clients get 403 unless remote=True (console.remote, only on a firewalled demo host)."""
 
@@ -347,6 +438,30 @@ def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], di
     @router.get("/api/events")
     async def events(limit: int = Query(100, ge=0, le=5000), request_id: str | None = None):
         return {"events": store.list(limit, request_id)}
+
+    def _info(name: str, default: Any = None) -> Any:
+        fn = (info or {}).get(name)
+        try:
+            return fn() if fn else default
+        except Exception:  # noqa: BLE001 - a view must never break the console
+            return default
+
+    @router.get("/api/clients")
+    async def clients():
+        return {"clients": store.clients()}
+
+    @router.get("/api/network")
+    async def network():
+        return store.network(_info("dns", {}))
+
+    @router.get("/api/performance")
+    async def performance():
+        return store.performance()
+
+    @router.get("/api/policy")
+    async def policy():
+        """Read-only view of the live policy: version, reload error, interception, files."""
+        return _info("policy", {}) or {}
 
     @router.get("/api/export.jsonl")
     async def export_jsonl():

@@ -138,7 +138,9 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         return {"api_key": ccfg.get("demo_key"),
                 "models": {k: [m for m, e in models.items() if e.get("kind") == k] for k in ("local", "external")}}
 
-    app.include_router(make_console_router(store, playground_view, remote=bool(ccfg.get("remote"))))
+    app.include_router(make_console_router(store, playground_view, remote=bool(ccfg.get("remote")),
+                                           info={"dns": lambda: getattr(getattr(app.state, "dns", None), "stats", {}),
+                                                 "policy": lambda: (ccfg.get("info") or dict)()}))
 
     def live_policy() -> dict | None:
         p = ccfg.get("policy")

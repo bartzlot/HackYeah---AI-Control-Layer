@@ -8,6 +8,7 @@ Markings and policy dictionaries for destination DLP.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 import zlib
 from dataclasses import dataclass, field
 from datetime import date
@@ -219,13 +220,36 @@ def find_terms(text: str, terms: list[str], typ: str, case_sensitive: bool = Fal
     """Whole-word match over the normalized view (diacritics folded, whitespace collapsed, format characters
     dropped); spans map back to the ORIGINAL text through the offset map, so redaction stays exact.
     case_sensitive=True for document markings (CONFIDENTIAL as a label, not "keep this confidential")."""
+    if not terms:
+        return []
+    rx, by_view, probes = _terms_rx(tuple(terms), case_sensitive)
+    if text.isascii():      # nothing to fold: if no term can occur, skip building the view (C-speed check)
+        hay = text if case_sensitive else text.lower()
+        if not any(p in hay for p in probes):
+            return []
     view, omap = normalized_view(text)
     hits = []
-    for t in terms:
-        tv, _ = normalized_view(t)
-        pat = re.escape(tv.strip()).replace(r"\ ", " ")
-        rx = re.compile(r"(?<!\w)" + pat + r"(?!\w)", 0 if case_sensitive else re.IGNORECASE)
-        for m in rx.finditer(view):
-            st, en = view_span(omap, m.start(), m.end(), len(text))
-            hits.append(Hit(st, en, typ, text[st:en], 0.9, {"term": t}))
+    for m in rx.finditer(view):
+        st, en = view_span(omap, m.start(), m.end(), len(text))
+        key = m.group(0) if case_sensitive else m.group(0).lower()
+        hits.append(Hit(st, en, typ, text[st:en], 0.9, {"term": by_view.get(key, m.group(0))}))
     return hits
+
+
+@lru_cache(maxsize=256)
+def _terms_rx(terms: tuple[str, ...], case_sensitive: bool):
+    """One alternation per term list (longest first), the term per matched view text, and probes: the longest
+    ASCII-letter run of each term, for the fast "cannot match" check on ASCII text."""
+    views = {}
+    for t in terms:
+        tv = normalized_view(t)[0].strip()
+        if tv:
+            views[tv if case_sensitive else tv.lower()] = t
+    alts = sorted(views, key=len, reverse=True)
+    pat = "|".join(re.escape(v).replace(r"\ ", " ") for v in alts) or "(?!)"
+    rx = re.compile(r"(?<!\w)(?:" + pat + r")(?!\w)", 0 if case_sensitive else re.IGNORECASE)
+    probes = []
+    for v in alts:
+        runs = re.findall(r"[A-Za-z]+", v)
+        probes.append(max(runs, key=len) if runs else "")
+    return rx, views, tuple(p if case_sensitive else p.lower() for p in probes)

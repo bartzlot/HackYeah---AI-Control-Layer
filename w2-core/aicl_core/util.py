@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import unicodedata
+from array import array
+from functools import lru_cache
 from collections.abc import Iterator
 from typing import Any
 
@@ -48,11 +51,42 @@ def iter_texts(event: Event, include_tool_args: bool = True) -> Iterator[tuple[i
 _L_STROKE = {0x0141: "L", 0x0142: "l"}          # l with stroke has no NFKD decomposition
 
 
-def normalized_view(text: str, collapse_ws: bool = True) -> tuple[str, list[int]]:
+_WS_RUN = re.compile(r"\s{2,}")
+_WS = re.compile(r"\s")
+
+
+@lru_cache(maxsize=48)
+def normalized_view(text: str, collapse_ws: bool = True) -> tuple[str, "array[int]"]:
     """Scan view of `text` with an offset map (omap[j] = index in the ORIGINAL text of view char j):
     format characters (category Cf: zero-width, bidi marks, word joiners) dropped, Unicode tag characters
     decoded to ASCII as a separate word, NFKC + diacritics folded (also l with stroke), whitespace runs
-    collapsed to one space. Map a view match [a, b) back with (omap[a], omap[b - 1] + 1)."""
+    collapsed to one space. Map a view match [a, b) back with (omap[a], omap[b - 1] + 1).
+    Memoized (every control of one decision shares one view per part; coding-agent prompts are ~400 KB),
+    and pure-ASCII text, which has nothing to fold or drop, takes a C-speed path with the same result."""
+    if text.isascii():
+        return _ascii_view(text, collapse_ws)
+    v, m = _slow_view(text, collapse_ws)
+    return v, array("q", m)
+
+
+def _ascii_view(text: str, collapse_ws: bool) -> tuple[str, "array[int]"]:
+    if not collapse_ws:
+        return text, array("q", range(len(text)))
+    omap: array = array("q")
+    parts: list[str] = []
+    pos = 0
+    for m in _WS_RUN.finditer(text):
+        s, e = m.span()
+        omap.extend(range(pos, s + 1))
+        parts.append(text[pos:s])
+        parts.append(" ")
+        pos = e
+    omap.extend(range(pos, len(text)))
+    parts.append(text[pos:])
+    return _WS.sub(" ", "".join(parts)), omap
+
+
+def _slow_view(text: str, collapse_ws: bool) -> tuple[str, list[int]]:
     out: list[str] = []
     omap: list[int] = []
     in_tags = False

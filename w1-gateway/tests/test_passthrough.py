@@ -334,3 +334,30 @@ def test_claude_code_system_reminders_are_system_scaffold_not_user_input():
                     {"type": "text", "text": "fix the bug"}])
     roles = [(s.part.role, s.part.trusted) for s in AnthropicMessages().parse(body).slots]
     assert roles[-2:] == [("system", True), ("user", True)]
+
+
+# ---- T-113: console views over passthrough traffic ----------------------------------------------
+
+async def test_console_v4_views(rig):
+    app, c, _, _ = rig()
+    await c.head("/api/hello", headers=HDR)
+    await post(c, cc_body("hello"))
+    await post(c, cc_body(f"key {AWS_EXAMPLE}"))
+    await post(c, cc_body("TOOL: evil-installer"))
+    gw = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1")
+    s = (await gw.get("/console/api/summary")).json()
+    assert s["requests"] == 3 and s["blocked"] == 1 and s["redacted"] == 1     # the HEAD probe is not a request
+    assert s["clients"] == 1 and s["protocols"] == {"anthropic_messages": 3} and s["overhead_ms"]["p50"] > 0
+    cl = (await gw.get("/console/api/clients")).json()["clients"]
+    assert cl[0]["principal"] == "demo-dev" and cl[0]["tools"] == ["Claude Code"] and cl[0]["blocked"] == 1
+    assert cl[0]["usd"] > 0 and cl[0]["hosts"] == ["api.anthropic.com"]
+    net = (await gw.get("/console/api/network")).json()
+    assert net["passthrough"]["total"] == 1 and "passthrough HEAD /api/hello" in net["passthrough"]["paths"]
+    perf = (await gw.get("/console/api/performance")).json()["controls"]
+    assert perf[0]["control"] == "total" and {"DLP-01", "TOOL-01"} <= {r["control"] for r in perf}
+    pol = (await gw.get("/console/api/policy")).json()
+    assert pol["interception"]["hosts"] == ["api.anthropic.com", "api.openai.com"] and pol["error"] is None
+    assert "interception:" in pol["yaml"] and any(f.endswith("coding_agent.yaml") for f in pol["files"])
+    html = (await gw.get("/console")).text
+    for page in ("clients", "network", "performance", "policy", "security"):
+        assert f'data-page="{page}"' in html

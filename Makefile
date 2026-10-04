@@ -52,3 +52,6 @@ live:
 	uv run pytest -m live tests/live/test_live_claude_code.py -v
 live-transparent:
 	uv run pytest -m live tests/live/test_live_transparent.py -v
+# performance telemetry: decide() and gateway overhead on Claude Code sized traffic -> reports/bench.json
+bench:
+	uv run python scripts/bench.py

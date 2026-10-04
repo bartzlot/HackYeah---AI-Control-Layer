@@ -5,30 +5,56 @@
   const DN = ["ALLOW", "LOG", "WARN", "REDACT", "BLOCK"];
   const dn = (v) => (typeof v === "number" ? DN[v] || "ALLOW" : String(v || "ALLOW").toUpperCase());
   const esc = (v) => String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const usd = (v) => "$" + Number(v || 0).toFixed(Number(v || 0) >= 1 ? 2 : 4);
+  const num = (v) => Number(v || 0).toLocaleString("en-US");
+  const PAGES = {
+    overview: ["Management overview", "Security posture, blocked threats and spend across every AI client"],
+    clients: ["Clients & spend", "Who uses which AI tool and model, at what cost, and how often AICL stepped in"],
+    security: ["Live events", "Every decision with its explain trace: controls, rules, spans, latency"],
+    network: ["Network & bypass", "Interception path, intercepted lookups and bypass attempts"],
+    controls: ["Controls", "The control catalog from policy.yaml: mode, default action and hits"],
+    policy: ["Policy", "The single config source that is live right now"],
+    performance: ["Performance", "Decision latency per control, p50 / p95 / max"],
+    playground: ["Playground", "Send an ad-hoc prompt through the gateway and see the decision"],
+    audit: ["Audit export", "Exportable records for security teams"],
+  };
   let events = [];
-  let charts = {};
+  const charts = {};
+  let page = "overview";
   let selected = null;
 
-  // theme + nav
+  // theme
   try { const t = localStorage.getItem("aicl-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
   $("#theme").onclick = () => {
     const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     const nx = cur === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = nx;
     try { localStorage.setItem("aicl-theme", nx); } catch (e) {}
+    Object.values(charts).forEach((c) => c.destroy && c.destroy());
+    Object.keys(charts).forEach((k) => delete charts[k]);
+    refresh(true);
   };
-  document.querySelectorAll("#nav button").forEach((b) => (b.onclick = () => {
-    document.querySelectorAll("#nav button").forEach((x) => x.classList.toggle("active", x === b));
-    document.querySelectorAll(".page").forEach((p) => p.classList.toggle("active", p.id === "page-" + b.dataset.page));
-  }));
+  // navigation
+  function go(p) {
+    page = p;
+    document.querySelectorAll("#nav button").forEach((x) => x.classList.toggle("active", x.dataset.page === p));
+    document.querySelectorAll(".page").forEach((s) => s.classList.toggle("active", s.id === "page-" + p));
+    $("#title").textContent = PAGES[p][0];
+    $("#subtitle").textContent = PAGES[p][1];
+    try { history.replaceState(null, "", "#" + p); } catch (e) {}
+    refresh(true);
+  }
+  document.querySelectorAll("#nav button").forEach((b) => (b.onclick = () => go(b.dataset.page)));
 
   async function getJSON(u) { const r = await fetch(u); if (!r.ok) throw new Error(u + " " + r.status); return r.json(); }
+  const css = () => getComputedStyle(document.documentElement);
+  const col = (n, d) => css().getPropertyValue(n).trim() || d;
 
-  // overview
-  function tile(label, value, cls, extra) {
-    return '<div class="tile ' + (cls || "") + '"><div class="v">' + esc(value) + '</div><div class="l">' + esc(label) + "</div>" + (extra || "") + "</div>";
+  function tile(label, value, cls, sub, barPct, highIsGood) {
+    const bc = highIsGood ? (barPct >= 80 ? "var(--ok)" : "var(--warn)") : (barPct >= 80 ? "var(--red)" : "var(--accent)");
+    return '<div class="tile ' + (cls || "") + '"><div class="l">' + esc(label) + '</div><div class="v">' + esc(value) + "</div>" +
+      (sub ? '<div class="s">' + sub + "</div>" : "") + (barPct != null ? '<div class="bar"><i style="width:' + Math.min(100, barPct) + "%;background:" + bc + '"></i></div>' : "") + "</div>";
   }
-  function bar(p) { return '<div class="bar"><i style="width:' + Math.min(100, p) + '%"></i></div>'; }
   function fallbackBars(el, labels, values) {
     const max = Math.max(1, ...values);
     el.innerHTML = labels.map((l, i) => '<div class="fb-row"><span>' + esc(l) + '</span><i style="width:' + (100 * values[i] / max) + '%;min-width:2px"></i><b>' + values[i] + "</b></div>").join("");
@@ -36,43 +62,57 @@
   }
   function drawChart(key, canvasId, fbId, cfg, labels, values) {
     if (window.Chart) {
-      if (charts[key]) { charts[key].data = cfg.data; charts[key].update(); return; }
+      Chart.defaults.color = col("--muted", "#667085");
+      Chart.defaults.borderColor = col("--line", "#e3e6ec");
+      if (charts[key]) { charts[key].data = cfg.data; charts[key].update("none"); return; }
       charts[key] = new Chart($(canvasId), cfg);
     } else {
       fallbackBars($(fbId), labels, values);
     }
   }
+
+  // ---- overview
   async function loadSummary() {
     const s = await getJSON(API + "/summary");
+    const oh = s.overhead_ms || {};
     $("#tiles").innerHTML =
-      tile("AI requests", s.requests) +
-      tile("Blocked", s.blocked, "bad") +
-      tile("Redacted", s.redacted, "warn") +
-      tile("Allowed", s.allowed, "ok") +
-      tile("API cost (simulated, USD)", "$" + s.cost_usd.toFixed(4), "", '<div class="l">' + esc(s.tokens || 0) + " tokens</div>") +
-      tile("Budget used", s.budget_used_pct + "%", s.budget_used_pct >= 80 ? "bad" : "", '<div class="l">of $' + esc(s.budget_usd) + " USD budget</div>" + bar(s.budget_used_pct)) +
-      tile("Security posture", s.posture_pct + "%", s.posture_pct >= 80 ? "ok" : "warn", '<div class="l">' + s.controls_enforced + "/" + s.controls_total + " controls enforced</div>" + bar(s.posture_pct));
+      tile("AI requests", num(s.requests), "", num(s.events_total) + " decisions") +
+      tile("Blocked", num(s.blocked), "bad", "threats stopped before execution") +
+      tile("Redacted", num(s.redacted), "warn", "data removed in flight") +
+      tile("Clients protected", num(s.clients), "violet", plural(Object.keys(s.protocols || {}).length, "API contract")) +
+      tile("API spend", usd(s.cost_usd), s.budget_used_pct >= 80 ? "bad" : "", num(s.tokens) + " tokens, " + s.budget_used_pct + "% of " + usd(s.budget_usd), s.budget_used_pct) +
+      tile("Security posture", s.posture_pct + "%", s.posture_pct >= 80 ? "ok" : "warn", s.controls_enforced + "/" + s.controls_total + " controls enforced", s.posture_pct, true) +
+      tile("AICL overhead", (oh.p50 || 0) + " ms", "ok", "p50, p95 " + (oh.p95 || 0) + " ms") +
+      tile("Bypass attempts", num(s.bypass_alerts), s.bypass_alerts ? "bad" : "ok", s.bypass_alerts ? "see Network" : "none detected");
+    setCount("#nav-blocks", s.blocked);
+    setCount("#nav-bypass", s.bypass_alerts);
     renderBudgets(s.agent_budgets || []);
-    const tl = s.timeline;
+    const tl = s.timeline || [];
     const tlabels = tl.map((x) => x.t.slice(11));
-    const css = getComputedStyle(document.documentElement);
-    const col = (n, d) => css.getPropertyValue(n).trim() || d;
     drawChart("time", "#ch-time", "#fb-time", {
       type: "bar",
       data: { labels: tlabels, datasets: [
-        { label: "allow", data: tl.map((x) => x.allow), backgroundColor: col("--ok", "#2f9e44") },
-        { label: "redact", data: tl.map((x) => x.redact), backgroundColor: col("--warn", "#e8890c") },
-        { label: "block", data: tl.map((x) => x.block), backgroundColor: col("--red", "#e03131") } ] },
-      options: { maintainAspectRatio: false, scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } } },
+        { label: "allowed", data: tl.map((x) => x.allow), backgroundColor: col("--ok", "#16a34a"), borderRadius: 4 },
+        { label: "redacted", data: tl.map((x) => x.redact), backgroundColor: col("--warn", "#d97706"), borderRadius: 4 },
+        { label: "blocked", data: tl.map((x) => x.block), backgroundColor: col("--red", "#dc2626"), borderRadius: 4 } ] },
+      options: { maintainAspectRatio: false, plugins: { legend: { position: "bottom" } }, scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } } },
     }, tlabels, tl.map((x) => x.allow + x.redact + x.block));
-    const cl = Object.keys(s.categories), cv = cl.map((k) => s.categories[k]);
+    const cl = Object.keys(s.categories || {}), cv = cl.map((k) => s.categories[k]);
     drawChart("cat", "#ch-cat", "#fb-cat", {
       type: "doughnut",
-      data: { labels: cl, datasets: [{ data: cv, backgroundColor: ["#3b5bdb", "#e8890c", "#e03131", "#2f9e44", "#9c36b5", "#1098ad"] }] },
-      options: { maintainAspectRatio: false },
+      data: { labels: cl, datasets: [{ data: cv, borderWidth: 0, backgroundColor: ["#4f46e5", "#d97706", "#dc2626", "#16a34a", "#7c3aed", "#0ea5e9", "#db2777", "#65a30d"] }] },
+      options: { maintainAspectRatio: false, cutout: "62%", plugins: { legend: { position: "right" } } },
     }, cl, cv);
+    const pl = Object.keys(s.protocols || {}), pv = pl.map((k) => s.protocols[k]);
+    drawChart("proto", "#ch-proto", "#fb-proto", {
+      type: "bar",
+      data: { labels: pl.map(protoName), datasets: [{ data: pv, backgroundColor: col("--accent", "#4f46e5"), borderRadius: 6 }] },
+      options: { indexAxis: "y", maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { grid: { display: false } } } },
+    }, pl.map(protoName), pv);
   }
-
+  function plural(n, w) { return n + " " + w + (n === 1 ? "" : "s"); }
+  function setCount(sel, n) { const el = $(sel); el.textContent = n; el.classList.toggle("show", n > 0); }
+  function protoName(p) { return { anthropic_messages: "Anthropic Messages", openai_responses: "OpenAI Responses", openai_chat: "OpenAI Chat", managed: "Managed gateway" }[p] || p; }
   function burn(used, lim, fmt) {
     if (lim == null) return esc(fmt(used)) + ' <span class="muted">(no cap)</span>';
     const p = lim > 0 ? Math.min(100, 100 * used / lim) : (used > 0 ? 100 : 0);
@@ -81,77 +121,203 @@
   }
   function renderBudgets(rows) {
     if (!rows.length) return;
-    const tok = (v) => String(v), usd = (v) => "$" + Number(v).toFixed(4);
-    $("#budgets tbody").innerHTML = rows.map((b) => "<tr><td>" + esc(b.agent_id) + "</td><td>" + burn(b.tokens + b.reserved_tokens, b.limit_tokens, tok) +
-      "</td><td>" + burn(b.usd + b.reserved_usd, b.limit_usd, usd) + "</td><td>" + esc(b.requests) + "</td><td>" + esc(b.denied) +
-      "</td><td>" + esc(Math.round(b.resets_in_s / 60)) + " min</td></tr>").join("");
+    $("#budgets tbody").innerHTML = rows.map((b) => "<tr><td><b>" + esc(b.agent_id) + "</b></td><td>" + burn(b.tokens + b.reserved_tokens, b.limit_tokens, num) +
+      "</td><td>" + burn(b.usd + b.reserved_usd, b.limit_usd, usd) + '</td><td class="num">' + esc(b.requests) + '</td><td class="num">' + esc(b.denied) +
+      '</td><td class="num">' + esc(Math.round(b.resets_in_s / 60)) + " min</td></tr>").join("");
   }
 
-  // security
+  // ---- clients
+  async function loadClients() {
+    const c = (await getJSON(API + "/clients")).clients;
+    $("#clients tbody").innerHTML = c.length ? c.map((x) => "<tr><td><b>" + esc(x.principal) + "</b></td><td class='mono'>" + esc(x.client_ip) + "</td><td>" +
+      (x.tools.length ? x.tools.map(esc).join(", ") : '<span class="muted">-</span>') + "</td><td>" + (x.protocols.map((p) => '<span class="tag p-' + esc(p) + '">' + esc(protoName(p)) + "</span>").join("") || '<span class="tag">managed</span>') +
+      "</td><td class='mono'>" + esc(x.models.slice(0, 3).join(", ")) + (x.models.length > 3 ? " +" + (x.models.length - 3) : "") + '</td><td class="num">' + num(x.requests) +
+      '</td><td class="num" style="color:var(--red)">' + num(x.blocked) + '</td><td class="num" style="color:var(--warn)">' + num(x.redacted) + '</td><td class="num">' + num(x.tokens) +
+      '</td><td class="num">' + usd(x.usd) + "</td><td class='muted'>" + esc((x.last || "").slice(11, 19)) + "</td></tr>").join("")
+      : '<tr><td class="empty" colspan="11">No client traffic yet.</td></tr>';
+  }
+
+  // ---- live events
   function ctrls(r) { return [...new Set((r.findings || []).map((f) => f.control_id))].join(", "); }
+  function client(r) {
+    const tool = r.user_agent ? toolOf(r.user_agent) : "";
+    return "<b>" + esc(r.agent_id) + "</b>" + (tool || r.client_ip ? '<span class="sub2">' + esc([tool, r.client_ip].filter(Boolean).join(" @ ")) + "</span>" : "");
+  }
+  function toolOf(ua) {
+    const u = String(ua).toLowerCase();
+    return u.includes("claude-cli") || u.includes("claude-code") ? "Claude Code" : u.includes("codex") ? "Codex" : u.startsWith("bun/") ? "Claude Code probe" :
+      u.includes("openai") ? "OpenAI SDK" : u.includes("anthropic") ? "Anthropic SDK" : String(ua).split("/")[0].slice(0, 18);
+  }
+  const SHORT = { anthropic_messages: "anthropic", openai_responses: "responses", openai_chat: "chat" };
   function row(r, isNew) {
     const tr = document.createElement("tr");
     if (isNew) tr.className = "new";
+    if (r.event_id === selected) tr.classList.add("sel");
     tr.dataset.id = r.event_id;
-    tr.innerHTML = "<td>" + esc((r.ts || "").slice(11, 19)) + '</td><td><span class="badge b-' + dn(r.decision) + '">' + dn(r.decision) + "</span></td><td>" + esc(r.severity) + "</td><td>" + esc(r.event_type) + (r.tool ? " <code>" + esc(r.tool) + "</code>" : "") + "</td><td>" + esc(r.agent_id) + "</td><td>" + esc(r.destination) + "</td><td>" + esc(ctrls(r)) + "</td>";
+    const lat = (r.latency_us || {}).total;
+    tr.innerHTML = "<td class='muted'>" + esc((r.ts || "").slice(11, 19)) + '</td><td><span class="badge b-' + dn(r.decision) + '">' + dn(r.decision) + "</span></td><td>" +
+      esc(r.event_type) + (r.protocol ? '<span class="sub2"><span class="tag p-' + esc(r.protocol) + '">' + esc(SHORT[r.protocol] || r.protocol) + "</span></span>" : "") + "</td><td>" + client(r) + "</td><td class='mono'>" +
+      esc(r.tool || r.model || r.upstream_host || "") + "</td><td class='mono wrap'>" + esc(ctrls(r)) + '</td><td class="num">' + (lat != null ? (lat / 1000).toFixed(1) : "") + "</td>";
     tr.onclick = () => select(r);
     return tr;
   }
   function matches(r) {
-    const d = $("#f-decision").value, t = $("#f-text").value.toLowerCase();
+    const d = $("#f-decision").value, p = $("#f-proto").value, t = $("#f-text").value.toLowerCase();
     if (d && dn(r.decision) !== d) return false;
+    if (p === "ai" && (r.stage === "dns" || r.event_type === "PASSTHROUGH")) return false;
+    if (p === "dns" && r.stage !== "dns" && r.event_type !== "PASSTHROUGH") return false;
+    if (p === "managed" && (r.protocol || r.stage === "dns")) return false;
+    if (p && p !== "dns" && p !== "managed" && p !== "ai" && r.protocol !== p) return false;
     if (!t) return true;
-    const hay = [r.agent_id, r.tool, r.event_type, ctrls(r), (r.findings || []).map((f) => f.rule_id + " " + ((f.spans || []).map((s) => s.type).join(" "))).join(" ")].join(" ").toLowerCase();
+    const hay = [r.agent_id, r.tool, r.model, r.event_type, r.client_ip, r.user_agent, r.upstream_host, ctrls(r),
+      (r.findings || []).map((f) => f.rule_id + " " + ((f.spans || []).map((s) => s.type).join(" "))).join(" ")].join(" ").toLowerCase();
     return hay.includes(t);
   }
   function render() {
     const tb = $("#events tbody");
     tb.innerHTML = "";
     const shown = events.filter(matches);
-    shown.forEach((r) => tb.appendChild(row(r)));
+    shown.slice(0, 400).forEach((r) => tb.appendChild(row(r)));
+    if (!shown.length) tb.innerHTML = '<tr><td class="empty" colspan="7">No events match.</td></tr>';
     $("#count").textContent = shown.length + " of " + events.length + " events";
   }
   function select(r) {
     selected = r.event_id;
     document.querySelectorAll("#events tr").forEach((t) => t.classList.toggle("sel", t.dataset.id === selected));
-    const fs = (r.findings || []).map((f) => "<li><code>" + esc(f.control_id) + " / " + esc(f.rule_id) + "</code> " + esc(f.category) + " -> <b>" + esc(typeof f.action === "number" ? ["ALLOW", "LOG", "WARN", "REDACT", "BLOCK"][f.action] : f.action) + "</b>" +
-      (f.score != null ? " score " + f.score + " vs threshold " + f.threshold : "") +
-      ((f.spans || []).length ? " spans: " + f.spans.map((s) => esc(s.type) + "[" + s.start + "-" + s.end + "] #" + esc(s.sha256_8)).join(", ") : "") +
-      " <span class='muted'>(" + esc(f.rule_source) + ")</span></li>").join("");
+    const fs = (r.findings || []).map((f) => "<li><code>" + esc(f.control_id) + " / " + esc(f.rule_id) + "</code> " + esc(f.category) + ' <span class="badge b-' + dn(f.action) + '">' + dn(f.action) + "</span>" +
+      (f.score != null ? " <span class='muted'>score " + f.score + " vs " + f.threshold + "</span>" : "") +
+      ((f.spans || []).length ? "<br><span class='muted'>spans " + f.spans.map((s) => esc(s.type) + "[" + s.start + "-" + s.end + "]" + (s.sha256_8 ? " #" + esc(s.sha256_8) : "")).join(", ") + "</span>" : "") +
+      (f.reason_code ? "<br><span class='muted'>" + esc(f.reason_code) + "</span>" : "") + "</li>").join("");
     const lat = r.latency_us || {};
+    const u = r.usage || {};
     $("#explain").innerHTML = "<h2>Explain</h2>" +
-      '<span class="badge b-' + dn(r.decision) + '">' + dn(r.decision) + "</span> " + esc(r.event_type) +
-      '<div class="kv"><b>Event</b><span>' + esc(r.event_id) + "</span><b>Stage</b><span>" + esc(r.stage) + " (" + esc(r.channel) + ")</span><b>Agent</b><span>" + esc(r.agent_id) + "</span><b>Model</b><span>" + esc(r.model || "-") + " (" + esc(r.destination) + ")</span>" +
-      (r.would_decision != null && dn(r.would_decision) !== dn(r.decision) ? "<b>Would be</b><span>" + dn(r.would_decision) + " (shadow)</span>" : "") +
-      "<b>Policy</b><span>" + esc(r.policy_version) + "</span><b>Latency</b><span>" + esc(lat.total != null ? (lat.total / 1000).toFixed(1) + " ms" : "-") + "</span></div>" +
-      "<h2>Findings</h2><ul>" + (fs || "<li class='muted'>none</li>") + "</ul><h2>Trace</h2><ul>" + (r.explain || []).map((x) => "<li>" + esc(x) + "</li>").join("") + "</ul>";
+      '<span class="badge b-' + dn(r.decision) + '">' + dn(r.decision) + "</span> <b>" + esc(r.event_type) + "</b>" +
+      '<div class="kv"><b>Client</b><span>' + esc(r.agent_id) + (r.client_ip ? " @ " + esc(r.client_ip) : "") + "</span>" +
+      (r.user_agent ? "<b>Tool</b><span>" + esc(r.user_agent) + "</span>" : "") +
+      (r.protocol ? "<b>API</b><span>" + esc(protoName(r.protocol)) + " -> " + esc(r.upstream_host || "") + "</span>" : "") +
+      "<b>Stage</b><span>" + esc(r.stage) + " (" + esc(r.channel) + ")</span><b>Model</b><span>" + esc(r.model || "-") + " (" + esc(r.destination) + ")</span>" +
+      (r.tool ? "<b>Tool call</b><span>" + esc(r.tool) + "</span>" : "") +
+      (r.would_decision != null && dn(r.would_decision) !== dn(r.decision) ? "<b>Would be</b><span>" + dn(r.would_decision) + " (shadow mode)</span>" : "") +
+      (u.usd != null ? "<b>Usage</b><span>" + num((u.input_tokens || 0) + (u.output_tokens || 0)) + " tokens, " + usd(u.usd) + "</span>" : "") +
+      "<b>Latency</b><span>" + esc(lat.total != null ? (lat.total / 1000).toFixed(2) + " ms" : "-") + "</span><b>Policy</b><span class='mono'>" + esc((r.policy_version || "").slice(0, 16)) + "</span></div>" +
+      "<h2>Findings</h2><ul>" + (fs || "<li class='muted'>none</li>") + "</ul><h2>Trace</h2><div class='trace'>" + (r.explain || []).map(esc).join("\n") + "</div>";
   }
-  async function loadEvents() {
-    events = (await getJSON(API + "/events?limit=500")).events;
-    render();
-  }
-  $("#f-decision").onchange = render;
+  async function loadEvents() { events = (await getJSON(API + "/events?limit=800")).events; render(); }
+  ["#f-decision", "#f-proto"].forEach((s) => ($(s).onchange = render));
   $("#f-text").oninput = render;
 
-  // controls
+  // ---- network
+  async function loadNetwork() {
+    const n = await getJSON(API + "/network");
+    const st = n.resolver || {};
+    const hosts = n.intercepted_by_host || {};
+    $("#net-tiles").innerHTML =
+      tile("Intercepted lookups", num(Object.values(hosts).reduce((a, b) => a + b, 0)), "violet", plural(Object.keys(hosts).length, "provider host")) +
+      tile("Resolver queries", num(st.queries || 0), "", num(st.forwarded || 0) + " forwarded upstream") +
+      tile("Bypass attempts", num((n.bypass_alerts || []).length), (n.bypass_alerts || []).length ? "bad" : "ok", "DoH resolvers sinkholed") +
+      tile("Proxied requests", num((n.passthrough || {}).total || 0), "", "probes, token counts, auth refresh");
+    $("#bypass tbody").innerHTML = (n.bypass_alerts || []).map((b) => "<tr><td class='muted'>" + esc((b.ts || "").slice(11, 19)) + "</td><td>" + esc(b.principal) + " <span class='muted mono'>" + esc(b.client_ip || "") + "</span></td><td class='wrap'>" + esc(b.what) + "</td></tr>").join("") ||
+      '<tr><td class="empty" colspan="3">No bypass attempts seen.</td></tr>';
+    $("#net-hosts tbody").innerHTML = Object.entries(hosts).map(([h, c]) => "<tr><td class='mono'>" + esc(h) + '</td><td class="num">' + num(c) + "</td></tr>").join("") ||
+      '<tr><td class="empty" colspan="2">No DNS traffic yet (the resolver runs in transparent mode).</td></tr>';
+    const paths = (n.passthrough || {}).paths || {};
+    $("#net-paths tbody").innerHTML = Object.entries(paths).map(([p, c]) => "<tr><td class='mono'>" + esc(p) + '</td><td class="num">' + num(c) + "</td></tr>").join("") ||
+      '<tr><td class="empty" colspan="2">None.</td></tr>';
+  }
+
+  // ---- controls
   async function loadControls() {
     const c = (await getJSON(API + "/controls")).controls;
-    $("#ctl tbody").innerHTML = c.map((x) => "<tr><td><code>" + esc(x.id) + "</code></td><td>" + esc(x.name) + "</td><td>" + esc(x.category) + "</td><td>" + esc(x.severity) + '</td><td><span class="badge ' + (x.mode === "enforce" ? "b-ALLOW" : x.mode === "shadow" ? "b-WARN" : "") + '">' + esc(x.mode) + "</span></td><td>" + esc(x.action) + "</td><td>" + x.hits + "</td></tr>").join("");
+    $("#ctl tbody").innerHTML = c.map((x) => "<tr><td><code>" + esc(x.id) + "</code></td><td>" + esc(x.name) + "</td><td>" + esc(x.category) + "</td><td>" + esc(x.severity) + '</td><td><span class="badge ' +
+      (x.mode === "enforce" ? "b-ALLOW" : x.mode === "shadow" ? "b-WARN" : "b-BLOCK") + '">' + esc(x.mode) + "</span></td><td>" + esc(x.action) + '</td><td class="num">' + num(x.hits) + "</td></tr>").join("");
+  }
+
+  // ---- policy
+  function yamlHtml(t) {
+    return esc(t).split("\n").map((l) => {
+      const i = l.indexOf("#");
+      const code = i >= 0 ? l.slice(0, i) : l, cmt = i >= 0 ? '<span class="c">' + l.slice(i) + "</span>" : "";
+      return code.replace(/^(\s*-?\s*)([A-Za-z0-9_."*-]+)(:)/, '$1<span class="k">$2</span>$3') + cmt;
+    }).join("\n");
+  }
+  async function loadPolicy() {
+    const p = await getJSON(API + "/policy");
+    const b = $("#pol-banner");
+    if (p.error) { b.className = "banner err"; b.textContent = "Last edit rejected, the previous policy stays live: " + p.error; }
+    else { b.className = "banner ok"; b.innerHTML = "Live policy <code>" + esc((p.version || "").slice(0, 16)) + "</code>, profile <b>" + esc(p.profile || "-") + "</b>, " + num(p.rules) + " signature rules with inline tests, files: " + (p.files || []).map((f) => "<code>" + esc(f) + "</code>").join(" "); }
+    const ic = p.interception || {};
+    const styles = Object.entries(ic.block_style || {}).map(([k, v]) => "<tr><td>" + esc(protoName(k)) + "</td><td class='mono'>" + esc(v.hard) + "</td><td class='mono'>" + esc(v.soft) + "</td><td class='mono'>" + esc(v.budget) + "</td></tr>").join("");
+    $("#pol-cards").innerHTML =
+      '<div class="card"><h2>Interception</h2><div class="kv"><b>Mode</b><span>' + esc(ic.mode || "-") + "</span><b>Credentials</b><span>" + esc(ic.credentials || "-") + "</span><b>Hosts</b><span>" + (ic.hosts || []).map((h) => "<code>" + esc(h) + "</code>").join(" ") + "</span></div></div>" +
+      '<div class="card"><h2>Native block contract</h2><div class="tablewrap"><table><thead><tr><th>API</th><th>Hard</th><th>Soft</th><th>Budget</th></tr></thead><tbody>' + styles + "</tbody></table></div></div>" +
+      '<div class="card"><h2>Clients (identity)</h2><table><thead><tr><th>Match</th><th>Principal</th><th>Profile</th></tr></thead><tbody>' +
+      (p.clients || []).map((c) => "<tr><td class='mono'>" + esc(JSON.stringify(c.match)) + "</td><td>" + esc(c.principal) + "</td><td>" + esc(c.profile || "-") + "</td></tr>").join("") + "</tbody></table></div>";
+    $("#pol-yaml").innerHTML = yamlHtml(p.yaml || "");
+    $("#foot-policy").textContent = "policy " + (p.version || "").slice(0, 12);
+  }
+
+  // ---- performance
+  async function loadPerformance() {
+    const rows = (await getJSON(API + "/performance")).controls;
+    const tot = rows.find((r) => r.control === "total") || { p50: 0, p95: 0, max: 0, count: 0 };
+    const det = rows.filter((r) => r.control !== "total" && r.control !== "INJ-04");
+    const detP95 = det.reduce((a, r) => a + r.p95, 0);
+    const judge = rows.find((r) => r.control === "INJ-04");
+    $("#perf-tiles").innerHTML =
+      tile("Decision p50", tot.p50 + " ms", "ok", num(tot.count) + " decisions") +
+      tile("Decision p95", tot.p95 + " ms", tot.p95 > 500 ? "warn" : "ok", "max " + tot.max + " ms") +
+      tile("Deterministic controls", detP95.toFixed(1) + " ms", "ok", "sum of p95 over " + det.length + " controls") +
+      tile("Local AI judge", judge ? judge.p50 + " ms" : "-", "violet", judge ? "p50, cached verdicts are free" : "not invoked yet");
+    $("#perf tbody").innerHTML = rows.map((r) => "<tr><td><code>" + esc(r.control) + '</code></td><td class="num">' + num(r.count) + '</td><td class="num">' + r.p50 + '</td><td class="num">' + r.p95 + '</td><td class="num">' + r.max + "</td></tr>").join("") ||
+      '<tr><td class="empty" colspan="5">No decisions yet.</td></tr>';
+    const pr = rows.filter((r) => r.control !== "total");
+    drawChart("perf", "#ch-perf", "#fb-perf", {
+      type: "bar",
+      data: { labels: pr.map((r) => r.control), datasets: [{ label: "p95 ms", data: pr.map((r) => r.p95), backgroundColor: pr.map((r) => r.control === "INJ-04" ? col("--violet", "#7c3aed") : col("--accent", "#4f46e5")), borderRadius: 6 }] },
+      options: { indexAxis: "y", maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { type: "logarithmic" }, y: { grid: { display: false } } } },
+    }, pr.map((r) => r.control), pr.map((r) => r.p95));
+  }
+
+  // ---- header chips
+  async function loadHeader() {
+    try {
+      const p = await getJSON(API + "/policy");
+      const ic = p.interception || {};
+      $("#chip-mode").textContent = "interception: " + (ic.mode || "off");
+      const c = $("#chip-policy");
+      c.textContent = (p.error ? "policy error, last good " : "policy ") + (p.version || "").slice(0, 10);
+      c.className = "chip" + (p.error ? " err" : "");
+      $("#foot-policy").textContent = "policy " + (p.version || "").slice(0, 12);
+    } catch (e) {}
+  }
+
+  const LOADERS = { overview: loadSummary, clients: loadClients, security: loadEvents, network: loadNetwork, controls: loadControls,
+    policy: loadPolicy, performance: loadPerformance, playground: async () => {}, audit: async () => {} };
+  let pending = null;
+  function refresh(now) {
+    if (pending && !now) return;
+    clearTimeout(pending);
+    pending = setTimeout(() => {
+      pending = null;
+      Promise.all([LOADERS[page](), page !== "overview" ? loadSummary() : null, loadHeader()]).catch((e) => console.warn(e));
+    }, now ? 0 : 800);
   }
 
   // live stream
   function live() {
-    if (!window.EventSource) return;
+    if (!window.EventSource || /[?&]nolive=1/.test(location.search)) return;   // nolive: static snapshots
     const es = new EventSource(API + "/stream");
-    es.onopen = () => { const p = $("#live"); p.textContent = "live"; p.className = "pill on"; };
-    es.onerror = () => { const p = $("#live"); p.textContent = "offline"; p.className = "pill off"; };
+    es.onopen = () => { const p = $("#live"); p.innerHTML = '<span class="dot"></span>live'; p.className = "chip on"; };
+    es.onerror = () => { const p = $("#live"); p.innerHTML = '<span class="dot"></span>reconnecting'; p.className = "chip"; };
     es.addEventListener("audit", (e) => {
       const r = JSON.parse(e.data);
       events.unshift(r);
-      if (events.length > 500) events.pop();
-      if (matches(r)) { $("#events tbody").prepend(row(r, true)); }
-      $("#count").textContent = events.length + " events";
-      loadSummary().catch(() => {}); loadControls().catch(() => {});
+      if (events.length > 800) events.pop();
+      if (page === "security") {
+        if (matches(r)) { const tb = $("#events tbody"); if (tb.querySelector(".empty")) tb.innerHTML = ""; tb.prepend(row(r, true)); }
+        $("#count").textContent = events.filter(matches).length + " of " + events.length + " events";
+      }
+      refresh(false);
     });
   }
 
@@ -169,13 +335,10 @@
       let sameOrigin = false;
       try { sameOrigin = new URL($("#pg-url").value, location.href).origin === location.origin; } catch (e) {}
       if (pc.api_key && sameOrigin) headers["Authorization"] = "Bearer " + pc.api_key;
-      const r = await fetch($("#pg-url").value, {
-        method: "POST", headers,
-        body: JSON.stringify({ model, messages: [{ role: "user", content: $("#pg-text").value }] }),
-      });
+      const r = await fetch($("#pg-url").value, { method: "POST", headers, body: JSON.stringify({ model, messages: [{ role: "user", content: $("#pg-text").value }] }) });
       const txt = await r.text();
       let body = txt; try { body = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) {}
-      const dec = ["x-aicl-decision", "x-aicl-action", "server-timing", "x-aicl-request-id"].map((h) => r.headers.get(h) ? h + ": " + r.headers.get(h) : "").filter(Boolean).join("\n");
+      const dec = ["x-aicl-decision", "server-timing", "x-aicl-request-id"].map((h) => r.headers.get(h) ? h + ": " + r.headers.get(h) : "").filter(Boolean).join("\n");
       let trace = "";
       const rid = r.headers.get("x-aicl-request-id");
       if (rid) {
@@ -193,6 +356,7 @@
     }
   };
 
-  const boot = () => Promise.all([loadSummary(), loadEvents(), loadControls()]).catch((e) => { $("#tiles").innerHTML = '<div class="card muted">Console API unavailable: ' + esc(e.message) + "</div>"; });
-  boot().then(live);
+  const start = (location.hash || "").slice(1);
+  Promise.all([loadSummary(), loadEvents(), loadHeader()]).catch((e) => { $("#tiles").innerHTML = '<div class="card muted">Console API unavailable: ' + esc(e.message) + "</div>"; })
+    .then(() => { if (PAGES[start] && start !== "overview") go(start); live(); });
 })();

@@ -176,6 +176,26 @@ def create_app_from_env(env: dict | None = None, *, upstreams: dict | None = Non
         sync_policy()
         return d
 
+    def policy_info() -> dict:
+        """Console Policy page: what is live right now (read-only; edit the files, reload in about 1 s)."""
+        from aicl_core.interception import intercepted_hosts
+        pol = engine.policy
+        icfg = pol.interception()
+        main_file = Path(env.get("AICL_POLICY") or "policy/policy.yaml").resolve()
+        files = []
+        for f in pol.files:
+            try:
+                files.append(Path(f).resolve().relative_to(main_file.parent.parent).as_posix())
+            except ValueError:
+                files.append(Path(f).name)
+        return {"version": pol.version, "error": engine.store.error, "files": files,
+                "profile": pol.raw.get("defaults", {}).get("profile"), "rules": len(pol.rules),
+                "interception": {"mode": icfg["mode"], "credentials": icfg["credentials"],
+                                 "hosts": intercepted_hosts(icfg), "block_style": icfg["block_style"]},
+                "clients": pol.raw.get("clients") or [],
+                "yaml": main_file.read_text(encoding="utf-8") if main_file.is_file() else ""}
+
+    cfg["console"]["info"] = policy_info
     cfg["before_auth"] = sync_policy
     app = create_app(decide, cfg, upstreams)
     holder["app"] = app
