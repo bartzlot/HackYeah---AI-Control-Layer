@@ -73,7 +73,7 @@ td .sub2{display:block;font-size:11px;color:var(--muted)}
 .badge{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:700;letter-spacing:.03em;background:color-mix(in srgb,currentColor 12%,transparent)}
 .b-ALLOW,.b-LOG{color:var(--ok)}.b-WARN{color:var(--warn)}.b-REDACT{color:var(--warn)}.b-BLOCK{color:var(--red)}
 .tag{display:inline-block;padding:1px 7px;border-radius:6px;font-size:11px;background:var(--panel2);border:1px solid var(--line);color:var(--muted);margin:1px 2px 1px 0;font-family:var(--mono)}
-.tag.p-anthropic_messages{color:#c2410c;border-color:color-mix(in srgb,#c2410c 30%,var(--line))}
+.tag.p-anthropic_messages{color:#8b5cf6;border-color:color-mix(in srgb,#8b5cf6 30%,var(--line))}
 .tag.p-openai_responses,.tag.p-openai_chat{color:#0f766e;border-color:color-mix(in srgb,#0f766e 30%,var(--line))}
 .muted{color:var(--muted)}
 .mono,code{font-family:var(--mono);font-size:12px}
@@ -110,6 +110,12 @@ pre.yaml .c{color:var(--muted)}pre.yaml .k{color:var(--accent)}
 @media(max-width:860px){.app{grid-template-columns:1fr}.side{position:static;height:auto;flex-direction:row;flex-wrap:wrap}.side .foot,.navgroup{display:none}.nav{display:flex;flex-wrap:wrap;gap:4px}.nav button{width:auto}main,.top{padding-left:16px;padding-right:16px}}
 td.wrap{white-space:normal;min-width:140px;max-width:340px;word-break:break-word}
 .card table td,.card table th{font-size:13px}
+body.locked .needs-admin,body.locked .icpt-rm,body.locked #ctl .modesel,body.locked #bud-edit input,body.locked #bud-edit select{opacity:.45;pointer-events:none}
+.lockhint{display:none;font-size:12px;color:var(--muted);margin:0 0 10px}body.locked .lockhint{display:block}
+.empty-state{color:var(--muted);text-align:center;padding:40px 10px}.empty-state button{margin-top:10px}
+.recent-row{display:flex;gap:10px;align-items:center;padding:8px 4px;border-bottom:1px solid var(--line);cursor:pointer}.recent-row:last-child{border-bottom:0}
+.recent-row:hover{background:var(--panel2)}.recent-row .when{color:var(--muted);font-size:12px;width:64px}
+.lead{font-size:14px;line-height:1.5;margin:8px 0 12px}
 /* T-119 explain drawer: decide() timeline */
 .tl{list-style:none;margin:8px 0 10px;padding:0}
 #explain .tl li.tl-step{position:relative;margin:0;padding:0 0 12px 22px}

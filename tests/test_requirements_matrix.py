@@ -68,7 +68,9 @@ def test_known_gaps_are_stated():
 
 def test_readme_has_an_architecture_diagram():
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert "```mermaid" in readme and "flowchart" in readme and "decide()" in readme
+    inline = "```mermaid" in readme and "flowchart" in readme
+    rendered = [r for r in re.findall(r'src="(docs/diagrams/[^"]+\.svg)"', readme) if (ROOT / r).is_file()]
+    assert (inline or rendered) and "decide()" in readme
 
 
 def test_policy_is_documented_with_profiles_and_budgets():

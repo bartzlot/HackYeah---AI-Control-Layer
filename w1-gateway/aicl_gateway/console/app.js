@@ -8,15 +8,14 @@
   const usd = (v) => "$" + Number(v || 0).toFixed(Number(v || 0) >= 1 ? 2 : 4);
   const num = (v) => Number(v || 0).toLocaleString("en-US");
   const PAGES = {
-    overview: ["Management overview", "Security posture, blocked threats and spend across every AI client"],
-    clients: ["Clients & spend", "Who uses which AI tool and model, at what cost, and how often AICL stepped in"],
-    security: ["Live events", "Every decision with its explain trace: controls, rules, spans, latency"],
-    network: ["Network & bypass", "Interception path, intercepted lookups and bypass attempts"],
-    controls: ["Controls", "The control catalog from policy.yaml: mode, default action and hits"],
-    policy: ["Policy", "The single config source that is live right now"],
-    performance: ["Performance", "Decision latency per control, p50 / p95 / max"],
-    playground: ["Playground", "Send an ad-hoc prompt through the gateway and see the decision"],
-    audit: ["Audit export", "Exportable records for security teams"],
+    overview: ["Overview", "Is AI use safe right now: what was stopped, what it costs, how well protected"],
+    clients: ["People & spend", "Who uses which AI tool and model, what it costs, how often AICL stepped in"],
+    playground: ["Try it", "Send a prompt through AICL and see what it does with it"],
+    security: ["Activity", "Every decision, newest first. Click one to see exactly why"],
+    network: ["Network & bypass", "Which AI domains are intercepted, and any attempt to go around AICL"],
+    controls: ["Protections", "What AICL checks, switched on or off live"],
+    policy: ["Policy & budgets", "The one config file behind everything, live"],
+    performance: ["Performance", "How much time AICL adds, per check"],
   };
   let events = [];
   const charts = {};
@@ -78,15 +77,19 @@
     const s = await getJSON(API + "/summary");
     const oh = s.overhead_ms || {};
     $("#tiles").innerHTML =
-      tile("AI requests", num(s.requests), "", num(s.events_total) + " decisions") +
+      tile("AI requests checked", num(s.requests), "", s.requests ? num(s.events_total) + " decisions" : "none yet: try a prompt") +
       tile("Blocked", num(s.blocked), "bad", "threats stopped before execution") +
       tile("Redacted", num(s.redacted), "warn", "data removed in flight") +
-      tile("Clients protected", num(s.clients), "violet", plural(Object.keys(s.protocols || {}).length, "API contract")) +
+      tile("People & tools", num(s.clients), "violet", "using Claude / OpenAI through AICL") +
       tile("API spend", usd(s.cost_usd), s.budget_used_pct >= 80 ? "bad" : "", num(s.tokens) + " tokens, " + s.budget_used_pct + "% of " + usd(s.budget_usd), s.budget_used_pct) +
-      tile("Security posture", s.posture_pct + "%", s.posture_pct >= 80 ? "ok" : "warn", s.controls_enforced + "/" + s.controls_total + " controls enforced", s.posture_pct, true) +
-      tile("AICL overhead", (oh.p50 || 0) + " ms", "ok", "p50, p95 " + (oh.p95 || 0) + " ms") +
+      tile("Protections on", s.posture_pct + "%", s.posture_pct >= 80 ? "ok" : "warn", s.controls_enforced + " of " + s.controls_total + " protections enforced", s.posture_pct, true) +
+      tile("Time AICL adds", s.requests ? (oh.p50 || 0) + " ms" : "-", "ok", s.requests ? "typical; slowest 5%: " + (oh.p95 || 0) + " ms" : "no traffic yet") +
       tile("Bypass attempts", num(s.bypass_alerts), s.bypass_alerts ? "bad" : "ok", s.bypass_alerts ? "see Network" : "none detected");
     setCount("#nav-blocks", s.blocked);
+    renderRecent();
+    emptyChart("#ch-time", !s.requests);
+    emptyChart("#ch-cat", !Object.keys(s.categories || {}).length);
+    emptyChart("#ch-proto", !Object.keys(s.protocols || {}).length);
     setCount("#nav-bypass", s.bypass_alerts);
     renderBudgets(s.agent_budgets || []);
     const tl = s.timeline || [];
@@ -151,6 +154,38 @@
       u.includes("openai") ? "OpenAI SDK" : u.includes("anthropic") ? "Anthropic SDK" : String(ua).split("/")[0].slice(0, 18);
   }
   const SHORT = { anthropic_messages: "anthropic", openai_responses: "responses", openai_chat: "chat" };
+  const EVENT = { REQUEST_ALLOWED: "Allowed", PII_REDACTED: "Personal data redacted", SECRET_DETECTED: "Secret found",
+    INJECTION_BLOCKED: "Prompt injection blocked", TOOL_CALL_BLOCKED: "Dangerous command stopped", TOOL_CALL_ALLOWED: "Tool call allowed",
+    BUDGET_EXCEEDED: "Budget limit hit", AGENT_LOOP_TERMINATED: "Agent loop stopped", MODEL_DENIED: "Model not allowed",
+    REQUEST_BLOCKED: "Blocked", DESTINATION_BLOCKED: "Data kept from this destination", PASSTHROUGH: "Passed through (not a prompt)",
+    DNS_QUERY: "DNS lookup", BYPASS_SUSPECTED: "Bypass attempt", POLICY_CHANGED: "Policy changed" };
+  const evName = (r) => EVENT[r.event_type] || String(r.event_type || "").toLowerCase().replace(/_/g, " ");
+  const KIND = { secret: "a secret", pii: "personal data", injection: "a prompt injection", destination: "",
+    tool_abuse: "a dangerous command", code_exec: "code execution", unsafe_deserialization: "unsafe deserialization",
+    model_supply_chain: "an unsafe model download", resource: "the budget", access: "an identity / model rule", prompt_extraction: "a prompt-extraction attempt",
+    jailbreak: "a jailbreak attempt" };
+  function story(r) {
+    const who = r.agent_id + (r.user_agent ? " (" + toolOf(r.user_agent) + ")" : "");
+    const what = [...new Set((r.findings || []).filter((f) => dn(f.action) !== "ALLOW" && dn(f.action) !== "LOG").map((f) => (f.category in KIND ? KIND[f.category] : f.category)).filter(Boolean))];
+    const verb = { BLOCK: "AICL blocked it", REDACT: "AICL removed it before it left", WARN: "AICL flagged it", LOG: "AICL logged it", ALLOW: "AICL let it through" }[dn(r.decision)];
+    const where = r.tool ? "a " + r.tool + " tool call" : r.stage === "response" ? "the model's answer" : r.stage === "dns" ? "a DNS lookup" : "a request" + (r.model ? " to " + r.model : "");
+    const why = !what.length && !["REQUEST_ALLOWED", "REQUEST_BLOCKED", "TOOL_CALL_ALLOWED"].includes(r.event_type) && EVENT[r.event_type] ? " (" + EVENT[r.event_type].toLowerCase() + ")" : "";
+    return who + ": " + where + (what.length ? " contained " + what.join(", ") + ". " + verb + "." : why + ". " + verb + ".");
+  }
+  function renderRecent() {
+    const hits = events.filter((r) => ["BLOCK", "REDACT"].includes(dn(r.decision)) && r.stage !== "dns").slice(0, 6);
+    $("#recent").innerHTML = hits.length ? hits.map((r, i) => '<div class="recent-row" data-i="' + i + '"><span class="when">' + esc((r.ts || "").slice(11, 16)) +
+      '</span><span class="badge b-' + esc(dn(r.decision)) + '">' + esc(dn(r.decision)) + "</span><span>" + esc(story(r)) + "</span></div>").join("")
+      : '<div class="empty-state">Nothing stopped yet. <br><button onclick="document.querySelector(\'#nav [data-page=playground]\').click()">Try a risky prompt</button></div>';
+    document.querySelectorAll("#recent .recent-row").forEach((el) => (el.onclick = () => { go("security"); select(hits[+el.dataset.i]); }));
+  }
+  function emptyChart(canvasSel, empty) {
+    const box = $(canvasSel).parentElement;
+    let msg = box.querySelector(".empty-state");
+    if (empty && !msg) { msg = document.createElement("div"); msg.className = "empty-state"; msg.textContent = "No data yet. Send a prompt from Try it, or run Claude Code / Codex through AICL."; box.appendChild(msg); }
+    if (msg) msg.style.display = empty ? "block" : "none";
+    $(canvasSel).style.display = empty ? "none" : "";
+  }
   function row(r, isNew) {
     const tr = document.createElement("tr");
     if (isNew) tr.className = "new";
@@ -158,7 +193,7 @@
     tr.dataset.id = r.event_id;
     const lat = (r.latency_us || {}).total;
     tr.innerHTML = "<td class='muted'>" + esc((r.ts || "").slice(11, 19)) + '</td><td><span class="badge b-' + dn(r.decision) + '">' + dn(r.decision) + "</span></td><td>" +
-      esc(r.event_type) + (r.protocol ? '<span class="sub2"><span class="tag p-' + esc(r.protocol) + '">' + esc(SHORT[r.protocol] || r.protocol) + "</span></span>" : "") + "</td><td>" + client(r) + "</td><td class='mono'>" +
+      esc(evName(r)) + (r.protocol ? '<span class="sub2"><span class="tag p-' + esc(r.protocol) + '">' + esc(SHORT[r.protocol] || r.protocol) + "</span></span>" : "") + "</td><td>" + client(r) + "</td><td class='mono'>" +
       esc(r.tool || r.model || r.upstream_host || "") + "</td><td class='mono wrap'>" + esc(ctrls(r)) + '</td><td class="num">' + (lat != null ? (lat / 1000).toFixed(1) : "") + "</td>";
     tr.onclick = () => select(r);
     return tr;
@@ -192,8 +227,9 @@
       (f.reason_code ? "<br><span class='muted'>" + esc(f.reason_code) + "</span>" : "") + "</li>").join("");
     const lat = r.latency_us || {};
     const u = r.usage || {};
-    $("#explain").innerHTML = "<h2>Explain</h2>" +
-      '<span class="badge b-' + dn(r.decision) + '">' + dn(r.decision) + "</span> <b>" + esc(r.event_type) + "</b>" +
+    $("#explain").innerHTML = "<h2>Why</h2>" +
+      '<span class="badge b-' + dn(r.decision) + '">' + dn(r.decision) + "</span> <b>" + esc(evName(r)) + "</b>" +
+      '<p class="lead">' + esc(story(r)) + "</p>" +
       '<div class="kv"><b>Client</b><span>' + esc(r.agent_id) + (r.client_ip ? " @ " + esc(r.client_ip) : "") + "</span>" +
       (r.user_agent ? "<b>Tool</b><span>" + esc(r.user_agent) + "</span>" : "") +
       (r.protocol ? "<b>API</b><span>" + esc(protoName(r.protocol)) + " -> " + esc(r.upstream_host || "") + "</span>" : "") +
@@ -203,7 +239,7 @@
       (u.usd != null ? "<b>Usage</b><span>" + num((u.input_tokens || 0) + (u.output_tokens || 0)) + " tokens, " + usd(u.usd) + "</span>" : "") +
       "<b>Latency</b><span>" + esc(lat.total != null ? (lat.total / 1000).toFixed(2) + " ms" : "-") + "</span><b>Policy</b><span class='mono'>" + esc((r.policy_version || "").slice(0, 16)) + "</span></div>" +
       '<h2>decide() timeline <span class="hint">whole request</span></h2><div id="tl"><p class="muted">Loading...</p></div>' +
-      "<h2>Findings</h2><ul>" + (fs || "<li class='muted'>none</li>") + "</ul><h2>Trace</h2><div class='trace'>" + (r.explain || []).map(esc).join("\n") + "</div>";
+      "<h2>Which checks fired</h2><ul>" + (fs || "<li class='muted'>none</li>") + "</ul><details><summary class='muted'>Full decision trace</summary><div class='trace'>" + (r.explain || []).map(esc).join("\n") + "</div></details>";
     loadTimeline(r);
   }
   // ---- explain drawer: per-request decide() timeline (T-119); spans arrive as hashes / tokens only
@@ -266,7 +302,7 @@
     $("#pol-hit").scrollIntoView({ block: "center" });
   }
 
-  async function loadEvents() { events = (await getJSON(API + "/events?limit=800")).events; render(); }
+  async function loadEvents() { events = (await getJSON(API + "/events?limit=800")).events; render(); renderRecent(); }
   ["#f-decision", "#f-proto"].forEach((s) => ($(s).onchange = render));
   $("#f-text").oninput = render;
 
@@ -281,7 +317,14 @@
       tile("Resolver queries", num(st.queries || 0), "", num(st.forwarded || 0) + " forwarded upstream") +
       tile("Bypass attempts", num((n.bypass_alerts || []).length), (n.bypass_alerts || []).length ? "bad" : "ok", "DoH resolvers sinkholed") +
       tile("Proxied requests", num((n.passthrough || {}).total || 0), "", "probes, token counts, auth refresh");
-    $("#bypass tbody").innerHTML = (n.bypass_alerts || []).map((b) => "<tr><td class='muted'>" + esc((b.ts || "").slice(11, 19)) + "</td><td>" + esc(b.principal) + " <span class='muted mono'>" + esc(b.client_ip || "") + "</span></td><td class='wrap'>" + esc(b.what) + "</td></tr>").join("") ||
+    const grouped = [];
+    for (const b of n.bypass_alerts || []) {          // newest first: one row per (who, what), with a count
+      const what = String(b.what || "").replace(/^dns (A|AAAA) /, ""), k = b.principal + "|" + what;
+      const g = grouped.find((x) => x.k === k);
+      if (g) g.n++; else grouped.push({ k, n: 1, ts: b.ts, principal: b.principal, ip: b.client_ip, what });
+    }
+    $("#bypass tbody").innerHTML = grouped.map((b) => "<tr><td class='muted'>" + esc((b.ts || "").slice(11, 19)) + "</td><td>" + esc(b.principal) + " <span class='muted mono'>" + esc(b.ip || "") + "</span></td><td class='wrap'>" + esc(b.what) +
+      (b.n > 1 ? " <span class='badge b-WARN'>x" + b.n + "</span>" : "") + "</td></tr>").join("") ||
       '<tr><td class="empty" colspan="3">No bypass attempts seen.</td></tr>';
     $("#net-hosts tbody").innerHTML = Object.entries(hosts).map(([h, c]) => "<tr><td class='mono'>" + esc(h) + '</td><td class="num">' + num(c) + "</td></tr>").join("") ||
       '<tr><td class="empty" colspan="2">No DNS traffic yet (the resolver runs in transparent mode).</td></tr>';
@@ -321,9 +364,19 @@
 
   // ---- controls
   const MODES = ["enforce", "shadow", "off"];
+  const MODE_LABEL = { enforce: "On", shadow: "Watch only", off: "Off" };
+  const WHAT = { "KILL-01": "Emergency stop, armed: refuses every AI request only if emergency.kill_switch is set in the policy.",
+    "ACCESS-01": "Only known people / tools and allowed models get through.",
+    "DLP-01": "Secrets (API keys, private keys, tokens) never reach a model.",
+    "DLP-02": "Personal data (PESEL, IBAN, cards, e-mail, phone) is redacted.",
+    "DLP-05": "Decides per destination: local model, external model or unknown host.",
+    "INJ-03": "Known prompt-injection and exploit signatures (EN + PL, signed feed).",
+    "INJ-04": "Local AI judge reads suspicious text (web pages, files, tool output).",
+    "TOOL-01": "Stops dangerous commands and file access before the agent runs them.",
+    "BUD-01": "Token and money budgets per person, team and organization; loop guard." };
   function modeSelect(id, cur, profile, locked) {
     return '<select class="modesel" data-id="' + esc(id) + '"' + (profile ? ' data-profile="' + profile + '"' : "") + ">" +
-      MODES.filter((m) => !locked || m === "enforce").map((m) => "<option" + (m === cur ? " selected" : "") + ">" + m + "</option>").join("") + "</select>";
+      MODES.filter((m) => !locked || m === "enforce").map((m) => '<option value="' + m + '"' + (m === cur ? " selected" : "") + ">" + MODE_LABEL[m] + "</option>").join("") + "</select>";
   }
   async function loadControls() {
     const c = (await getJSON(API + "/controls")).controls;
@@ -332,9 +385,8 @@
       const sel = spec && typeof spec === "object"
         ? ["strict", "balanced", "permissive"].map((p) => '<span class="muted" style="font-size:11px">' + p + "</span> " + modeSelect(x.id, spec[p] || "enforce", p, x.locked)).join(" ")
         : modeSelect(x.id, x.mode, null, x.locked);
-      return "<tr><td><code>" + esc(x.id) + "</code></td><td>" + esc(x.name) + (x.locked ? ' <span class="muted" title="cannot be switched off from the console">(locked on)</span>' : "") +
-        "</td><td>" + esc(x.category) + "</td><td>" + esc(x.severity) + '</td><td><span class="badge ' + (x.mode === "enforce" ? "b-ALLOW" : x.mode === "shadow" ? "b-WARN" : "b-BLOCK") + '">' +
-        esc(x.mode) + "</span></td><td>" + sel + "</td><td>" + esc(x.action) + '</td><td class="num">' + num(x.hits) + "</td></tr>";
+      return "<tr><td class='wrap'><b>" + esc(WHAT[x.id] || x.name) + '</b><span class="sub2">' + (x.name && x.name !== x.id ? esc(x.name) + " &middot; " : "") + "<span class='mono'>" + esc(x.id) + "</span>" +
+        (x.locked ? " &middot; always on from the console" : "") + "</span></td><td>" + sel + '</td><td class="num">' + num(x.hits) + "</td></tr>";
     }).join("");
     document.querySelectorAll("#ctl .modesel").forEach((s) => (s.onchange = async () => {
       const m = $("#ctl-msg");
@@ -385,7 +437,6 @@
   // ---- policy + budget editor (T-107)
   let editing = false, polText = "";
   try { $("#admin-token").value = sessionStorage.getItem("aicl-admin") || ""; } catch (e) {}
-  $("#admin-token").oninput = () => { try { sessionStorage.setItem("aicl-admin", $("#admin-token").value); } catch (e) {} };
   function authHeaders(extra) {
     const t = $("#admin-token").value.trim();
     return Object.assign(t ? { Authorization: "Bearer " + t } : {}, extra || {});
@@ -494,7 +545,7 @@
   }
 
   const LOADERS = { overview: loadSummary, clients: loadClients, security: loadEvents, network: loadNetwork, controls: loadControls,
-    policy: loadPolicy, performance: loadPerformance, playground: async () => {}, audit: async () => {} };
+    policy: loadPolicy, performance: loadPerformance, playground: async () => {} };
   let pending = null;
   function refresh(now) {
     if (pending && !now) return;
@@ -514,6 +565,7 @@
     es.addEventListener("audit", (e) => {
       const r = JSON.parse(e.data);
       events.unshift(r);
+      if (["BLOCK", "REDACT"].includes(dn(r.decision))) renderRecent();
       if (events.length > 800) events.pop();
       if (page === "security") {
         if (matches(r)) { const tb = $("#events tbody"); if (tb.querySelector(".empty")) tb.innerHTML = ""; tb.prepend(row(r, true)); }
@@ -558,7 +610,25 @@
     }
   };
 
-  const start = (location.hash || "").slice(1);
+  // ---- unlock editing (one place for the admin token)
+  async function checkEdit() {
+    let w = { can_edit: false };
+    try { const r = await fetch(API + "/whoami", { headers: authHeaders() }); w = await r.json(); } catch (e) {}
+    document.body.classList.toggle("locked", !w.can_edit);
+    $("#unlock").textContent = w.can_edit ? "Editing unlocked" : "Unlock editing";
+    $("#unlock").disabled = !!w.can_edit && !w.needs_token;
+    return w;
+  }
+  $("#unlock").onclick = () => { const b = $("#unlock-box"); b.style.display = b.style.display === "none" ? "inline-flex" : "none"; $("#admin-token").focus(); };
+  $("#unlock-ok").onclick = async () => {
+    const w = await checkEdit();                     // authHeaders() sends the typed token
+    if (w.can_edit) { try { sessionStorage.setItem("aicl-admin", $("#admin-token").value); } catch (e) {} $("#unlock-box").style.display = "none"; }
+    else { try { sessionStorage.removeItem("aicl-admin"); } catch (e) {} $("#admin-token").value = ""; $("#admin-token").placeholder = "wrong token, try again"; }
+  };
+  $("#admin-token").onkeydown = (e) => { if (e.key === "Enter") $("#unlock-ok").click(); };
+
+  const start = ((location.hash || "").slice(1) === "audit") ? "security" : (location.hash || "").slice(1);
+  checkEdit();
   Promise.all([loadSummary(), loadEvents(), loadHeader()]).catch((e) => { $("#tiles").innerHTML = '<div class="card muted">Console API unavailable: ' + esc(e.message) + "</div>"; })
     .then(() => { if (PAGES[start] && start !== "overview") go(start); live(); });
 })();
