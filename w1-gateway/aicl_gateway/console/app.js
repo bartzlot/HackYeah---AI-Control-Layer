@@ -251,7 +251,11 @@
       '<div class="card"><h2>Interception</h2><div class="kv"><b>Mode</b><span>' + esc(ic.mode || "-") + "</span><b>Credentials</b><span>" + esc(ic.credentials || "-") + "</span><b>Hosts</b><span>" + (ic.hosts || []).map((h) => "<code>" + esc(h) + "</code>").join(" ") + "</span></div></div>" +
       '<div class="card"><h2>Native block contract</h2><div class="tablewrap"><table><thead><tr><th>API</th><th>Hard</th><th>Soft</th><th>Budget</th></tr></thead><tbody>' + styles + "</tbody></table></div></div>" +
       '<div class="card"><h2>Clients (identity)</h2><table><thead><tr><th>Match</th><th>Principal</th><th>Profile</th></tr></thead><tbody>' +
-      (p.clients || []).map((c) => "<tr><td class='mono'>" + esc(JSON.stringify(c.match)) + "</td><td>" + esc(c.principal) + "</td><td>" + esc(c.profile || "-") + "</td></tr>").join("") + "</tbody></table></div>";
+      (p.clients || []).map((c) => "<tr><td class='mono'>" + esc(JSON.stringify(c.match)) + "</td><td>" + esc(c.principal) + "</td><td>" + esc(c.profile || "-") + "</td></tr>").join("") + "</tbody></table></div>" +
+      '<div class="card"><h2>Signed signature feed</h2>' + (p.feed ? '<div class="kv"><b>Source</b><span class="mono">' + esc(p.feed.url) + "</span><b>Version</b><span>" + esc(p.feed.version) +
+        (p.feed.rules != null ? " (" + esc(p.feed.rules) + " rules)" : "") + "</span><b>Last check</b><span>" + esc(p.feed.last_check || "-") + "</span><b>Status</b><span" +
+        (p.feed.last_error ? ' style="color:var(--red)">rejected: ' + esc(p.feed.last_error) : ' style="color:var(--ok)">verified (Ed25519), no rollback, inline tests passed') + "</span></div>"
+        : '<p class="muted">Not configured. Set AICL_FEED_URL and AICL_FEED_PUBKEY: bundles are Ed25519-signed, rollback is refused, and every rule must pass its inline tests before it goes live.</p>') + "</div>";
     if (!editing) { $("#pol-yaml").innerHTML = yamlHtml(p.yaml || ""); polText = p.yaml || ""; }
     $("#foot-policy").textContent = "policy " + (p.version || "").slice(0, 12);
     await loadBudgetEditor();

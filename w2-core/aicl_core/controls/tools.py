@@ -200,9 +200,11 @@ class ToolFirewall:
         for n, tc in enumerate(event.tool_calls):
             name = tool_name(tc.name, tc.server)
 
-            def add(rule_id: str, act_appr: tuple[Action, bool], why: str, category: str = "tool_abuse") -> None:
+            def add(rule_id: str, act_appr: tuple[Action, bool], why: str, category: str = "tool_abuse",
+                    source: str = "policy") -> None:
                 act, appr = act_appr
                 out.append(Finding(control_id=self.control_id, rule_id=rule_id, category=category, action=act,
+                                   rule_source=source if source in ("local", "feed") else "policy",
                                    reason_code=f"{name}: {why}" + (" (REQUIRE_APPROVAL enforced as BLOCK)" if appr else ""),
                                    detail={"tool": name, "call": n, "approval": appr,
                                            "event_type": "TOOL_CALL_BLOCKED" if act == Action.BLOCK else "TOOL_CALL_ALLOWED"}))
@@ -225,7 +227,7 @@ class ToolFirewall:
                 if r.tools and not _glob(name, r.tools):
                     continue
                 if r.pattern.search(text) and r.action_untrusted > Action.ALLOW:
-                    add(r.id, (r.action_untrusted, False), f"argument matches {r.name or r.id}", r.category)
+                    add(r.id, (r.action_untrusted, False), f"argument matches {r.name or r.id}", r.category, r.source)
         return out
 
 

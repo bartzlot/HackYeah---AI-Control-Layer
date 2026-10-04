@@ -199,7 +199,15 @@ def create_app_from_env(env: dict | None = None, *, upstreams: dict | None = Non
                 "clients": pol.raw.get("clients") or [],
                 "yaml": main_file.read_text(encoding="utf-8") if main_file.is_file() else ""}
 
-    cfg["console"]["info"] = policy_info
+    from . import feed as feed_mod
+    feed = feed_mod.from_env(env, env.get("AICL_POLICY") or "policy/policy.yaml", engine)   # signed signature feed
+
+    def policy_info_with_feed() -> dict:
+        info = policy_info()
+        info["feed"] = feed.status if feed else None
+        return info
+
+    cfg["console"]["info"] = policy_info_with_feed
     live_path = Path(env.get("AICL_POLICY") or "policy/policy.yaml").resolve()
     cfg["console"]["writers"] = {
         "policy_write": lambda text: policy_admin.write_policy(live_path, text, engine),

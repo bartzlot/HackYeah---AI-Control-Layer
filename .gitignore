@@ -10,3 +10,5 @@ reports/
 data-live/
 data-codex/
 data-edit/
+policy/rules/feed.yaml
+policy/rules/feed.state.json

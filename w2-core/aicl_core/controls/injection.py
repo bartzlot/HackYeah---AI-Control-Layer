@@ -76,7 +76,7 @@ class Injection:
                         act, why = Action.LOG, "quoted mention in an educational question"
                 out.append(Finding(control_id=self.control_id, rule_id=rule.id, category=rule.category, action=act,
                                    score=score, threshold=block_at, reason_code=f"{rule.name or rule.id}: {why}",
-                                   rule_source="local" if rule.source == "local" else "policy",
+                                   rule_source=rule.source if rule.source in ("local", "feed") else "policy",
                                    spans=[Span(part=idx, start=s, end=e, type=rule.category,
                                                sha256_8=sha8(part.text[s:e]))],
                                    detail={"severity": rule.severity, "untrusted": untrusted,

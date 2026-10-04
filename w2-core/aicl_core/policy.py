@@ -330,7 +330,7 @@ def _load_policy(path: Path) -> Policy:
     h = hashlib.sha256(_canon(base))
     seen: set[str] = set()
     for rp in rule_paths:
-        for r in load_rule_file(rp):
+        for r in load_rule_file(rp, source="feed" if rp.name.startswith("feed") else "policy"):
             if r.id in seen:
                 raise PolicyError(f"duplicate rule id {r.id}")
             seen.add(r.id)
