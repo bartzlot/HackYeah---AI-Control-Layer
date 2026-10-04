@@ -208,6 +208,8 @@ def create_app_from_env(env: dict | None = None, *, upstreams: dict | None = Non
         return info
 
     cfg["console"]["info"] = policy_info_with_feed
+    from . import names as names_mod
+    cfg["console"]["catalog"] = lambda: names_mod.Catalog(engine.policy)     # control / rule display names (T-123)
     live_path = Path(env.get("AICL_POLICY") or "policy/policy.yaml").resolve()
     def changed(who: str, what: str, res: dict) -> dict:
         """One POLICY_CHANGED audit record per console edit: who, what, old -> new, the new policy version."""

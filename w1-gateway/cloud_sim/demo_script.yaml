@@ -12,3 +12,8 @@ steps:
     tool_calls:
       - name: corp.run_python
         arguments: {code: "import pickle; model = pickle.loads(open('shared/model.pkl', 'rb').read())"}
+  - match: {contains: "Show me the app settings"}
+    repeat: true
+    tool_calls:
+      - name: corp.search_docs
+        arguments: {path: "/work/app/.env"}

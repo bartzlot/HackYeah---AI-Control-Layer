@@ -22,6 +22,20 @@
   let page = "overview";
   let selected = null;
   let pendingRule = null;     // T-119: rule / control to mark on the Policy page
+  // T-123: display names + one-line descriptions next to every control / rule id (ids never change), and who caught it
+  let NAMES = { controls: {}, rules: {} };
+  const human = (id) => { const w = String(id || "").replace(/[._-]+/g, " ").trim(); return w.charAt(0).toUpperCase() + w.slice(1); };
+  const cname = (id) => (NAMES.controls[id] || {}).name || human(id);
+  const cdesc = (id) => (NAMES.controls[id] || {}).description || "";
+  const rname = (id) => (NAMES.rules[id] || {}).name || human(id);
+  const rdesc = (id) => (NAMES.rules[id] || {}).description || "";
+  const layerOf = (cid) => (cid === "INJ-04" ? "ai" : "deterministic");   // same rule as names.layer_of on the server
+  const LAYER_TIP = { ai: "Decided by the local AI model (INJ-04): a classifier / judge read the text",
+    deterministic: "Decided by a deterministic check: regex, checksum, signature, allowlist or tool firewall. Same input, same verdict" };
+  function layerBadge(l) {
+    return l ? '<span class="badge lay-' + esc(l) + '" title="' + esc(LAYER_TIP[l] || "") + '">' + (l === "ai" ? "AI" : "DETERMINISTIC") + "</span>" : "";
+  }
+  async function loadNames() { try { NAMES = await getJSON(API + "/catalog"); } catch (e) {} }
 
   // theme
   try { const t = localStorage.getItem("aicl-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
@@ -87,8 +101,8 @@
     return tile("Local AI judge (INJ-04)", look[0], look[1], sub);
   }
   function topRules(rows) {
-    $("#top-rules tbody").innerHTML = rows.map((r) => "<tr><td class='wrap'><code>" + esc(r.rule_id).replace(/([._])/g, "$1<wbr>") + "</code></td><td class='wrap'><b>" + esc(r.control_id) + "</b>" +
-      (r.control_name ? '<span class="sub2">' + esc(r.control_name) + "</span>" : "") + '</td><td class="num">' + num(r.count) + "</td><td class='muted'>" +
+    $("#top-rules tbody").innerHTML = rows.map((r) => "<tr><td class='wrap'><code>" + esc(r.rule_id).replace(/([._])/g, "$1<wbr>") + "</code>" + (r.rule_name ? '<span class="sub2">' + esc(r.rule_name) + "</span>" : "") + "</td><td class='wrap'><b>" + esc(r.control_id) + "</b>" +
+      (r.control_name ? '<span class="sub2">' + esc(r.control_name) + "</span>" : "") + (r.layer ? '<span class="sub2">' + layerBadge(r.layer) + "</span>" : "") + '</td><td class="num">' + num(r.count) + "</td><td class='muted'>" +
       esc(String(r.last_seen || "").slice(5, 10) + " " + String(r.last_seen || "").slice(11, 16)) + "</td></tr>").join("") ||
       '<tr><td class="empty" colspan="4">No blocked requests yet. <a href="#playground" data-go="playground">Send the example AWS key from Try it</a> to see a rule fire.</td></tr>';
   }
@@ -169,6 +183,12 @@
 
   // ---- live events
   function ctrls(r) { return [...new Set((r.findings || []).map((f) => f.control_id))].join(", "); }
+  // control ids with their display names (hover: description) and who caught it
+  function ctrlCell(r) {
+    const ids = [...new Set((r.findings || []).map((f) => f.control_id).filter(Boolean))];
+    const names = ids.map((c) => '<span title="' + esc(cdesc(c)) + '">' + esc(cname(c)) + "</span>").join(", ");
+    return esc(ids.join(", ")) + (names ? '<span class="sub2">' + names + "</span>" : "") + (r.detection_layer ? '<span class="sub2">' + layerBadge(r.detection_layer) + "</span>" : "");
+  }
   function client(r) {
     const tool = r.user_agent ? toolOf(r.user_agent) : "";
     return "<b>" + esc(r.agent_id) + "</b>" + (tool || r.client_ip ? '<span class="sub2">' + esc([tool, r.client_ip].filter(Boolean).join(" @ ")) + "</span>" : "");
@@ -216,7 +236,7 @@
     const lat = (r.latency_us || {}).total;
     tr.innerHTML = "<td class='muted'>" + esc((r.ts || "").slice(11, 19)) + '</td><td><span class="badge b-' + dn(r.decision) + '">' + dn(r.decision) + "</span></td><td>" +
       esc(evName(r)) + (r.protocol ? '<span class="sub2"><span class="tag p-' + esc(r.protocol) + '">' + esc(SHORT[r.protocol] || r.protocol) + "</span></span>" : "") + "</td><td>" + client(r) + "</td><td class='mono'>" +
-      esc(r.tool || r.model || r.upstream_host || "") + "</td><td class='mono wrap'>" + esc(ctrls(r)) + '</td><td class="num">' + (lat != null ? (lat / 1000).toFixed(1) : "") + "</td>";
+      esc(r.tool || r.model || r.upstream_host || "") + "</td><td class='mono wrap'>" + ctrlCell(r) + '</td><td class="num">' + (lat != null ? (lat / 1000).toFixed(1) : "") + "</td>";
     tr.onclick = () => select(r);
     return tr;
   }
@@ -243,14 +263,15 @@
   function select(r) {
     selected = r.event_id;
     document.querySelectorAll("#events tr").forEach((t) => t.classList.toggle("sel", t.dataset.id === selected));
-    const fs = (r.findings || []).map((f) => "<li><code>" + esc(f.control_id) + " / " + esc(f.rule_id) + "</code> " + esc(f.category) + ' <span class="badge b-' + dn(f.action) + '">' + dn(f.action) + "</span>" +
+    const fs = (r.findings || []).map((f) => "<li><code>" + esc(f.control_id) + " / " + esc(f.rule_id) + "</code> " + esc(f.category) + ' <span class="badge b-' + dn(f.action) + '">' + dn(f.action) + "</span> " + layerBadge(layerOf(f.control_id)) +
+      "<br><span class='muted'>" + esc(cname(f.control_id)) + ": " + esc(rname(f.rule_id)) + (rdesc(f.rule_id) ? " - " + esc(rdesc(f.rule_id)) : "") + "</span>" +
       (f.score != null ? " <span class='muted'>score " + f.score + " vs " + f.threshold + "</span>" : "") +
       ((f.spans || []).length ? "<br><span class='muted'>spans " + f.spans.map((s) => esc(s.type) + "[" + s.start + "-" + s.end + "]" + (s.sha256_8 ? " #" + esc(s.sha256_8) : "")).join(", ") + "</span>" : "") +
       (f.reason_code ? "<br><span class='muted'>" + esc(f.reason_code) + "</span>" : "") + "</li>").join("");
     const lat = r.latency_us || {};
     const u = r.usage || {};
     $("#explain").innerHTML = "<h2>Why</h2>" +
-      '<span class="badge b-' + dn(r.decision) + '">' + dn(r.decision) + "</span> <b>" + esc(evName(r)) + "</b>" +
+      '<span class="badge b-' + dn(r.decision) + '">' + dn(r.decision) + "</span> " + layerBadge(r.detection_layer) + " <b>" + esc(evName(r)) + "</b>" +
       '<p class="lead">' + esc(story(r)) + "</p>" +
       '<div class="kv"><b>Client</b><span>' + esc(r.agent_id) + (r.client_ip ? " @ " + esc(r.client_ip) : "") + "</span>" +
       (r.user_agent ? "<b>Tool</b><span>" + esc(r.user_agent) + "</span>" : "") +
@@ -271,7 +292,7 @@
   function tlFinding(f) {
     const j = f.judge;
     return '<div class="tl-f' + (f.shadow ? " shadow" : "") + '"><span class="badge b-' + esc(f.action) + '">' + esc(f.action) + "</span>" + (f.shadow ? ' <span class="badge b-WARN">shadow, not enforced</span>' : "") + ' <a href="#policy" class="rulelink" data-rule="' + esc(f.rule_id) + '" data-control="' + esc(f.control_id) + '" title="Show in the policy">' +
-      esc(f.control_id) + " / " + esc(f.rule_id) + "</a>" + (f.record_stage ? ' <span class="muted">on ' + esc(f.record_stage) + "</span>" : "") +
+      esc(f.control_id) + " / " + esc(f.rule_id) + "</a> " + layerBadge(f.detection_layer || layerOf(f.control_id)) + '<div class="muted">' + esc(cname(f.control_id)) + ": " + esc(rname(f.rule_id)) + "</div>" + (f.record_stage ? ' <span class="muted">on ' + esc(f.record_stage) + "</span>" : "") +
       (f.score != null ? ' <span class="muted">score ' + esc(f.score) + " vs " + esc(f.threshold) + "</span>" : "") +
       (j ? '<div class="muted">judge ' + esc(j.model || "-") + ": " + esc(j.verdict) + (j.cached ? ", cached" : "") + (j.eval_ms != null ? ", " + esc(j.eval_ms) + " ms" : "") + (j.degraded ? ', <span style="color:var(--warn)">degraded</span>' : "") + "</div>" : "") +
       (f.reason_code ? '<div class="muted">' + esc(f.reason_code) + "</div>" : "") +
@@ -437,7 +458,7 @@
       const sel = spec && typeof spec === "object"
         ? ["strict", "balanced", "permissive"].map((p) => '<span class="muted" style="font-size:11px">' + p + "</span> " + modeSelect(x.id, spec[p] || "enforce", p, x.locked)).join(" ")
         : modeSelect(x.id, x.mode, null, x.locked);
-      return "<tr><td class='wrap'><b>" + esc(WHAT[x.id] || x.name) + '</b><span class="sub2">' + (x.name && x.name !== x.id ? esc(x.name) + " &middot; " : "") + "<span class='mono'>" + esc(x.id) + "</span>" +
+      return "<tr><td class='wrap'><b>" + esc(cname(x.id) || x.name) + "</b> " + layerBadge(x.layer || layerOf(x.id)) + '<span class="sub2">' + esc(WHAT[x.id] || x.description || cdesc(x.id)) + '</span><span class="sub2"><span class="mono">' + esc(x.id) + "</span>" +
         (x.locked ? " &middot; always on from the console" : "") + "</span></td><td>" + sel + '</td><td class="num">' + num(x.hits) + "</td></tr>";
     }).join("");
     document.querySelectorAll("#ctl .modesel").forEach((s) => (s.onchange = async () => {
@@ -481,9 +502,20 @@
         (p.feed.rules != null ? " (" + esc(p.feed.rules) + " rules)" : "") + "</span><b>Last check</b><span>" + esc(p.feed.last_check || "-") + "</span><b>Status</b><span" +
         (p.feed.last_error ? ' style="color:var(--red)">rejected: ' + esc(p.feed.last_error) : ' style="color:var(--ok)">verified (Ed25519), no rollback, inline tests passed') + "</span></div>"
         : '<p class="muted">Not configured. Set AICL_FEED_URL and AICL_FEED_PUBKEY: bundles are Ed25519-signed, rollback is refused, and every rule must pass its inline tests before it goes live.</p>') + "</div>";
+    renderNames();
     if (!editing) { $("#pol-yaml").innerHTML = yamlHtml(p.yaml || ""); polText = p.yaml || ""; markPolicy(); }
     $("#foot-policy").textContent = "policy " + (p.version || "").slice(0, 12);
     await loadBudgetEditor();
+  }
+
+  // T-123: the ids in the policy and in the audit, in words
+  function renderNames() {
+    const ctl = Object.values(NAMES.controls || {}), rules = Object.values(NAMES.rules || {});
+    $("#pol-names").innerHTML = '<h2>What the ids mean <span class="hint">names are display only, ids and the audit are unchanged</span></h2>' +
+      '<div class="tablewrap"><table><thead><tr><th>Control</th><th>Name</th><th>What it does</th><th>Layer</th></tr></thead><tbody>' +
+      ctl.map((c) => "<tr><td class='mono'>" + esc(c.id) + "</td><td><b>" + esc(c.name) + "</b></td><td class='wrap'>" + esc(c.description) + "</td><td>" + layerBadge(c.layer) + "</td></tr>").join("") + "</tbody></table></div>" +
+      "<details><summary class='muted'>" + rules.length + ' rules (tool rules, signature files, secrets, personal data, budgets)</summary><div class="tablewrap"><table><thead><tr><th>Rule</th><th>Name</th><th>What it matches</th></tr></thead><tbody>' +
+      rules.map((r) => "<tr><td class='mono wrap'>" + esc(r.id) + "</td><td class='wrap'><b>" + esc(r.name) + "</b></td><td class='wrap'>" + esc(r.description) + "</td></tr>").join("") + "</tbody></table></div></details>";
   }
 
   // ---- policy + budget editor (T-107)
@@ -627,6 +659,52 @@
     });
   }
 
+  // ---- demo batch (T-123): preset prompts, each caught by a different control, one results table
+  const OUT_BADGE = { allowed: "ALLOW", warned: "WARN", redacted: "REDACT", blocked: "BLOCK", error: "BLOCK" };
+  const ms = (v, d) => (v == null ? "-" : Number(v).toFixed(d == null ? 2 : d));
+  function judgeCell(r) {
+    const j = r.judge;
+    return j ? '<span class="sub2">' + esc(j.model || "-") + ": " + esc(j.verdict) + (j.confidence != null ? " (confidence " + esc(Math.round(j.confidence * 100)) + "%)" : "") + (j.cached ? ", cached" : "") + (j.degraded ? ", degraded" : "") + "</span>" : "";
+  }
+  function batchRow(r) {
+    return '<tr class="batch-row" data-rid="' + esc(r.request_id || "") + '" title="Open this request in Activity"><td class="mono">' + esc(r.id) + "</td><td class='wrap'><b>" + esc(r.title) + "</b>" + (r.notes ? '<span class="sub2">' + esc(r.notes) + "</span>" : "") + "</td>" +
+      '<td><span class="badge b-' + esc(OUT_BADGE[r.outcome] || "ALLOW") + '">' + esc(r.decision || r.outcome) + "</span>" + (r.ok ? "" : ' <span class="badge b-WARN" title="Not the outcome this preset is meant to show">unexpected</span>') + "</td>" +
+      "<td class='wrap'>" + (r.control ? "<b>" + esc(r.control) + "</b> / <code>" + esc(r.rule || "-") + '</code><span class="sub2">' + esc(r.control_name || "") + (r.rule_name ? ": " + esc(r.rule_name) : "") + "</span>" : '<span class="muted">nothing flagged</span>') + "</td>" +
+      "<td>" + (r.layer ? layerBadge(r.layer) + judgeCell(r) : '<span class="muted">-</span>') + '</td><td class="num">' + ms(r.decide_ms) + '</td><td class="num">' + (r.judge_ms == null ? "-" : ms(r.judge_ms, 0)) + "</td></tr>";
+  }
+  function renderBatch(res) {
+    const s = res.summary, rows = res.rows;
+    $("#batch-tiles").innerHTML = tile("As expected", s.passed + " / " + s.prompts, s.passed === s.prompts ? "ok" : "warn", s.requests + " requests") +
+      tile("decide() latency", ms(s.decide_ms.p50) + " ms", "", "p50, p95 " + ms(s.decide_ms.p95) + " ms") +
+      tile("Throughput", s.throughput_rps + " req/s", "", s.requests + " requests in " + s.wall_s + " s") +
+      tile("Who caught it", s.by_layer.deterministic + " deterministic, " + s.by_layer.ai + " AI", "violet", s.judge_ms.count ? "judge p50 " + ms(s.judge_ms.p50, 0) + " ms over " + s.judge_ms.count + " call(s)" : "the local judge was not called");
+    $("#batch-table tbody").innerHTML = rows.map(batchRow).join("");
+    document.querySelectorAll("#batch-table .batch-row").forEach((tr) => (tr.onclick = async () => {
+      if (!tr.dataset.rid) return;
+      try {
+        const evs = (await getJSON(API + "/events?limit=50&request_id=" + encodeURIComponent(tr.dataset.rid))).events;
+        const top = evs.slice().sort((a, b) => DN.indexOf(dn(b.decision)) - DN.indexOf(dn(a.decision)))[0];
+        go("security");
+        if (top) { if (!events.some((e) => e.event_id === top.event_id)) events.unshift(top); render(); select(top); }
+      } catch (e) {}
+    }));
+    $("#batch-out").style.display = "block";
+  }
+  $("#batch-run").onclick = async () => {
+    const b = $("#batch-run"), m = $("#batch-msg");
+    b.disabled = true; m.style.color = ""; m.textContent = "Running " + $("#batch-count").textContent + " prompts through the gateway (the judge prompt waits for the local model)...";
+    try {
+      const r = await fetch(API + "/demo/batch", { method: "POST" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.detail || "HTTP " + r.status);
+      renderBatch(j);
+      m.textContent = "Done in " + j.summary.wall_s + " s. Click a row to open it in Activity.";
+      loadSummary().catch(() => {});
+    } catch (e) { m.style.color = "var(--red)"; m.textContent = "Batch failed: " + e.message; }
+    b.disabled = false;
+  };
+  getJSON(API + "/demo/presets").then((p) => { $("#batch-count").textContent = p.presets.length; $("#batch-list").textContent = p.presets.map((x) => x.title).join("; "); }).catch(() => {});
+
   // playground
   $("#pg-run").onclick = async () => {
     const out = $("#pg-out");
@@ -681,6 +759,6 @@
 
   const start = ((location.hash || "").slice(1) === "audit") ? "security" : (location.hash || "").slice(1);
   checkEdit();
-  Promise.all([loadSummary(), loadEvents(), loadHeader()]).catch((e) => { $("#tiles").innerHTML = '<div class="card muted">Console API unavailable: ' + esc(e.message) + "</div>"; })
+  loadNames().then(() => Promise.all([loadSummary(), loadEvents(), loadHeader()])).catch((e) => { $("#tiles").innerHTML = '<div class="card muted">Console API unavailable: ' + esc(e.message) + "</div>"; })
     .then(() => { if (PAGES[start] && start !== "overview") go(start); live(); });
 })();

@@ -15,6 +15,8 @@ from typing import Any, Iterable
 from aicl_contracts import Action, Event, Finding, Part
 from aicl_core.redact import build_redactions
 
+from .names import layer_of
+
 STAGES: list[tuple[str, str, tuple[str, ...]]] = [
     ("identity", "Identity", ("KILL-01", "ACCESS-01")),
     ("model_budget", "Model + budget", ("BUD-01",)),
@@ -124,7 +126,7 @@ def _finding(f: dict, rec: dict, shadow: set[tuple[str, str]], reds: list) -> di
     out = {"control_id": f.get("control_id"), "rule_id": f.get("rule_id"), "category": f.get("category"),
            "action": _name(f.get("action")), "reason_code": f.get("reason_code") or "", "score": f.get("score"),
            "threshold": f.get("threshold"), "rule_source": f.get("rule_source"), "record_stage": rec.get("stage"),
-           "shadow": is_shadow, "spans": _spans(f, [] if is_shadow else reds)}
+           "shadow": is_shadow, "spans": _spans(f, [] if is_shadow else reds), "detection_layer": layer_of(f.get("control_id"))}
     if f.get("control_id") == "INJ-04":
         out["judge"] = {"model": d.get("model"), "verdict": str(f.get("rule_id") or "").removeprefix("judge."),
                         "cached": bool(d.get("cached")), "eval_ms": d.get("eval_ms"),
