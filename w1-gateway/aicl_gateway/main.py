@@ -209,9 +209,30 @@ def create_app_from_env(env: dict | None = None, *, upstreams: dict | None = Non
 
     cfg["console"]["info"] = policy_info_with_feed
     live_path = Path(env.get("AICL_POLICY") or "policy/policy.yaml").resolve()
+    def changed(who: str, what: str, res: dict) -> dict:
+        """One POLICY_CHANGED audit record per console edit: who, what, old -> new, the new policy version."""
+        from datetime import datetime, timezone
+        from aicl_contracts import Action, AuditRecord, Stage
+        try:
+            holder["app"].state.audit.emit(AuditRecord(
+                ts=datetime.now(timezone.utc).isoformat(), event_id=os.urandom(8).hex(), event_type="POLICY_CHANGED",
+                severity="low", decision=Action.ALLOW, stage=Stage.LIFECYCLE, channel="llm", agent_id="console",
+                policy_version=res.get("version", ""), explain=[f"{who}: {what}"]))
+        except Exception:  # noqa: BLE001 - the edit is applied; the record must not undo it
+            log.exception("POLICY_CHANGED audit record failed")
+        return res
+
+    def control_write(cid: str, body: dict, who: str) -> dict:
+        res = policy_admin.set_control_mode(live_path, cid, body, engine)
+        return changed(who, f"controls.{cid}.mode {res['old']} -> {res['new']}", res)
+
     cfg["console"]["writers"] = {
-        "policy_write": lambda text: policy_admin.write_policy(live_path, text, engine),
-        "budgets_write": lambda body: policy_admin.patch_budgets(live_path, body, engine)}
+        "policy_write": lambda text, who: changed(who, "policy.yaml replaced from the console",
+                                                  policy_admin.write_policy(live_path, text, engine)),
+        "budgets_write": lambda body, who: changed(who, f"budgets patched: {sorted((body.get('agents') or {}))}"
+                                                   + (" + org" if body.get("org") else ""),
+                                                   policy_admin.patch_budgets(live_path, body, engine)),
+        "control_write": control_write}
     cfg["before_auth"] = sync_policy
     # the reload thread applies a new version at once (budgets on the console follow an edit with no traffic)
     engine.store.on_change.append(lambda _pol: sync_policy() if "app" in holder else None)

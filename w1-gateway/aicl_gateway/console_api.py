@@ -82,7 +82,8 @@ def controls_from_policy(policy: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(c, dict):
             rows.append({"id": cid, **meta, "mode": "off", "action": DEFAULT_ACTIONS.get(cid, "BLOCK")})
             continue
-        rows.append({"id": cid, **meta, "mode": _mode(c.get("mode"), profile, defaults.get("mode", "enforce")), "action": _action(c, cid)})
+        rows.append({"id": cid, **meta, "mode": _mode(c.get("mode"), profile, defaults.get("mode", "enforce")), "action": _action(c, cid),
+                     "mode_spec": c.get("mode", defaults.get("mode", "enforce")), "locked": cid in ("KILL-01", "ACCESS-01")})
     return rows
 
 
@@ -484,7 +485,11 @@ def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], di
         elif not is_local(request):
             raise HTTPException(403, "set AICL_ADMIN_TOKEN to edit the policy from a non-loopback client")
 
-    async def _write(kind: str, request: Request):
+    def who(request: Request) -> str:
+        ip = request.client.host if request.client else "?"
+        return f"{ip} ({'admin token' if admin_token else 'loopback'})"
+
+    async def _write(kind: str, request: Request, *extra):
         admin(request)
         fn = (info or {}).get(kind)
         if fn is None:
@@ -498,7 +503,7 @@ def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], di
         else:
             payload = await request.json()
         try:
-            return fn(payload)
+            return fn(*extra, payload, who(request))
         except Exception as e:  # noqa: BLE001 - PolicyWriteError carries the HTTP status
             status = getattr(e, "status", 422)
             return JSONResponse({"ok": False, "error": str(e)}, status_code=status)
@@ -507,6 +512,11 @@ def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], di
     async def put_policy(request: Request):
         """Replace policy.yaml: validated by the real loader first; 422 keeps the live file."""
         return await _write("policy_write", request)
+
+    @router.put("/api/controls/{cid}")
+    async def put_control(cid: str, request: Request):
+        """Switch one control: off / shadow / enforce (per profile when given); only controls.<id>.mode changes."""
+        return await _write("control_write", request, cid)
 
     @router.get("/api/budgets")
     async def get_budgets():

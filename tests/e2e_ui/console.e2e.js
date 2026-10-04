@@ -48,6 +48,17 @@ const OUT = process.argv[3] || ".";
   const api = await page.evaluate(async () => (await (await fetch("/console/api/budgets")).json()).agents["demo-dev"]);
   step("budget saved through the UI", /Saved/.test(m3) && api.usd === 0.42, m3 + " :: " + JSON.stringify(api));
 
+  // 3b. control toggle (T-114): DLP-01 off from the Controls page, KILL-01 has no "off"
+  await page.click("#nav button[data-page='controls']");
+  await page.waitForSelector("#ctl select.modesel[data-id='DLP-01']", { timeout: 10000 });
+  await page.select("#ctl select.modesel[data-id='DLP-01']", "off");
+  await page.waitForFunction(() => /live|Rejected|Not saved/.test(document.querySelector("#ctl-msg").textContent), { timeout: 10000 });
+  const m4 = await page.$eval("#ctl-msg", (e) => e.textContent);
+  const dlp = await page.evaluate(async () => (await (await fetch("/console/api/controls")).json()).controls.find((c) => c.id === "DLP-01").mode);
+  const killOpts = await page.$$eval("#ctl select.modesel[data-id='KILL-01'] option", (os) => os.map((o) => o.value));
+  step("control switched off from the UI and live", /live/.test(m4) && dlp === "off" && !killOpts.includes("off"), m4 + " :: KILL-01 " + killOpts.join("/"));
+  await page.screenshot({ path: OUT + "/controls-toggled.png" });
+
   // 4. every page renders without JS errors
   for (const p of ["overview", "clients", "security", "network", "controls", "performance", "playground", "audit", "policy"]) {
     await page.click(`#nav button[data-page='${p}']`);

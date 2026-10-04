@@ -132,6 +132,8 @@ requirements:
       - {t: "w1-gateway/tests/test_passthrough.py::test_live_policy_edit_turns_redaction_off", kind: pos}
       - {t: "w1-gateway/tests/test_policy_admin.py::test_invalid_policy_edit_is_rejected_and_the_live_file_stays", kind: neg}
       - {t: "w1-gateway/tests/test_passthrough.py::test_budget_edit_applies_without_any_traffic", kind: pos}
+      - {t: "w1-gateway/tests/test_policy_admin.py::test_switching_a_control_off_patches_only_its_mode_and_applies_at_once", kind: pos}
+      - {t: "w1-gateway/tests/test_policy_admin.py::test_kill_switch_and_identity_cannot_be_switched_off_from_the_ui", kind: neg}
       - {t: "w1-gateway/tests/test_feed.py::test_a_rule_failing_its_own_inline_test_never_goes_live", kind: neg}
       - {t: "tests/live/test_live_transparent.py::test_live_policy_edit_on_the_host_applies_to_the_next_request", kind: live}
   - id: R-6.3

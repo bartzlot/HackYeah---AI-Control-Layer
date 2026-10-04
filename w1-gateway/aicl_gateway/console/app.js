@@ -226,10 +226,35 @@
   }
 
   // ---- controls
+  const MODES = ["enforce", "shadow", "off"];
+  function modeSelect(id, cur, profile, locked) {
+    return '<select class="modesel" data-id="' + esc(id) + '"' + (profile ? ' data-profile="' + profile + '"' : "") + ">" +
+      MODES.filter((m) => !(locked && m === "off")).map((m) => "<option" + (m === cur ? " selected" : "") + ">" + m + "</option>").join("") + "</select>";
+  }
   async function loadControls() {
     const c = (await getJSON(API + "/controls")).controls;
-    $("#ctl tbody").innerHTML = c.map((x) => "<tr><td><code>" + esc(x.id) + "</code></td><td>" + esc(x.name) + "</td><td>" + esc(x.category) + "</td><td>" + esc(x.severity) + '</td><td><span class="badge ' +
-      (x.mode === "enforce" ? "b-ALLOW" : x.mode === "shadow" ? "b-WARN" : "b-BLOCK") + '">' + esc(x.mode) + "</span></td><td>" + esc(x.action) + '</td><td class="num">' + num(x.hits) + "</td></tr>").join("");
+    $("#ctl tbody").innerHTML = c.map((x) => {
+      const spec = x.mode_spec;
+      const sel = spec && typeof spec === "object"
+        ? ["strict", "balanced", "permissive"].map((p) => '<span class="muted" style="font-size:11px">' + p + "</span> " + modeSelect(x.id, spec[p] || "enforce", p, x.locked)).join(" ")
+        : modeSelect(x.id, x.mode, null, x.locked);
+      return "<tr><td><code>" + esc(x.id) + "</code></td><td>" + esc(x.name) + (x.locked ? ' <span class="muted" title="cannot be switched off from the console">(locked on)</span>' : "") +
+        "</td><td>" + esc(x.category) + "</td><td>" + esc(x.severity) + '</td><td><span class="badge ' + (x.mode === "enforce" ? "b-ALLOW" : x.mode === "shadow" ? "b-WARN" : "b-BLOCK") + '">' +
+        esc(x.mode) + "</span></td><td>" + sel + "</td><td>" + esc(x.action) + '</td><td class="num">' + num(x.hits) + "</td></tr>";
+    }).join("");
+    document.querySelectorAll("#ctl .modesel").forEach((s) => (s.onchange = async () => {
+      const m = $("#ctl-msg");
+      const body = { mode: s.value };
+      if (s.dataset.profile) body.profile = s.dataset.profile;
+      try {
+        const r = await fetch(API + "/controls/" + encodeURIComponent(s.dataset.id), { method: "PUT", headers: authHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(body) });
+        const j = await r.json().catch(() => ({}));
+        m.style.color = r.ok && j.ok ? "var(--ok)" : "var(--red)";
+        m.textContent = r.ok && j.ok ? s.dataset.id + ": " + JSON.stringify(j.old) + " -> " + JSON.stringify(j.new) + ", live (policy " + String(j.version).slice(0, 12) + ")"
+          : "Rejected (HTTP " + r.status + "): " + (j.error || j.detail || "");
+      } catch (e) { m.style.color = "var(--red)"; m.textContent = "Not saved: " + e.message; }
+      loadControls(); loadSummary();
+    }));
   }
 
   // ---- policy
