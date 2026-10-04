@@ -34,7 +34,8 @@ def test_classifier_is_never_quantized():
 
 
 def test_models_are_gitignored_and_mounted_read_only():
-    assert "models/" in (ROOT / ".gitignore").read_text(encoding="utf-8").split()
+    gi = (ROOT / ".gitignore").read_text(encoding="utf-8").split()
+    assert "models/*" in gi and "!models/.gitkeep" in gi and (ROOT / "models" / ".gitkeep").is_file()
     for f in ("docker-compose.yml", "docker-compose.transparent.yml"):
         doc = yaml.safe_load((ROOT / f).read_text(encoding="utf-8"))
         vols = [v for svc in doc["services"].values() for v in (svc.get("volumes") or []) if isinstance(v, str)]

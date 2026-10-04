@@ -73,11 +73,15 @@ def fetch(name: str, spec: dict, root: Path) -> None:
             dst.unlink()
             sys.exit(f"sha256 mismatch for {name}/{dst.name}: {got} != {want} (file removed)")
         print(f"ok {name}/{dst.name} sha256 {got[:16]}", flush=True)
-    q = out / "model.int8.onnx"
-    if spec["quantize"] and not q.is_file():
+    q, stamp = out / "model.int8.onnx", out / "model.int8.src"
+    src = sha256(out / "model.onnx")
+    if spec["quantize"] and not (q.is_file() and stamp.is_file() and stamp.read_text().strip() == src):
         from onnxruntime.quantization import QuantType, quantize_dynamic
         print(f"quantize {name} -> int8", flush=True)
-        quantize_dynamic(str(out / "model.onnx"), str(q), weight_type=QuantType.QInt8)
+        tmp = out / "model.int8.part.onnx"            # atomic: an interrupted run never leaves a usable-looking file
+        quantize_dynamic(str(out / "model.onnx"), str(tmp), weight_type=QuantType.QInt8)
+        tmp.replace(q)
+        stamp.write_text(src + "\n", encoding="utf-8")   # rebuilt whenever the fp32 source changes
     (out / "SOURCE").write_text(f"{spec['repo']}@{spec['rev']}\n", encoding="utf-8")
 
 

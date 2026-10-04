@@ -27,11 +27,11 @@ models:
 	docker compose up -d ollama
 	docker compose --profile models run --rm ollama-pull
 
-# load the model into memory now (keep_alive 24h), from the aicl image on the compose network
 # INJ-04 classifier + kNN embedder (ONNX, CPU) into models/ once: pinned revision + sha256 (scripts/fetch_models.py)
 models-onnx:
 	uv run --group models python scripts/fetch_models.py
 
+# load the model into memory now (keep_alive 24h), from the aicl image on the compose network
 warm:
 	docker compose run --rm --no-deps cloud-sim python -c 'import json, urllib.request as u; u.urlopen(u.Request("http://ollama:11434/api/generate", json.dumps({"model": "$(MODEL)", "keep_alive": "24h", "options": {"num_ctx": 4096}}).encode(), {"Content-Type": "application/json"}), timeout=900).read(); print("warm: $(MODEL)")'
 
