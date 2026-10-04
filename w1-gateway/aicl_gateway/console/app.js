@@ -22,6 +22,7 @@
   const charts = {};
   let page = "overview";
   let selected = null;
+  let pendingRule = null;     // T-119: rule / control to mark on the Policy page
 
   // theme
   try { const t = localStorage.getItem("aicl-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
@@ -37,6 +38,7 @@
   // navigation
   function go(p) {
     page = p;
+    if (p !== "policy") pendingRule = null;
     document.querySelectorAll("#nav button").forEach((x) => x.classList.toggle("active", x.dataset.page === p));
     document.querySelectorAll(".page").forEach((s) => s.classList.toggle("active", s.id === "page-" + p));
     $("#title").textContent = PAGES[p][0];
@@ -200,8 +202,70 @@
       (r.would_decision != null && dn(r.would_decision) !== dn(r.decision) ? "<b>Would be</b><span>" + dn(r.would_decision) + " (shadow mode)</span>" : "") +
       (u.usd != null ? "<b>Usage</b><span>" + num((u.input_tokens || 0) + (u.output_tokens || 0)) + " tokens, " + usd(u.usd) + "</span>" : "") +
       "<b>Latency</b><span>" + esc(lat.total != null ? (lat.total / 1000).toFixed(2) + " ms" : "-") + "</span><b>Policy</b><span class='mono'>" + esc((r.policy_version || "").slice(0, 16)) + "</span></div>" +
+      '<h2>decide() timeline <span class="hint">whole request</span></h2><div id="tl"><p class="muted">Loading...</p></div>' +
       "<h2>Findings</h2><ul>" + (fs || "<li class='muted'>none</li>") + "</ul><h2>Trace</h2><div class='trace'>" + (r.explain || []).map(esc).join("\n") + "</div>";
+    loadTimeline(r);
   }
+  // ---- explain drawer: per-request decide() timeline (T-119); spans arrive as hashes / tokens only
+  function spanText(s) {
+    return esc(s.type) + " [" + esc(s.part) + ":" + esc(s.start) + "-" + esc(s.end) + "]" + (s.sha256_8 ? " #" + esc(s.sha256_8) : "") + (s.token ? " -> <code>" + esc(s.token) + "</code>" : "");
+  }
+  function tlFinding(f) {
+    const j = f.judge;
+    return '<div class="tl-f' + (f.shadow ? " shadow" : "") + '"><span class="badge b-' + esc(f.action) + '">' + esc(f.action) + "</span>" + (f.shadow ? ' <span class="badge b-WARN">shadow, not enforced</span>' : "") + ' <a href="#policy" class="rulelink" data-rule="' + esc(f.rule_id) + '" data-control="' + esc(f.control_id) + '" title="Show in the policy">' +
+      esc(f.control_id) + " / " + esc(f.rule_id) + "</a>" + (f.record_stage ? ' <span class="muted">on ' + esc(f.record_stage) + "</span>" : "") +
+      (f.score != null ? ' <span class="muted">score ' + esc(f.score) + " vs " + esc(f.threshold) + "</span>" : "") +
+      (j ? '<div class="muted">judge ' + esc(j.model || "-") + ": " + esc(j.verdict) + (j.cached ? ", cached" : "") + (j.eval_ms != null ? ", " + esc(j.eval_ms) + " ms" : "") + (j.degraded ? ', <span style="color:var(--warn)">degraded</span>' : "") + "</div>" : "") +
+      (f.reason_code ? '<div class="muted">' + esc(f.reason_code) + "</div>" : "") +
+      ((f.spans || []).length ? '<div class="muted">spans ' + f.spans.map(spanText).join(", ") + "</div>" : "") + "</div>";
+  }
+  function renderTimeline(t) {
+    const id = t.identity || {}, m = t.model || {}, fin = t.final || {};
+    const steps = (t.stages || []).map((s) => {
+      const ran = (s.ran || []).length || (s.findings || []).length || s.note;
+      let body = "";
+      if (s.id === "identity") body += "<div>" + esc(id.principal || "-") + (id.client_ip ? " @ " + esc(id.client_ip) : "") + (id.credential_hash ? ", key #" + esc(id.credential_hash) : "") + "</div>";
+      if (s.id === "model_budget") body += "<div>" + esc(m.model || "-") + " (" + esc(m.destination || "-") + ")" + (m.protocol ? ", " + esc(protoName(m.protocol)) + " -> " + esc(m.upstream_host || "") : "") + "</div>";
+      if (s.note) body += "<div>" + esc(s.note) + "</div>";
+      body += ran ? (s.ran.length ? "<div>ran " + s.ran.map(esc).join(", ") + "</div>" : "") : "<div>not run for this request (" + s.controls.map(esc).join(", ") + ")</div>";
+      body += (s.findings || []).map(tlFinding).join("");
+      return '<li class="tl-step a-' + esc(s.action) + (ran ? "" : " skip") + '"><span class="tl-dot"></span><div class="tl-head"><b>' + esc(s.label) + '</b> <span class="badge b-' + esc(s.action) + '">' + esc(s.action) +
+        '</span><span class="ms">' + (ran ? esc(Number(s.latency_ms).toFixed(2)) + " ms" : "-") + '</span></div><div class="tl-body">' + body + "</div></li>";
+    });
+    const lattice = (fin.lattice || []).map((a) => '<span class="lat' + (a === fin.action ? " on b-" + esc(a) : "") + '">' + esc(a) + "</span>").join(' <span class="muted">&lt;</span> ');
+    steps.push('<li class="tl-step a-' + esc(fin.action) + '"><span class="tl-dot"></span><div class="tl-head"><b>Final action</b><span class="ms">' + esc(Number((t.latency_ms || {}).decide_total || 0).toFixed(2)) + ' ms</span></div><div class="tl-body"><div class="lattice">' + lattice + "</div>" +
+      (fin.by ? "<div>by " + esc(fin.by.control_id) + " / " + esc(fin.by.rule_id) + "</div>" : "") + (fin.would && fin.would !== fin.action ? "<div>would be " + esc(fin.would) + " without shadow mode</div>" : "") +
+      (fin.degraded ? '<div style="color:var(--warn)">degraded: a control failed or timed out, its fail mode applied</div>' : "") + "</div></li>");
+    return '<ol class="tl">' + steps.join("") + "</ol>" + (t.records > 1 ? '<p class="muted">' + esc(t.records) + " decisions in this request: " + (t.record_stages || []).map(esc).join(", ") + "</p>" : "") +
+      '<div class="trace" title="Server-Timing syntax; the response header itself covers the decisions made before the answer started">Stage timing, whole request: ' + esc(t.server_timing || "-") + "</div>";
+  }
+  async function loadTimeline(r) {
+    try {
+      const t = await getJSON(API + "/explain/" + encodeURIComponent(r.event_id));
+      const box = $("#tl");
+      if (selected !== r.event_id || !box) return;
+      box.innerHTML = renderTimeline(t);
+      box.querySelectorAll("a.rulelink").forEach((a) => (a.onclick = (e) => { e.preventDefault(); pendingRule = { rule: a.dataset.rule, control: a.dataset.control }; go("policy"); }));
+    } catch (e) { const box = $("#tl"); if (selected === r.event_id && box) box.innerHTML = '<p class="muted">Timeline unavailable.</p>'; }
+  }
+  // the mark stays across live refreshes of the Policy page until the user leaves it (go) or edits
+  function markPolicy() {
+    if (!pendingRule) return;
+    const want = pendingRule;
+    const reEsc = (x) => String(x).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const lines = polText.split("\n");
+    const tok = want.rule ? new RegExp("(^|[^A-Za-z0-9_.-])" + reEsc(want.rule) + "($|[^A-Za-z0-9_.-])") : null;
+    let i = tok ? lines.findIndex((l) => !l.trimStart().startsWith("#") && tok.test(l)) : -1;
+    const byRule = i >= 0;
+    if (i < 0 && want.control) i = lines.findIndex((l) => l.trimStart().startsWith(want.control + ":"));
+    $("#pol-msg").textContent = byRule || i < 0 || !want.rule ? "" : "Rule " + want.rule + " is built in or lives in policy/rules/: showing its control " + want.control + ".";
+    if (i < 0) return;
+    const html = $("#pol-yaml").innerHTML.split("\n");
+    html[i] = '<mark class="hit" id="pol-hit">' + html[i] + "</mark>";
+    $("#pol-yaml").innerHTML = html.join("\n");
+    $("#pol-hit").scrollIntoView({ block: "center" });
+  }
+
   async function loadEvents() { events = (await getJSON(API + "/events?limit=800")).events; render(); }
   ["#f-decision", "#f-proto"].forEach((s) => ($(s).onchange = render));
   $("#f-text").oninput = render;
@@ -313,7 +377,7 @@
         (p.feed.rules != null ? " (" + esc(p.feed.rules) + " rules)" : "") + "</span><b>Last check</b><span>" + esc(p.feed.last_check || "-") + "</span><b>Status</b><span" +
         (p.feed.last_error ? ' style="color:var(--red)">rejected: ' + esc(p.feed.last_error) : ' style="color:var(--ok)">verified (Ed25519), no rollback, inline tests passed') + "</span></div>"
         : '<p class="muted">Not configured. Set AICL_FEED_URL and AICL_FEED_PUBKEY: bundles are Ed25519-signed, rollback is refused, and every rule must pass its inline tests before it goes live.</p>') + "</div>";
-    if (!editing) { $("#pol-yaml").innerHTML = yamlHtml(p.yaml || ""); polText = p.yaml || ""; }
+    if (!editing) { $("#pol-yaml").innerHTML = yamlHtml(p.yaml || ""); polText = p.yaml || ""; markPolicy(); }
     $("#foot-policy").textContent = "policy " + (p.version || "").slice(0, 12);
     await loadBudgetEditor();
   }

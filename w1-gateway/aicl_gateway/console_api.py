@@ -221,6 +221,17 @@ class ConsoleStore:
     def all(self) -> list[dict[str, Any]]:
         return list(self._records)
 
+    def explain(self, event_id: str) -> dict[str, Any] | None:
+        """T-119 drawer: the decide() timeline of the request the clicked record belongs to (None = unknown id)."""
+        from .explain import timeline
+        rec = next((r for r in reversed(self._records) if r.get("event_id") == event_id), None)
+        if rec is None:
+            return None
+        rid = rec.get("request_id")
+        group = [r for r in self._records if r.get("request_id") == rid
+                 and r.get("stage") not in ("lifecycle", "dns")] if rid else []
+        return {"event_id": event_id, **timeline(group or [rec])}
+
     def decisions(self) -> list[dict[str, Any]]:
         """Records that are policy decisions on AI traffic (not DNS lookups, not proxied probes)."""
         return [r for r in self._records if r.get("stage") not in ("lifecycle", "dns")
@@ -460,6 +471,14 @@ def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], di
             return fn() if fn else default
         except Exception:  # noqa: BLE001 - a view must never break the console
             return default
+
+    @router.get("/api/explain/{event_id}")
+    async def explain(event_id: str):
+        """T-119: per-request decide() timeline for the explain drawer (spans as hashes / tokens only)."""
+        out = store.explain(event_id)
+        if out is None:
+            return JSONResponse({"error": "unknown event"}, status_code=404)
+        return out
 
     @router.get("/api/clients")
     async def clients():
