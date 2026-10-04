@@ -8,7 +8,7 @@ SOURCES = sorted(DIR.glob("*.mmd"))
 
 
 def test_diagram_set_present():
-    assert len(SOURCES) >= 4
+    assert len(SOURCES) >= 5
 
 
 @pytest.mark.parametrize("src", SOURCES, ids=lambda p: p.name)

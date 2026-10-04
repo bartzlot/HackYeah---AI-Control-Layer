@@ -1,0 +1,38 @@
+%%{init: {"themeVariables": {"fontSize": "24px"}, "flowchart": {"wrappingWidth": 520, "nodeSpacing": 50, "rankSpacing": 40, "padding": 20}}}%%
+flowchart LR
+  subgraph C[" "]
+    direction TB
+    c1["Developer configures:<br/>NOTHING in the tool"]
+    c2["Network does the work:<br/>DHCP hands out AICL DNS,<br/>AICL CA in OS store (MDM / GPO)"]
+    c3["Bypass: manual DNS, hosts file,<br/>DoH / DoT, other base URL"]
+    c4["STOPPED: egress firewall,<br/>only the gateway reaches providers on 443"]
+    c5["DETECTED: NET-01 from the DNS log,<br/>lookup without a gateway request,<br/>DoH hosts sinkholed"]
+    c0["C - Transparent DNS + TLS (main)"]
+    c0 --> c1
+    c1 --> c2 --> c3 --> c4 --> c5
+  end
+  subgraph B[" "]
+    direction TB
+    b1["Developer configures:<br/>HTTPS_PROXY + trust the AICL CA"]
+    b2["Tool sends its traffic<br/>to the gateway on purpose"]
+    b3["Bypass: unset the proxy,<br/>point it at another host"]
+    b4["STOPPED: egress firewall,<br/>direct 443 to providers refused"]
+    b5["DETECTED: removed CA means<br/>TLS fails closed, handshake errors logged"]
+    b0["B - Explicit HTTPS_PROXY"]
+    b0 --> b1
+    b1 --> b2 --> b3 --> b4 --> b5
+  end
+  subgraph A[" "]
+    direction TB
+    a1["Developer configures:<br/>an env var: ANTHROPIC_BASE_URL<br/>or OPENAI_BASE_URL"]
+    a2["Tool talks to the gateway<br/>anywhere, incl. Cloud Run"]
+    a3["Bypass: unset the variable"]
+    a4["STOPPED only by the egress firewall.<br/>Alone it is a convenience for networks<br/>where DNS cannot be controlled"]
+    a5["DETECTED: not by this mode alone,<br/>needs the AICL DNS log (NET-01)"]
+    a0["A - Base URL"]
+    a0 --> a1
+    a1 --> a2 --> a3 --> a4 --> a5
+  end
+  C ~~~ B ~~~ A
+  classDef head font-weight:bold,stroke-width:3px
+  class c0,b0,a0 head
