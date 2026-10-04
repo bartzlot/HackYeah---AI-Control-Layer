@@ -355,7 +355,7 @@ class ConsoleStore:
     def last_request(self) -> dict[str, Any] | None:
         """The path the most recent request took, for the network diagram: was its host looked up through AICL DNS
         (an intercepted DNS_QUERY of the same client, stored before the request), what the decide() step said
-        (max over the request's records) and where it went on: upstream, or a block answered by the gateway."""
+        (max over the request's records) and where it went on: upstream, a block before the provider, or a block of the provider's answer."""
         recs = list(self._records)
 
         def is_decision(r: dict[str, Any]) -> bool:
@@ -373,13 +373,15 @@ class ConsoleStore:
                        and (not host or r["upstream_host"] == host) and (not client_ip or r.get("client_ip") == client_ip)
                        for r in recs[:idx[0]])
         decision = dec_name(worst.get("decision"))
+        # BLOCK on the request side never reaches the provider; on model output (response, tool_args) it already did
+        outcome = "upstream" if decision != "BLOCK" else "response_block" if worst.get("stage") in ("response", "tool_args") else "block"
         controls = sorted({f.get("control_id") for r in group for f in r.get("findings") or [] if f.get("control_id")})
         return {"request_id": rid, "ts": group[0].get("ts"), "principal": group[0].get("agent_id"), "client_ip": client_ip,
                 "tool": tool_of(group[0]["user_agent"]) if group[0].get("user_agent") else None, "host": host,
                 "protocol": next((r["protocol"] for r in group if r.get("protocol")), None),
                 "model": next((r["model"] for r in group if r.get("model")), None),
                 "destination": group[0].get("destination"), "decision": decision, "stage": worst.get("stage"),
-                "controls": controls[:6], "dns_seen": dns_seen, "outcome": "block" if decision == "BLOCK" else "upstream"}
+                "controls": controls[:6], "dns_seen": dns_seen, "outcome": outcome}
 
     def performance(self) -> dict[str, Any]:
         """Decision latency per control (research/13 s.13): p50 / p95 / max in ms over the stored records."""

@@ -324,12 +324,14 @@ def test_t118_last_request_path_for_the_network_diagram():
     lr = store.network()["last_request"]
     assert lr["request_id"] == "r1" and lr["dns_seen"] is True and lr["outcome"] == "upstream"
     assert (lr["decision"], lr["host"], lr["principal"], lr["tool"], lr["client_ip"]) == ("ALLOW", "api.anthropic.com", "dev-1", "Claude Code", "10.0.0.5")
-    # a later request of the same request_id decides: the max over its records wins, BLOCK = answered by the gateway
+    # the max over a request's records wins; a BLOCK of the model output means the provider was reached
     store.append(_req("r2", 0))
     store.append(_req("r2", 4, stage="response", findings=("DLP-02", "DLP-01")))
     store.append({"stage": "dns", "event_type": "DNS_QUERY", "upstream_host": "api.openai.com", "client_ip": "10.0.0.5"})   # newer lookup: not a request
     lr = store.network()["last_request"]
-    assert (lr["request_id"], lr["decision"], lr["outcome"], lr["stage"], lr["controls"]) == ("r2", "BLOCK", "block", "response", ["DLP-01", "DLP-02"])
+    assert (lr["request_id"], lr["decision"], lr["outcome"], lr["stage"], lr["controls"]) == ("r2", "BLOCK", "response_block", "response", ["DLP-01", "DLP-02"])
+    store.append(_req("r3", 4, findings=("INJ-01",)))                    # blocked on the way in: nothing goes upstream
+    assert store.network()["last_request"]["outcome"] == "block"
 
 
 def test_t118_dns_step_only_counts_a_lookup_of_the_same_client_and_host_before_the_request():

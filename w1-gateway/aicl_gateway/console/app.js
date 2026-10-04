@@ -340,7 +340,7 @@
   function paintFlow(lr) {
     const f = $("#flow");
     if (!f) return;
-    const taken = lr ? { laptop: 1, tls: 1, gateway: 1, dns: lr.dns_seen, upstream: lr.outcome !== "block", block: lr.outcome === "block" } : {};
+    const taken = lr ? { laptop: 1, tls: 1, gateway: 1, dns: lr.dns_seen, upstream: lr.outcome !== "block", block: lr.outcome !== "upstream" } : {};
     f.querySelectorAll("[data-node],[data-edge]").forEach((g) => {
       const k = g.dataset.node || g.dataset.edge;
       g.classList.remove("on", "dim", "ok", "warn", "bad");
@@ -352,13 +352,13 @@
   function flowLast(lr) {
     if (!lr) return '<h3>Last request</h3><p class="muted">No request seen yet. Send one through the gateway (Playground) and its path lights up in the diagram.</p>';
     const step = (n, cls, title, text) => '<li class="' + cls + '"><span class="n">' + n + "</span><div><b>" + esc(title) + "</b><span>" + esc(text) + "</span></div></li>";
-    const blocked = lr.outcome === "block", dc = DEC_CLS[lr.decision] || "ok";
+    const blocked = lr.outcome !== "upstream", dc = DEC_CLS[lr.decision] || "ok";
     return '<h3>Last request <span class="muted">' + esc((lr.ts || "").slice(11, 19)) + "</span></h3>" +
       '<p class="who"><b>' + esc(lr.principal || "anonymous") + "</b> <span class='muted'>" + esc([lr.tool, lr.client_ip, lr.model].filter(Boolean).join(", ")) + "</span></p><ol>" +
       step(1, lr.dns_seen ? "on" : "skip", "DNS lookup", lr.dns_seen ? (lr.host || "the host") + " was resolved by AICL DNS to the gateway" : "no AICL lookup seen: the client addressed the gateway directly (base URL or managed gateway)") +
       step(2, "on", "TLS + request", "reached the gateway" + (lr.protocol ? " as " + protoName(lr.protocol) : "") + (lr.host ? " for " + lr.host : "")) +
       step(3, dc, "Decide", lr.decision + " at the " + (lr.stage || "prompt") + " stage" + ((lr.controls || []).length ? " (" + lr.controls.join(", ") + ")" : ", no findings")) +
-      step(4, blocked ? "bad" : "on", blocked ? "Blocked" : "Upstream", blocked ? "refused by the gateway, nothing was sent upstream" : lr.destination === "local" ? "forwarded to the local model" : "forwarded to " + (lr.host || "the provider")) + "</ol>";
+      step(4, blocked ? "bad" : "on", blocked ? "Blocked" : "Upstream", blocked ? (lr.outcome === "block" ? "refused by the gateway, nothing was sent upstream" : "the provider answered, the gateway blocked its response") : lr.destination === "local" ? "forwarded to the local model" : "forwarded to " + (lr.host || "the provider")) + "</ol>";
   }
 
   // ---- intercepted domains (T-115, layout T-118)
