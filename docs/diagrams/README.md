@@ -9,6 +9,7 @@ Facts come from `research/14-transparent-interception.md`, `policy/policy.yaml`,
 | `02-sequence.mmd` | one request: DNS, TLS with the AICL CA leaf, decide() on the request, upstream with the client's own credential, decide() on the response, native answer or block |
 | `03-decide.mmd` | the decide() pipeline and the ALLOW < LOG < WARN < REDACT < BLOCK lattice |
 | `04-bypass.mmd` | bypass attempts, what stops them, and what NET-01 shows |
+| `05-modes.mmd` | pitch slide: the three integration modes side by side, what the developer configures, where bypass is stopped or detected |
 
 ## Regenerate
 
