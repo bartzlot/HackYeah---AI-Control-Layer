@@ -326,3 +326,14 @@ async def test_upstream_down_is_an_error_not_a_pass(tmp_path):
         eng.REGISTRY.pop("INJ-04", None)
     assert da.outcome_of(503, None) == "error" and da.outcome_of(401, None) == "error"
     assert da.outcome_of(413, None) == "blocked" and da.outcome_of(503, "BLOCK") == "blocked"
+
+
+async def test_t011_local_model_runs_with_thinking_off(rig):
+    app, c, ollama, cloud, judge, env = rig()
+    r = await c.post("/v1/chat/completions", headers={"Authorization": f"Bearer {DEMO_KEY}"},
+                     json={"model": da.LOCAL, "messages": [{"role": "user", "content": "hello"}]})
+    assert r.status_code == 200
+    assert ollama.state.calls[-1]["reasoning_effort"] == "none"
+    await c.post("/v1/chat/completions", headers={"Authorization": f"Bearer {DEMO_KEY}"},
+                 json={"model": da.LOCAL, "reasoning_effort": "low", "messages": [{"role": "user", "content": "hi"}]})
+    assert ollama.state.calls[-1]["reasoning_effort"] == "low"          # an explicit client choice wins

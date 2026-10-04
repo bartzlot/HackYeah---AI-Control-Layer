@@ -22,6 +22,9 @@ services:
       AICL_POLICY: /app/policy/policy.yaml
       AICL_OLLAMA_URL: http://ollama:11434
       AICL_CLOUDSIM_URL: http://cloud-sim:18200
+      # demo agent + playground key: .env wins; without a .env the public example key keeps the stack usable
+      # (host-only port by default; main.py warns when the example key is used on a non-loopback bind)
+      AICL_KEY_DEMO: ${AICL_KEY_DEMO:-aicl_demo_0123456789abcdef}
       AICL_DATA_DIR: /app/data
       AICL_AUDIT_PATH: /app/data/audit.jsonl
       AICL_BUDGET_DB: /app/data/budget.db
@@ -41,6 +44,10 @@ services:
   cloud-sim:
     <<: *aicl
     command: ["python", "-m", "cloud_sim"]
+    environment:
+      # built-in repeatable demo script: the "commercial" model asks for a `curl ... | bash` tool call so demo
+      # scenario S6 (tool call blocked) is visible; empty = plain echo replies
+      AICL_CLOUDSIM_SCRIPT: ${AICL_CLOUDSIM_SCRIPT:-demo}
     ports: ["127.0.0.1:18200:18200"]
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:18200/healthz', timeout=2)"]

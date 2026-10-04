@@ -215,3 +215,13 @@ BASH = shutil.which("bash")
 def test_task_sh_parses():
     r = subprocess.run([BASH, "-n", "scripts/task.sh"], cwd=ROOT, capture_output=True, text=True)
     assert r.returncode == 0, r.stderr
+
+
+# ---- T-011: compose demo wiring for T-901 ---------------------------------------------------------
+
+def test_t011_cloud_sim_runs_the_demo_script_and_gateway_has_a_demo_key_without_env_file():
+    cs = SERVICES["cloud-sim"]["environment"]
+    gw = SERVICES["gateway"]["environment"]
+    assert cs["AICL_CLOUDSIM_SCRIPT"] == "${AICL_CLOUDSIM_SCRIPT:-demo}"
+    assert gw["AICL_KEY_DEMO"].startswith("${AICL_KEY_DEMO:-") and gw["AICL_KEY_DEMO"].endswith("}")
+    assert SERVICES["gateway"]["env_file"] == [{"path": ".env", "required": False}]

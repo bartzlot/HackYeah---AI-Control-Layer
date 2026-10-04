@@ -345,6 +345,10 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
         # ---- upstream: own credential only, agent key never forwarded ----
         fwd["model"] = entry.get("upstream_model", model)
         fwd["stream"] = False
+        if kind == DestKind.LOCAL:
+            # qwen3.5 thinks by default on Ollama's OpenAI endpoint and spends the whole output budget on reasoning
+            # (empty content); the project runs it with thinking off. `think: false` is ignored there, this is not.
+            fwd.setdefault("reasoning_effort", "none")
         fwd.pop("stream_options", None)
         headers = {"content-type": "application/json"}
         key = cfg["upstream_keys"].get(kind.value)
