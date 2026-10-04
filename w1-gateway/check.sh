@@ -16,6 +16,11 @@
 #                      control / rule display names, detection_layer (deterministic / ai), console batch endpoint + page
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# T-131: isolated browser checks for console changes, no backend or model calls.
+if [ "${1:-}" = "--frontend" ]; then
+  node --check w1-gateway/aicl_gateway/console/app.js
+  exec node w1-gateway/tests/console-ui.cjs
+fi
 required="test_cloud_sim.py test_gateway.py test_console.py test_budget.py test_judge.py test_skeleton.py test_cases.py test_runtime_status.py test_explain.py test_demo_batch.py"
 for f in $required; do
   [ -f "w1-gateway/tests/$f" ] || { echo "missing w1-gateway/tests/$f" >&2; exit 1; }

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,24 +9,23 @@
 <link rel="icon" href="/console/static/favicon-32.png" type="image/png" sizes="32x32">
 <link rel="icon" href="/console/static/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/console/static/apple-touch-icon.png">
-<meta name="theme-color" content="#0c1e31">
+<meta name="theme-color" content="#ffffff">
 </head>
 <body>
 <div class="app">
 <aside class="side">
-  <div class="brand"><svg class="logo" viewBox="0 0 1825 424" role="img" aria-label="AgentsShield"><use href="/console/static/logo.svg#logo"/></svg><small>AI Control Layer console</small></div>
+  <div class="brand"><svg class="logo" viewBox="0 0 1825 424" role="img" aria-label="AgentsShield"><use href="/console/static/logo.svg#logo"/></svg><small>Control console</small></div>
   <div class="nav" id="nav">
     <div class="navgroup">Management</div>
-    <button data-page="overview" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</button>
-    <button data-page="clients"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14.8c1.7.8 2.7 2.5 3 5.2"/></svg>People &amp; spend</button>
-    <button data-page="playground"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 5l11 7-11 7z"/></svg>Try it</button>
+    <button data-page="overview" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="0"/><rect x="14" y="3" width="7" height="5" rx="0"/><rect x="14" y="12" width="7" height="9" rx="0"/><rect x="3" y="16" width="7" height="5" rx="0"/></svg>Overview</button>
+    <button data-page="clients"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14.8c1.7.8 2.7 2.5 3 5.2"/></svg>Clients</button>
+    <button data-page="playground"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 5l11 7-11 7z"/></svg>Playground</button>
     <div class="navgroup">Security</div>
     <button data-page="security"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 3v6c0 4.5-3.3 8.2-8 9-4.7-.8-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>Activity<span class="count" id="nav-blocks"></span></button>
-    <button data-page="network"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg>Network &amp; bypass<span class="count" id="nav-bypass"></span></button>
+    <button data-page="network"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg>Network<span class="count" id="nav-bypass"></span></button>
     <button data-page="controls"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>Protections</button>
     <div class="navgroup">Operations</div>
-    <button data-page="policy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/></svg>Policy &amp; budgets</button>
-    <button data-page="performance"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 20h18"/><path d="M6 16l4-5 3 3 5-7"/></svg>Performance</button>
+    <button data-page="policy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/></svg>Policy</button>
   </div>
   <div class="foot">
     <span id="foot-policy" class="mono">policy -</span>
@@ -36,34 +35,26 @@
 
 <div>
 <header class="top">
-  <div><h1 id="title">Overview</h1><div class="sub" id="subtitle">Is AI use safe right now: what was stopped, what it costs, how well protected</div></div>
+  <div><h1 id="title">Overview</h1><div class="sub" id="subtitle"></div></div>
   <div class="right">
     <span class="chip mode" id="chip-mode" title="Runtime mode: the listeners this process really runs">mode -</span>
-    <span class="chip" id="chip-policy">policy -</span>
+    <span class="chip" id="chip-policy" hidden>policy -</span>
     <span id="live" class="chip off"><span class="dot"></span>offline</span>
     <button id="unlock" class="ghost" title="Editing the policy, budgets, protections and AI domains needs the admin token">Unlock editing</button>
-    <span id="unlock-box" style="display:none"><input id="admin-token" type="password" placeholder="admin token (AICL_ADMIN_TOKEN)" size="24"><button id="unlock-ok" class="primary">Unlock</button></span>
+    <span id="unlock-box" style="display:none"><input id="admin-token" type="password" placeholder="Admin token" size="24"><button id="unlock-ok" class="primary">Unlock</button></span>
   </div>
 </header>
 
 <main>
 <section id="page-overview" class="page active">
   <div class="tiles" id="tiles"></div>
-  <div class="card" style="margin-bottom:14px"><h2>What AICL stopped recently <span class="hint">click to see why</span></h2><div id="recent"></div></div>
-  <div class="grid2">
-    <div class="card"><h2>Requests over time <span class="hint">final decision per request</span></h2><div class="chartbox"><canvas id="ch-time"></canvas><div class="fallback" id="fb-time"></div>
-      <div class="chart-empty"><b>No requests yet</b><span>Every request through the gateway is counted here, split into allowed, redacted and blocked.</span><a class="btn" href="#playground" data-go="playground">Send one from Try it</a></div></div></div>
-    <div class="card"><h2>Findings by category</h2><div class="chartbox"><canvas id="ch-cat"></canvas><div class="fallback" id="fb-cat"></div>
-      <div class="chart-empty"><b>No findings yet</b><span>A control adds a finding when it flags a secret, PII, an injection or a risky tool call.</span><a class="btn" href="#playground" data-go="playground">Try the example AWS key in Try it</a></div></div></div>
-  </div>
-  <div class="grid2">
-    <div class="card"><h2>Top blocked rules <span class="hint">rules behind blocked requests</span></h2>
-      <div class="tablewrap"><table id="top-rules"><thead><tr><th>Rule</th><th>Control</th><th class="num">Blocks</th><th>Last seen</th></tr></thead><tbody><tr><td class="empty" colspan="4">No blocked requests yet.</td></tr></tbody></table></div>
-    </div>
-    <div class="card"><h2>Traffic by API contract</h2><div class="chartbox" style="height:210px"><canvas id="ch-proto"></canvas><div class="fallback" id="fb-proto"></div>
-      <div class="chart-empty"><b>No traffic yet</b><span>Anthropic Messages, OpenAI Responses and OpenAI Chat calls show up here once a client connects.</span><a class="btn" href="#playground" data-go="playground">Open Try it</a></div></div></div>
-  </div>
-  <div class="card"><h2>Budgets <span class="hint">per person / agent, current period</span></h2>
+  <div class="card" style="margin-bottom:14px"><h2>Recent decisions</h2><div id="recent"></div></div>
+  <div class="card" style="margin-bottom:14px"><h2>Requests</h2><div class="chartbox"><canvas id="ch-time"></canvas><div class="fallback" id="fb-time"></div>
+    <div class="chart-empty"><b>No requests yet</b><a class="btn" href="#playground" data-go="playground">Send a prompt</a></div></div></div>
+  <details class="card" style="margin-bottom:14px"><summary>Blocked rules</summary>
+    <div class="tablewrap"><table id="top-rules"><thead><tr><th>Rule</th><th>Control</th><th class="num">Blocks</th><th>Last seen</th></tr></thead><tbody></tbody></table></div>
+  </details>
+  <div class="card"><h2>Budgets</h2>
     <div class="tablewrap"><table id="budgets"><thead><tr><th>Who</th><th>Tokens</th><th>USD</th><th class="num">Requests</th><th class="num">Denied</th><th class="num">Resets in</th></tr></thead><tbody><tr><td class="empty" colspan="6">No budget data yet.</td></tr></tbody></table></div>
   </div>
 </section>
@@ -83,13 +74,13 @@
     <a class="btn" href="/console/api/export.csv" download>Export CSV</a>
   </div>
   <div class="split">
-    <div class="card scroll"><table id="events" class="click"><thead><tr><th>Time</th><th>Decision</th><th>Event</th><th>Client</th><th>Model / tool</th><th>Controls</th><th class="num">ms</th></tr></thead><tbody></tbody></table></div>
-    <aside class="card" id="explain"><h2>Why</h2><p class="muted">Click an event to see who sent it, what AICL found in it and what it did.</p></aside>
+    <div class="card scroll"><table id="events" class="click"><thead><tr><th>Time</th><th>Decision</th><th>Event</th><th>Client</th><th>Model / tool</th><th>Controls</th></tr></thead><tbody></tbody></table></div>
+    <aside class="card" id="explain"><h2>Why</h2><p class="muted">Select an event.</p></aside>
   </div>
 </section>
 
 <section id="page-network" class="page">
-  <div class="card" style="margin-bottom:14px"><h2>How traffic reaches AICL <span class="hint">transparent mode: nothing to configure in the tool</span></h2>
+  <details class="card" style="margin-bottom:14px"><summary>Traffic route</summary>
     <!-- Self-contained interception diagram (T-118). Swap contract for a replacement SVG (T-908): keep id="flow", the
          data-node="laptop|dns|gateway|upstream|block|firewall" and data-edge="dns|tls|upstream|block" hooks on <g> elements;
          app.js paintFlow() only toggles classes on them. -->
@@ -97,12 +88,12 @@
       <svg id="flow" class="flow" viewBox="0 0 440 650" role="img" aria-label="Interception path: the laptop asks AICL DNS, opens TLS to the AICL gateway, the gateway decides and either forwards to the provider or blocks; the egress firewall drops direct connections">
         <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="var(--accent)"/></marker>
               <marker id="arrx" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="var(--red)"/></marker></defs>
-        <g data-node="laptop"><rect class="box" x="36" y="8" width="384" height="76" rx="12"/><text x="54" y="34">Developer laptop</text><text class="s" x="54" y="54">Claude Code, Codex, SDKs</text><text class="s" x="54" y="72">DNS from DHCP, AICL CA trusted</text></g>
-        <g data-node="dns"><rect class="box aicl" x="236" y="116" width="184" height="80" rx="12"/><text x="252" y="142">AICL DNS :53</text><text class="s" x="252" y="162">AI hosts -&gt; gateway</text><text class="s" x="252" y="180">DoH sinkholed</text></g>
-        <g data-node="gateway"><rect class="box aicl" x="36" y="232" width="384" height="112" rx="12"/><text x="54" y="260">AICL gateway :443</text><text class="s" x="54" y="280">TLS with the AICL CA, native API</text><text class="s" x="54" y="298">decide(): DLP, injection, judge,</text><text class="s" x="54" y="316">tool firewall, budgets, audit</text></g>
-        <g data-node="upstream"><rect class="box" x="36" y="408" width="200" height="112" rx="12"/><text x="54" y="436">Provider API</text><text class="s" x="54" y="456">api.anthropic.com</text><text class="s" x="54" y="474">api.openai.com</text><text class="s" x="54" y="492">client's own key</text></g>
-        <g data-node="block"><rect class="box blk" x="260" y="408" width="160" height="112" rx="12"/><text x="276" y="436">Blocked</text><text class="s" x="276" y="456">refusal in the API</text><text class="s" x="276" y="474">format, instead of</text><text class="s" x="276" y="492">the answer</text></g>
-        <g data-node="firewall"><rect class="box fw" x="36" y="556" width="384" height="80" rx="12"/><text x="54" y="582">Egress firewall (organization)</text><text class="s" x="54" y="602">provider IPs only via the gateway,</text><text class="s" x="54" y="620">DNS only to AICL, DoH dropped</text></g>
+        <g data-node="laptop"><rect class="box" x="36" y="8" width="384" height="76" rx="0"/><text x="54" y="34">Developer laptop</text><text class="s" x="54" y="54">Claude Code, Codex, SDKs</text><text class="s" x="54" y="72">DNS from DHCP, AICL CA trusted</text></g>
+        <g data-node="dns"><rect class="box aicl" x="236" y="116" width="184" height="80" rx="0"/><text x="252" y="142">AICL DNS :53</text><text class="s" x="252" y="162">AI hosts -&gt; gateway</text><text class="s" x="252" y="180">DoH sinkholed</text></g>
+        <g data-node="gateway"><rect class="box aicl" x="36" y="232" width="384" height="112" rx="0"/><text x="54" y="260">AICL gateway :443</text><text class="s" x="54" y="280">TLS with the AICL CA, native API</text><text class="s" x="54" y="298">decide(): DLP, injection, judge,</text><text class="s" x="54" y="316">tool firewall, budgets, audit</text></g>
+        <g data-node="upstream"><rect class="box" x="36" y="408" width="200" height="112" rx="0"/><text x="54" y="436">Provider API</text><text class="s" x="54" y="456">api.anthropic.com</text><text class="s" x="54" y="474">api.openai.com</text><text class="s" x="54" y="492">client's own key</text></g>
+        <g data-node="block"><rect class="box blk" x="260" y="408" width="160" height="112" rx="0"/><text x="276" y="436">Blocked</text><text class="s" x="276" y="456">refusal in the API</text><text class="s" x="276" y="474">format, instead of</text><text class="s" x="276" y="492">the answer</text></g>
+        <g data-node="firewall"><rect class="box fw" x="36" y="556" width="384" height="80" rx="0"/><text x="54" y="582">Egress firewall (organization)</text><text class="s" x="54" y="602">provider IPs only via the gateway,</text><text class="s" x="54" y="620">DNS only to AICL, DoH dropped</text></g>
         <g data-edge="dns"><path class="ln" d="M330,84 V114"/><text class="s" x="304" y="104" text-anchor="end">1 lookup</text></g>
         <g data-edge="tls"><path class="ln" d="M100,84 V230"/><text class="s" x="116" y="164">2 TLS + request</text></g>
         <g data-edge="upstream"><path class="ln" d="M136,344 V406"/><text class="s" x="152" y="382">3 allowed</text></g>
@@ -111,8 +102,8 @@
       </svg>
       <div id="flow-last" class="flowlast"></div>
     </div>
-  </div>
-  <div class="card" style="margin-bottom:14px"><h2>Intercepted AI domains <span class="hint">DNS answers these with the gateway; the TLS leaf is reissued on save, no restart</span></h2>
+  </details>
+  <div class="card" style="margin-bottom:14px"><h2>AI domains</h2>
     <div class="tablewrap"><table id="icpt"><thead><tr><th>Provider</th><th>Hosts</th><th>API contract</th><th>Upstream</th><th>Inspected paths</th><th>Raw paths</th></tr></thead><tbody></tbody></table></div>
     <div class="toolbar" style="margin-top:12px">
       <select id="icpt-prov"></select><input id="icpt-host" placeholder="api.example-llm.com" size="26"><button id="icpt-add" class="primary needs-admin">Add host</button>
@@ -125,26 +116,26 @@
   </div>
   <div class="tiles" id="net-tiles"></div>
   <div class="grid2">
-    <div class="card"><h2>Bypass attempts <span class="hint">NET-01, DoH sinkhole</span></h2><div class="tablewrap"><table id="bypass"><thead><tr><th>Time</th><th>Client</th><th>What</th></tr></thead><tbody></tbody></table></div></div>
+    <div class="card"><h2>Bypass attempts</h2><div class="tablewrap"><table id="bypass"><thead><tr><th>Time</th><th>Client</th><th>What</th></tr></thead><tbody></tbody></table></div></div>
     <div class="card"><h2>Intercepted lookups per host</h2><div class="tablewrap"><table id="net-hosts"><thead><tr><th>Host</th><th class="num">Lookups</th></tr></thead><tbody></tbody></table></div>
       <h2 style="margin-top:16px">Proxied paths (not inspected)</h2><div class="tablewrap"><table id="net-paths"><thead><tr><th>Request</th><th class="num">Count</th></tr></thead><tbody></tbody></table></div></div>
   </div>
 </section>
 
 <section id="page-controls" class="page">
-  <div class="toolbar"><span class="muted">On = acts (blocks / redacts). Watch only = records what it would do and lets the request through. Changes are live at once; Unlock editing first (top right).</span><span id="ctl-msg"></span></div>
+  <div class="toolbar"><span class="muted">On: enforce. Watch only: log. Off: skip.</span><span id="ctl-msg"></span></div>
   <div class="card scroll"><table id="ctl"><thead><tr><th>Protection</th><th>Status</th><th class="num">Times it acted</th></tr></thead><tbody></tbody></table></div>
 </section>
 
 <section id="page-policy" class="page">
   <div id="pol-banner" class="banner">Loading policy...</div>
   <div class="grid3" id="pol-cards"></div>
-  <div class="card" id="pol-names" style="margin-bottom:14px"></div>
-  <div class="card" style="margin-bottom:14px"><h2>Budgets <span class="hint">saved into policy.yaml, applied at once</span></h2><p class="lockhint">Read-only: click <b>Unlock editing</b> (top right) to change budgets, the policy, protections or AI domains.</p>
+  <details class="card" style="margin-bottom:14px"><summary>Rule reference</summary><div id="pol-names"></div></details>
+  <div class="card" style="margin-bottom:14px"><h2>Budgets</h2><p class="lockhint">Unlock editing to make changes.</p>
     <div class="tablewrap"><table id="bud-edit"><thead><tr><th>Who</th><th>Tokens / period</th><th>USD / period</th><th>Period</th><th>Used now</th></tr></thead><tbody></tbody></table></div>
     <div class="toolbar" style="margin-top:12px"><button id="bud-save" class="primary needs-admin">Save budgets</button><span id="bud-msg" class="muted"></span></div>
   </div>
-  <div class="card"><h2>policy/policy.yaml <span class="hint">edit here or in the file (or an overlay in policy/local.d/); an invalid edit is rejected and the last good policy stays</span></h2>
+  <div class="card"><h2>Configuration</h2>
     <div class="toolbar">
       <button id="pol-edit" class="needs-admin">Edit</button><button id="pol-save" class="primary" style="display:none">Validate &amp; apply</button><button id="pol-cancel" style="display:none">Cancel</button>
       <span id="pol-msg" class="muted"></span>
@@ -152,23 +143,14 @@
     <pre class="yaml" id="pol-yaml"></pre><textarea id="pol-text" rows="28" style="display:none" spellcheck="false"></textarea></div>
 </section>
 
-<section id="page-performance" class="page">
-  <div class="tiles" id="perf-tiles"></div>
-  <div class="grid2">
-    <div class="card"><h2>Decision latency per control <span class="hint">p95, ms</span></h2><div class="chartbox"><canvas id="ch-perf"></canvas><div class="fallback" id="fb-perf"></div></div></div>
-    <div class="card scroll"><table id="perf"><thead><tr><th>Control</th><th class="num">Samples</th><th class="num">p50 ms</th><th class="num">p95 ms</th><th class="num">max ms</th></tr></thead><tbody></tbody></table></div>
-  </div>
-  <p class="muted">Every response also carries <code>Server-Timing: aicl;dur=..., upstream;dur=..., total;dur=...</code> so the gateway overhead is visible per request in any client.</p>
-</section>
-
 <section id="page-playground" class="page">
   <div class="card" style="margin-bottom:14px">
-    <h2>Demo batch <span class="hint">one click, <span id="batch-count">11</span> prompts, each stopped by a different control</span></h2>
-    <p class="muted" id="batch-list">Clean prompt, AWS key, PESEL, confidential project, injections (EN + PL), curl | sh, .env read, a paraphrase for the local judge, an unknown model, a runaway loop.</p>
-    <div class="toolbar"><button id="batch-run" class="primary">Run demo batch</button><span id="batch-msg" class="muted"></span></div>
+    <h2>Examples <span class="hint"><span id="batch-count">11</span> prompts</span></h2>
+    <details><summary>Included prompts</summary><p class="muted" id="batch-list"></p></details>
+    <div class="toolbar"><button id="batch-run" class="primary">Run examples</button><span id="batch-msg" class="muted"></span></div>
     <div id="batch-out" style="display:none">
       <div class="tiles" id="batch-tiles"></div>
-      <div class="tablewrap"><table id="batch-table" class="click"><thead><tr><th>#</th><th>Prompt</th><th>Final action</th><th>Control / rule</th><th>Caught by</th><th class="num">decide ms</th><th class="num">judge ms</th></tr></thead><tbody></tbody></table></div>
+      <div class="tablewrap"><table id="batch-table" class="click"><thead><tr><th>#</th><th>Prompt</th><th>Final action</th><th>Control / rule</th><th>Caught by</th></tr></thead><tbody></tbody></table></div>
     </div>
   </div>
   <div class="card">
@@ -178,9 +160,9 @@
       <label>Destination</label>
       <select id="pg-dest"><option value="local">local</option><option value="external">external</option><option value="unknown">unknown</option></select>
       <label>Gateway URL</label><input id="pg-url" value="/v1/chat/completions" size="30">
-      <button id="pg-run" class="primary">Send through gateway</button>
+      <button id="pg-run" class="primary">Send</button>
     </div>
-    <div id="pg-out" class="result muted">No request yet. Try a secret, a PESEL, "ignore all previous instructions", or switch the destination.</div>
+    <div id="pg-out" class="result muted">No response yet.</div>
   </div>
 </section>
 
