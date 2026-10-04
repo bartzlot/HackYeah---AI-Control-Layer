@@ -38,6 +38,8 @@ requirements:
       - {t: "w1-gateway/tests/test_console.py::test_summary_matches_fixtures", kind: pos}
       - {t: "w1-gateway/tests/test_passthrough.py::test_console_v4_views", kind: pos}
       - {t: "w1-gateway/tests/test_console.py::test_t105_live_sse_delivers_new_event_with_explain", kind: pos}
+      - {t: "w1-gateway/tests/test_runtime_status.py::test_serve_with_tls_and_dns_is_transparent_and_follows_the_live_listeners", kind: pos}
+      - {t: "w1-gateway/tests/test_runtime_status.py::test_factory_app_is_base_url_and_warns_when_the_policy_says_transparent", kind: neg}
       - {t: "tests/live/test_live_console_ui.py::test_console_ui_end_to_end_in_a_real_browser", kind: live}
   - id: R-3.4
     pdf: "3.4 Executable test suite incl. budget limits and exploit mitigation"

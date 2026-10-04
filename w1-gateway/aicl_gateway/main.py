@@ -30,7 +30,7 @@ from typing import Any, Callable
 from aicl_core.engine import Engine, register
 
 from . import judge as judge_mod
-from . import policy_admin
+from . import policy_admin, runtime
 from .app import create_app
 from .budget import config_from_policy
 
@@ -236,12 +236,14 @@ def create_app_from_env(env: dict | None = None, *, upstreams: dict | None = Non
         "interception_write": lambda body, who: (lambda r: changed(who, r["what"], r))(
             policy_admin.edit_interception(live_path, body, engine))}
     cfg["console"]["interception"] = lambda: policy_admin.interception_providers(engine.policy.raw)
+    rt = runtime.Runtime(env)                 # serve.build() records the TLS / DNS listeners it starts (T-116)
+    cfg["console"]["status"] = lambda served=None: runtime.status(rt, engine.policy.raw, served)
     cfg["before_auth"] = sync_policy
     # the reload thread applies a new version at once (budgets on the console follow an edit with no traffic)
     engine.store.on_change.append(lambda _pol: sync_policy() if "app" in holder else None)
     app = create_app(decide, cfg, upstreams)
     holder["app"] = app
-    app.state.engine, app.state.judge = engine, judge
+    app.state.engine, app.state.judge, app.state.runtime = engine, judge, rt
     app.state.apply_policy = apply_policy
 
     @app.on_event("shutdown")

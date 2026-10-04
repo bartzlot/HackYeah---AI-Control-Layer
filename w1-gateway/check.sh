@@ -8,9 +8,10 @@
 #   test_judge.py      T-106 INJ-04 local judge (fake Ollama): gray band, enum schema, timeout -> WARN + degraded
 #   test_skeleton.py   T-901 walking skeleton: demo agent -> main.py entrypoint (policy.yaml, w2 engine) -> fakes
 #   test_cases.py      cases/*.yaml through the gateway (+ meta: each negative case fails with its control off)
+#   test_runtime_status.py  T-116 console runtime mode: live listeners, CA, overrides, transparent warnings
 set -euo pipefail
 cd "$(dirname "$0")/.."
-required="test_cloud_sim.py test_gateway.py test_console.py test_budget.py test_judge.py test_skeleton.py test_cases.py"
+required="test_cloud_sim.py test_gateway.py test_console.py test_budget.py test_judge.py test_skeleton.py test_cases.py test_runtime_status.py"
 for f in $required; do
   [ -f "w1-gateway/tests/$f" ] || { echo "missing w1-gateway/tests/$f" >&2; exit 1; }
 done

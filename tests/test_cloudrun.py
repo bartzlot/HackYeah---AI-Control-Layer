@@ -49,3 +49,17 @@ def test_deploy_script_generates_fresh_secrets_and_opens_the_service():
     assert "openssl rand" in s and "allUsers" in s and "gcloud run services replace" in s and "envsubst" in s
     assert "AICL_ADMIN_TOKEN=" not in s.replace('export AICL_ADMIN_TOKEN="$(openssl', "")
     assert "cloudrun:" in (ROOT / "Makefile").read_text(encoding="utf-8")
+
+
+def test_small_model_is_baked_in_and_the_gateway_renames_the_policy_tag():
+    """T-017: the sidecar carries qwen3.5:0.8b; the gateway maps the policy's local tag onto it (chat + judge)."""
+    cb = yaml.safe_load((ROOT / "deploy" / "cloudrun" / "cloudbuild.yaml").read_text(encoding="utf-8"))
+    df = (ROOT / "deploy" / "cloudrun" / "ollama.Dockerfile").read_text(encoding="utf-8")
+    s = (ROOT / "scripts" / "cloudrun-deploy.sh").read_text(encoding="utf-8")
+    assert cb["substitutions"]["_MODEL"] == "qwen3.5:0.8b" and "ARG MODEL=qwen3.5:0.8b" in df
+    assert 'MODEL="${AICL_OLLAMA_MODEL:-qwen3.5:0.8b}"' in s
+    assert env("gateway")["AICL_OLLAMA_MODEL"] == "${AICL_OLLAMA_MODEL}" and "${AICL_OLLAMA_MODEL}'" in s
+    policy = yaml.safe_load((ROOT / "policy" / "policy.yaml").read_text(encoding="utf-8"))
+    local = [t for t, m in policy["destinations"]["models"].items() if m.get("class") == "local"]
+    assert f'POLICY_MODEL="{local[0]}"' in s and '\\"$POLICY_MODEL\\"' in s   # warm-up passes the model allowlist
+    assert C["ollama"]["resources"]["limits"] == {"cpu": "2", "memory": "3Gi"}

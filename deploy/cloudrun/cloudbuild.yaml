@@ -11,7 +11,7 @@ images:
 substitutions:
   _REGION: europe-central2
   _REPO: aicl
-  _MODEL: qwen3.5:2b-q4_K_M
+  _MODEL: qwen3.5:0.8b
 options:
   machineType: E2_HIGHCPU_8
 timeout: 3600s

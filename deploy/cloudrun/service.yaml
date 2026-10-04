@@ -1,5 +1,5 @@
 # AICL on Cloud Run (T-012): one multi-container service, public, for remote judges.
-#   gateway (ingress :18080)  +  cloud-sim sidecar (:18200, demo script)  +  ollama sidecar (:11434, model baked in)
+#   gateway (ingress :18080)  +  cloud-sim sidecar (:18200, demo script)  +  ollama sidecar (:11434, qwen3.5:0.8b baked in)
 # The containers share localhost. min = max = 1 instance: budgets and the audit live in one process.
 # scripts/cloudrun-deploy.sh fills ${REGION} ${PROJECT} ${REPO} and the generated secrets, then
 # `gcloud run services replace`. Mode: base URL (Cloud Run cannot serve DNS / arbitrary-SNI TLS, research/14 s.1).
@@ -40,6 +40,7 @@ spec:
             - {name: AICL_AUDIT_PATH, value: /data/audit.jsonl}
             - {name: AICL_BUDGET_DB, value: /data/budget.db}
             - {name: AICL_OLLAMA_URL, value: "http://localhost:11434"}
+            - {name: AICL_OLLAMA_MODEL, value: "${AICL_OLLAMA_MODEL}"}   # Ollama tag baked into the sidecar (0.8b)
             - {name: AICL_CLOUDSIM_URL, value: "http://localhost:18200"}
             - {name: AICL_UPSTREAM_KEY_EXTERNAL, value: sk-cloudsim-demo}
             - {name: AICL_CONSOLE_REMOTE, value: "1"}
@@ -63,5 +64,5 @@ spec:
             - {name: OLLAMA_HOST, value: "127.0.0.1:11434"}
             - {name: OLLAMA_KEEP_ALIVE, value: 24h}
             - {name: OLLAMA_NUM_PARALLEL, value: "2"}
-          resources: {limits: {cpu: "4", memory: 8Gi}}
+          resources: {limits: {cpu: "2", memory: 3Gi}}      # qwen3.5:0.8b on CPU
           startupProbe: {tcpSocket: {port: 11434}, periodSeconds: 5, failureThreshold: 60}
