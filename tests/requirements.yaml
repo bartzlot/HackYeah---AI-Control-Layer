@@ -12,6 +12,7 @@ requirements:
       - {t: "w1-gateway/tests/test_passthrough.py::test_base_url_mode_routes_prefix_and_bare_paths", kind: pos}
       - {t: "w1-gateway/tests/test_ca_dns_tls.py::test_tls_handshake_for_the_provider_name_and_inspected_passthrough", kind: pos}
       - {t: "w1-gateway/tests/test_ca_dns_tls.py::test_intercepted_host_resolves_to_the_gateway_over_udp_and_tcp", kind: pos}
+      - {t: "w1-gateway/tests/test_ca_dns_tls.py::test_t115_new_intercepted_host_gets_tls_without_a_restart", kind: pos}
       - {t: "w1-gateway/tests/test_passthrough_openai.py::test_clean_codex_turn_is_byte_identical", kind: pos}
       - {t: "w1-gateway/tests/test_skeleton.py::test_walking_skeleton_end_to_end", kind: pos}
       - {t: "tests/live/test_live_transparent.py::test_zero_config_claude_code_goes_through_aicl", kind: live}
@@ -151,6 +152,7 @@ requirements:
       - {t: "w1-gateway/tests/test_passthrough.py::test_body_carrying_tricks_are_refused", kind: neg}
       - {t: "w1-gateway/tests/test_judge.py::test_cues_match_obfuscated_and_diacritic_text", kind: neg}
       - {t: "w1-gateway/tests/test_ca_dns_tls.py::test_doh_resolver_is_sinkholed_and_flagged", kind: neg}
+      - {t: "w1-gateway/tests/test_policy_admin.py::test_bad_interception_edits_are_rejected", kind: neg}
       - {t: "w1-gateway/tests/test_ca_dns_tls.py::test_net01_lookup_without_a_gateway_request_raises_a_bypass_alert", kind: neg}
       - {t: "w1-gateway/tests/test_ca_dns_tls.py::test_a_client_without_the_aicl_ca_fails_closed", kind: neg}
       - {t: "w1-gateway/tests/test_passthrough_openai.py::test_stream_without_completed_is_inspected_from_output_item_done", kind: neg}

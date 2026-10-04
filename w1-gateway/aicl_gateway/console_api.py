@@ -518,6 +518,16 @@ def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], di
         """Switch one control: off / shadow / enforce (per profile when given); only controls.<id>.mode changes."""
         return await _write("control_write", request, cid)
 
+    @router.get("/api/interception")
+    async def get_interception():
+        fn = (info or {}).get("interception")
+        return {"providers": fn() if fn else []}
+
+    @router.put("/api/interception")
+    async def put_interception(request: Request):
+        """Add / remove an intercepted AI host, or add a provider; DNS and the TLS leaf follow the reload."""
+        return await _write("interception_write", request)
+
     @router.get("/api/budgets")
     async def get_budgets():
         pol = store.policy() or {}

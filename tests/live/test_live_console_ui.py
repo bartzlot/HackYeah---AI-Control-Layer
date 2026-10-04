@@ -72,4 +72,4 @@ def test_console_ui_end_to_end_in_a_real_browser(gateway):
                        timeout=180)
     out = r.stdout + r.stderr
     lines = [ln for ln in out.splitlines() if ln.startswith(("PASS", "FAIL"))]
-    assert len(lines) >= 9 and not any(ln.startswith("FAIL") for ln in lines), out
+    assert len(lines) >= 10 and not any(ln.startswith("FAIL") for ln in lines), out

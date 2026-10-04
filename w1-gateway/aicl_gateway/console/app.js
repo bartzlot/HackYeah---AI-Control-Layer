@@ -208,6 +208,7 @@
 
   // ---- network
   async function loadNetwork() {
+    loadInterception().catch(() => {});
     const n = await getJSON(API + "/network");
     const st = n.resolver || {};
     const hosts = n.intercepted_by_host || {};
@@ -224,6 +225,35 @@
     $("#net-paths tbody").innerHTML = Object.entries(paths).map(([p, c]) => "<tr><td class='mono'>" + esc(p) + '</td><td class="num">' + num(c) + "</td></tr>").join("") ||
       '<tr><td class="empty" colspan="2">None.</td></tr>';
   }
+
+  // ---- intercepted domains (T-115)
+  async function loadInterception() {
+    const ps = (await getJSON(API + "/interception")).providers || [];
+    $("#icpt tbody").innerHTML = ps.map((p) => "<tr><td><b>" + esc(p.name) + "</b></td><td>" + (p.hosts || []).map((h) =>
+      '<span class="tag">' + esc(h) + ' <a href="#" class="icpt-rm" data-p="' + esc(p.name) + '" data-h="' + esc(h) + '" title="stop intercepting">x</a></span>').join(" ") +
+      '</td><td><span class="tag p-' + esc(p.protocol) + '">' + esc(p.protocol) + "</span></td><td class='mono'>" + esc(p.upstream || "") + "</td><td class='mono wrap'>" +
+      esc((p.inspect || []).join(" ")) + "</td></tr>").join("") || '<tr><td class="empty" colspan="5">No providers.</td></tr>';
+    const sel = $("#icpt-prov"), cur = sel.value;
+    sel.innerHTML = ps.map((p) => "<option>" + esc(p.name) + "</option>").join("");
+    if (cur) sel.value = cur;
+    document.querySelectorAll(".icpt-rm").forEach((a) => (a.onclick = (e) => { e.preventDefault(); icptEdit({ remove_host: { provider: a.dataset.p, host: a.dataset.h } }); }));
+  }
+  async function icptEdit(body) {
+    const m = $("#icpt-msg");
+    try {
+      const r = await fetch(API + "/interception", { method: "PUT", headers: authHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(body) });
+      const j = await r.json().catch(() => ({}));
+      m.style.color = r.ok && j.ok ? "var(--ok)" : "var(--red)";
+      m.textContent = r.ok && j.ok ? (j.what || "saved") + "; intercepted now: " + (j.hosts || []).join(", ") : "Rejected (HTTP " + r.status + "): " + (j.error || j.detail || "");
+    } catch (e) { m.style.color = "var(--red)"; m.textContent = "Not saved: " + e.message; }
+    loadInterception();
+  }
+  $("#icpt-add").onclick = () => icptEdit({ add_host: { provider: $("#icpt-prov").value, host: $("#icpt-host").value } });
+  $("#icpt-addp").onclick = () => {
+    const b = { name: $("#icpt-name").value, host: $("#icpt-phost").value, protocol: $("#icpt-proto").value };
+    if ($("#icpt-up").value.trim()) b.upstream = $("#icpt-up").value.trim();
+    icptEdit({ add_provider: b });
+  };
 
   // ---- controls
   const MODES = ["enforce", "shadow", "off"];

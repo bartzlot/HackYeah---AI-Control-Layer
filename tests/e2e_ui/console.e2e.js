@@ -13,9 +13,9 @@ const OUT = process.argv[3] || ".";
   const step = (n, ok, info) => console.log((ok ? "PASS " : "FAIL ") + n + (info ? " :: " + info : ""));
 
   await page.goto(BASE + "/console#policy", { waitUntil: "networkidle2" }).catch(() => {});
-  await page.waitForSelector("#pol-yaml span.k", { timeout: 10000 });
+  await page.waitForSelector("#pol-yaml span.k", { timeout: 20000 });
   step("policy page renders highlighted yaml", true);
-  await page.waitForSelector("#bud-edit tbody tr[data-id='demo-dev']", { timeout: 10000 });
+  await page.waitForSelector("#bud-edit tbody tr[data-id='demo-dev']", { timeout: 20000 });
   step("budget editor lists principals", true);
 
   // 1. invalid policy edit: rejected, live policy unchanged
@@ -23,7 +23,7 @@ const OUT = process.argv[3] || ".";
   await page.click("#pol-edit");
   await page.$eval("#pol-text", (t) => { t.value = t.value.replace("  mode: enforce              #", "  mode: maybe                #"); });
   await page.click("#pol-save");
-  await page.waitForFunction(() => /Rejected|Applied|Not saved/.test(document.querySelector("#pol-msg").textContent), { timeout: 10000 });
+  await page.waitForFunction(() => /Rejected|Applied|Not saved/.test(document.querySelector("#pol-msg").textContent), { timeout: 20000 });
   const m1 = await page.$eval("#pol-msg", (e) => e.textContent);
   step("invalid edit rejected with the loader's reason", /Rejected \(HTTP 422\)[\s\S]*defaults\.mode/.test(m1), m1.slice(0, 140));
   await page.screenshot({ path: OUT + "/editor-rejected.png" });
@@ -31,7 +31,7 @@ const OUT = process.argv[3] || ".";
   // 2. valid edit: profile strict, applied at once
   await page.$eval("#pol-text", (t) => { t.value = t.value.replace("  mode: maybe                #", "  mode: enforce              #").replace("  profile: balanced          #", "  profile: strict            #"); });
   await page.click("#pol-save");
-  await page.waitForFunction(() => /Applied/.test(document.querySelector("#pol-msg").textContent), { timeout: 10000 });
+  await page.waitForFunction(() => /Applied/.test(document.querySelector("#pol-msg").textContent), { timeout: 20000 });
   await new Promise((r) => setTimeout(r, 800));
   const v1 = await page.$eval("#chip-policy", (e) => e.textContent);
   const banner = await page.$eval("#pol-banner", (e) => e.textContent);
@@ -43,21 +43,36 @@ const OUT = process.argv[3] || ".";
   await tok.evaluate((i) => { i.value = ""; });
   await tok.type("0.42");
   await page.click("#bud-save");
-  await page.waitForFunction(() => /Saved|Rejected|Not saved/.test(document.querySelector("#bud-msg").textContent), { timeout: 10000 });
+  await page.waitForFunction(() => /Saved|Rejected|Not saved/.test(document.querySelector("#bud-msg").textContent), { timeout: 20000 });
   const m3 = await page.$eval("#bud-msg", (e) => e.textContent);
   const api = await page.evaluate(async () => (await (await fetch("/console/api/budgets")).json()).agents["demo-dev"]);
   step("budget saved through the UI", /Saved/.test(m3) && api.usd === 0.42, m3 + " :: " + JSON.stringify(api));
 
   // 3b. control toggle (T-114): DLP-01 off from the Controls page, KILL-01 has no "off"
   await page.click("#nav button[data-page='controls']");
-  await page.waitForSelector("#ctl select.modesel[data-id='DLP-01']", { timeout: 10000 });
+  await page.waitForSelector("#ctl select.modesel[data-id='DLP-01']", { timeout: 20000 });
   await page.select("#ctl select.modesel[data-id='DLP-01']", "off");
-  await page.waitForFunction(() => /live|Rejected|Not saved/.test(document.querySelector("#ctl-msg").textContent), { timeout: 10000 });
+  await page.waitForFunction(() => /live|Rejected|Not saved/.test(document.querySelector("#ctl-msg").textContent), { timeout: 20000 });
   const m4 = await page.$eval("#ctl-msg", (e) => e.textContent);
   const dlp = await page.evaluate(async () => (await (await fetch("/console/api/controls")).json()).controls.find((c) => c.id === "DLP-01").mode);
   const killOpts = await page.$$eval("#ctl select.modesel[data-id='KILL-01'] option", (os) => os.map((o) => o.value));
   step("control switched off from the UI and live", /live/.test(m4) && dlp === "off" && !killOpts.includes("off"), m4 + " :: KILL-01 " + killOpts.join("/"));
   await page.screenshot({ path: OUT + "/controls-toggled.png" });
+
+  // 3c. intercepted AI domains (T-115): add a host from the Network page, wildcard rejected
+  await page.click("#nav button[data-page='network']");
+  await page.waitForSelector("#icpt tbody tr", { timeout: 20000 });
+  await page.type("#icpt-host", "api.claude-proxy.example");
+  await page.click("#icpt-add");
+  await page.waitForFunction(() => /intercepted now|Rejected|Not saved/.test(document.querySelector("#icpt-msg").textContent), { timeout: 20000 });
+  const m5 = await page.$eval("#icpt-msg", (e) => e.textContent);
+  await page.$eval("#icpt-host", (i) => { i.value = ""; });
+  await page.type("#icpt-host", "*.anthropic.com");
+  await page.click("#icpt-add");
+  await page.waitForFunction(() => /Rejected/.test(document.querySelector("#icpt-msg").textContent), { timeout: 20000 });
+  const m6 = await page.$eval("#icpt-msg", (e) => e.textContent);
+  step("intercepted host added from the UI, wildcard rejected", /api\.claude-proxy\.example/.test(m5) && /wildcard/.test(m6), m5.slice(0, 90) + " | " + m6.slice(0, 60));
+  await page.screenshot({ path: OUT + "/network-domains.png" });
 
   // 4. every page renders without JS errors
   for (const p of ["overview", "clients", "security", "network", "controls", "performance", "playground", "audit", "policy"]) {

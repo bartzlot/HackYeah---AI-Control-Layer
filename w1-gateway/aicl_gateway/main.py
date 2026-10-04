@@ -232,7 +232,10 @@ def create_app_from_env(env: dict | None = None, *, upstreams: dict | None = Non
         "budgets_write": lambda body, who: changed(who, f"budgets patched: {sorted((body.get('agents') or {}))}"
                                                    + (" + org" if body.get("org") else ""),
                                                    policy_admin.patch_budgets(live_path, body, engine)),
-        "control_write": control_write}
+        "control_write": control_write,
+        "interception_write": lambda body, who: (lambda r: changed(who, r["what"], r))(
+            policy_admin.edit_interception(live_path, body, engine))}
+    cfg["console"]["interception"] = lambda: policy_admin.interception_providers(engine.policy.raw)
     cfg["before_auth"] = sync_policy
     # the reload thread applies a new version at once (budgets on the console follow an edit with no traffic)
     engine.store.on_change.append(lambda _pol: sync_policy() if "app" in holder else None)

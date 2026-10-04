@@ -26,6 +26,17 @@ from .main import create_app_from_env
 log = logging.getLogger("aicl.serve")
 
 
+def refresh_leaf(ssl_ctx, raw: dict, root: Path) -> list[str]:
+    """A policy change that alters the intercepted hosts reissues the leaf (new SAN) and loads it into the
+    running listener: new handshakes get it at once, no restart (T-115)."""
+    cfg = interception_cfg(raw)
+    hosts = intercepted_hosts(cfg)
+    cert, key = ca.ensure(cfg["tls"], hosts, [cfg["dns"]["gateway_ip"]], root=root)
+    if ssl_ctx is not None:
+        ssl_ctx.load_cert_chain(str(cert), str(key))
+    return hosts
+
+
 def build(env: dict | None = None):
     env = dict(os.environ) if env is None else dict(env)
     app = create_app_from_env(env)
@@ -41,8 +52,11 @@ def build(env: dict | None = None):
         cert, key = ca.ensure(cfg["tls"], intercepted_hosts(cfg), [cfg["dns"]["gateway_ip"]], root=root)
         if env.get("AICL_CA_PUBLISH"):    # the root CERT only (never the key) for clients to trust
             ca.publish(root / cfg["tls"]["ca_cert"], Path(env["AICL_CA_PUBLISH"]))
-        servers.append(uvicorn.Server(uvicorn.Config(app, host=bind, port=tls_port, ssl_certfile=str(cert),
-                                                     ssl_keyfile=str(key), log_level="info", lifespan="off")))
+        tls_cfg = uvicorn.Config(app, host=bind, port=tls_port, ssl_certfile=str(cert), ssl_keyfile=str(key),
+                                 log_level="info", lifespan="off")
+        tls_cfg.load()                                   # builds the SSLContext now, so a reload can swap its cert
+        servers.append(uvicorn.Server(tls_cfg))
+        engine.store.on_change.append(lambda pol: refresh_leaf(tls_cfg.ssl, pol.raw, root))
         log.info("TLS :%d for %s", tls_port, ", ".join(intercepted_hosts(cfg)))
     dns = None
     if env.get("AICL_DNS_LISTEN"):

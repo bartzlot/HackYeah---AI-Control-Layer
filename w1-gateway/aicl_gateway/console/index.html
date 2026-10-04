@@ -89,6 +89,17 @@
       <path class="ln x" d="M95,94 V16 H600 Q636,16 638,60"/><text class="s" x="250" y="11" style="fill:var(--red)">direct egress, other resolvers, DoH: dropped</text>
     </svg>
   </div>
+  <div class="card" style="margin-bottom:14px"><h2>Intercepted AI domains <span class="hint">DNS answers these with the gateway; the TLS leaf is reissued on save, no restart</span></h2>
+    <div class="tablewrap"><table id="icpt"><thead><tr><th>Provider</th><th>Hosts</th><th>API contract</th><th>Upstream</th><th>Inspected paths</th></tr></thead><tbody></tbody></table></div>
+    <div class="toolbar" style="margin-top:12px">
+      <select id="icpt-prov"></select><input id="icpt-host" placeholder="api.example-llm.com" size="26"><button id="icpt-add" class="primary">Add host</button>
+      <span class="muted">or a new provider:</span>
+      <input id="icpt-name" placeholder="name" size="10"><input id="icpt-phost" placeholder="host" size="20">
+      <select id="icpt-proto"><option>anthropic_messages</option><option>openai_responses</option><option>openai_chat</option></select>
+      <input id="icpt-up" placeholder="https://upstream (optional)" size="22"><button id="icpt-addp">Add provider</button>
+    </div>
+    <div id="icpt-msg" class="muted"></div>
+  </div>
   <div class="tiles" id="net-tiles"></div>
   <div class="grid2">
     <div class="card"><h2>Bypass attempts <span class="hint">NET-01, DoH sinkhole</span></h2><div class="tablewrap"><table id="bypass"><thead><tr><th>Time</th><th>Client</th><th>What</th></tr></thead><tbody></tbody></table></div></div>

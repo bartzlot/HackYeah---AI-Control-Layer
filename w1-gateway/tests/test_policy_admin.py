@@ -170,3 +170,72 @@ async def test_budget_patch_changes_only_the_touched_lines(rig):
     diff = [a for a in after if a not in before]
     assert len(diff) == 2 and any("demo-dev:" in d and "usd: 3.5" in d and "# v4 passthrough principal" in d for d in diff)
     assert any(d.strip() == "qa-bot: {tokens: 1000}" for d in diff)
+
+
+# ---- T-115: intercepted AI domains ----------------------------------------------------------------
+
+async def test_adding_a_host_makes_dns_answer_it_and_the_leaf_carries_it(rig, tmp_path):
+    from dnslib import DNSRecord
+
+    from aicl_core.interception import provider_for_host
+    from aicl_gateway import ca
+    from aicl_gateway.dns import AiclResolver
+    from aicl_gateway.serve import refresh_leaf
+    app, c, path = rig()
+    listed = (await c.get("/console/api/interception")).json()["providers"]
+    assert {p["name"] for p in listed} == {"anthropic", "openai"}
+    r = await c.put("/console/api/interception", json={"add_host": {"provider": "anthropic", "host": "API.Claude-Proxy.example."}})
+    assert r.status_code == 200 and "api.claude-proxy.example" in r.json()["hosts"], r.text
+    raw = app.state.engine.policy.raw
+    from aicl_core.interception import interception_cfg
+    assert provider_for_host(interception_cfg(raw), "api.claude-proxy.example")[0] == "anthropic"
+    # DNS: the resolver reads the live policy -> the new host resolves to the gateway at once
+
+    class H:
+        client_address = ("10.77.0.10", 5353)
+    ans = AiclResolver(lambda: app.state.engine.policy.raw).resolve(DNSRecord.question("api.claude-proxy.example"), H())
+    assert [str(a.rdata) for a in ans.rr] == [raw["interception"]["dns"]["gateway_ip"]]
+    # TLS: the reload hook reissues the leaf with the new SAN (no restart)
+    hosts = refresh_leaf(None, raw, tmp_path)
+    leaf = ca.x509.load_pem_x509_certificate((tmp_path / "data/ca/aicl-leaf.pem").read_bytes())
+    assert "api.claude-proxy.example" in hosts and "api.claude-proxy.example" in ca.leaf_hosts(leaf)
+    rec = [x for x in app.state.bus.recent(20) if x["event_type"] == "POLICY_CHANGED"][-1]
+    assert "+ host api.claude-proxy.example on anthropic" in rec["explain"][0]
+    assert "anthropic:" in path.read_text(encoding="utf-8") and "# ---------- 10. clients" in path.read_text(encoding="utf-8")
+
+
+async def test_remove_host_and_add_provider_with_protocol_defaults(rig):
+    app, c, path = rig()
+    await c.put("/console/api/interception", json={"add_host": {"provider": "openai", "host": "api.openai-eu.example"}})
+    r = await c.put("/console/api/interception", json={"remove_host": {"provider": "openai", "host": "api.openai-eu.example"}})
+    assert r.status_code == 200 and "api.openai-eu.example" not in r.json()["hosts"]
+    r = await c.put("/console/api/interception", json={"add_provider": {"name": "mistral", "host": "api.mistral.example",
+                                                                         "protocol": "openai_chat"}})
+    assert r.status_code == 200, r.text
+    p = {x["name"]: x for x in (await c.get("/console/api/interception")).json()["providers"]}["mistral"]
+    assert p["inspect"] == ["/v1/chat/completions"] and p["upstream"] == "https://api.mistral.example"
+
+
+@pytest.mark.parametrize("body, status, msg", [
+    ({"add_host": {"provider": "anthropic", "host": "*.anthropic.com"}}, 422, "wildcard"),
+    ({"add_host": {"provider": "anthropic", "host": "dns.google"}}, 422, "DNS-over-HTTPS"),
+    ({"add_host": {"provider": "anthropic", "host": "api.openai.com"}}, 422, "already intercepted"),
+    ({"add_host": {"provider": "nope", "host": "a.example.com"}}, 404, "does not exist"),
+    ({"add_host": {"provider": "anthropic", "host": "not a host"}}, 422, "valid host"),
+    ({"remove_host": {"provider": "anthropic", "host": "api.anthropic.com"}}, 422, "at least one"),
+    ({"add_provider": {"name": "x1", "host": "api.x.example", "protocol": "grpc"}}, 422, "protocol"),
+    ({"add_provider": {"name": "x2", "host": "api.x.example", "protocol": "openai_chat", "upstream": "http://plain"}}, 422, "https"),
+])
+async def test_bad_interception_edits_are_rejected(rig, body, status, msg):
+    app, c, path = rig()
+    before = path.read_text(encoding="utf-8")
+    r = await c.put("/console/api/interception", json=body)
+    assert r.status_code == status and msg in r.json()["error"]
+    assert path.read_text(encoding="utf-8") == before
+
+
+async def test_interception_edit_needs_the_admin_token(rig):
+    app, c, path = rig({"AICL_ADMIN_TOKEN": "t0k"})
+    body = {"add_host": {"provider": "anthropic", "host": "api.x.example"}}
+    assert (await c.put("/console/api/interception", json=body)).status_code == 401
+    assert (await c.put("/console/api/interception", json=body, headers={"authorization": "Bearer t0k"})).status_code == 200

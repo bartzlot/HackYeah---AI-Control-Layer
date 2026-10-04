@@ -304,3 +304,37 @@ def test_leaf_is_reissued_when_the_gateway_ip_or_the_ca_changes(tmp_path):
     ca.init_ca(tmp_path / "ca/aicl-ca.pem", tmp_path / "ca/aicl-ca.key", force=True)   # new root
     ca.ensure(tls, HOSTS, ["10.77.0.3"], root=tmp_path)
     assert c1.read_bytes() != second
+
+
+def test_t115_new_intercepted_host_gets_tls_without_a_restart(tmp_path):
+    """serve.build(): the running TLS listener serves a host added to the policy after start (new leaf, new SAN)."""
+    from aicl_core import engine as eng
+    from aicl_gateway import policy_admin, serve
+    shutil.copytree(ROOT / "policy", tmp_path / "policy")
+    tls_port = free_port()
+    env = {"AICL_POLICY": str(tmp_path / "policy" / "policy.yaml"), "AICL_DATA_DIR": str(tmp_path / "d"),
+           "AICL_AUDIT_PATH": str(tmp_path / "d" / "a.jsonl"), "AICL_BUDGET_DB": str(tmp_path / "d" / "b.db"),
+           "AICL_TLS_PORT": str(tls_port), "AICL_HTTP_PORT": str(free_port()), "AICL_CA_ROOT": str(tmp_path)}
+    app, servers, dns = serve.build(env)
+    tls = servers[1]
+    th = threading.Thread(target=tls.run, daemon=True)
+    th.start()
+    for _ in range(100):
+        if tls.started:
+            break
+        time.sleep(0.05)
+    cafile = tmp_path / "data" / "ca" / "aicl-ca.pem"
+    req = b"GET /healthz HTTP/1.1\r\nHost: x\r\nconnection: close\r\n\r\n"
+    try:
+        with pytest.raises(ssl.SSLCertVerificationError):
+            https_raw(tls_port, cafile, "api.claude-proxy.example", req)
+        policy_admin.edit_interception(Path(env["AICL_POLICY"]),
+                                       {"add_host": {"provider": "anthropic", "host": "api.claude-proxy.example"}},
+                                       app.state.engine)
+        out = https_raw(tls_port, cafile, "api.claude-proxy.example", req)
+        assert out.startswith(b"HTTP/1.1 200")
+    finally:
+        tls.should_exit = True
+        th.join(timeout=5)
+        app.state.engine.store.stop()
+        eng.REGISTRY.pop("INJ-04", None)

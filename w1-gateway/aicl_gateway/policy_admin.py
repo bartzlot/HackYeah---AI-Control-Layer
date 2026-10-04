@@ -268,6 +268,108 @@ def set_control_mode(path: Path, cid: str, body: dict, engine) -> dict[str, Any]
     return res
 
 
+DEFAULT_INSPECT = {"anthropic_messages": ["/v1/messages"], "openai_responses": ["/v1/responses", "/v1/chat/completions"],
+                   "openai_chat": ["/v1/chat/completions"]}
+_HOST = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
+
+
+def _yaml_str(v: str) -> str:
+    return v if re.fullmatch(r"[A-Za-z0-9_.-]+", v) else '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _render_provider(p: dict) -> str:
+    parts = []
+    for k, v in p.items():
+        if isinstance(v, list):
+            parts.append(f"{k}: [" + ", ".join(_yaml_str(str(x)) for x in v) + "]")
+        else:
+            parts.append(f"{k}: {_yaml_str(str(v))}")
+    return "{" + ", ".join(parts) + "}"
+
+
+def interception_providers(raw: dict) -> list[dict]:
+    from aicl_core.interception import interception_cfg
+    cfg = interception_cfg(raw)
+    return [{"name": n, **p} for n, p in (cfg.get("providers") or {}).items()]
+
+
+def edit_interception(path: Path, body: dict, engine) -> dict[str, Any]:
+    """body (one of): {"add_host": {"provider", "host"}} | {"remove_host": {"provider", "host"}} |
+    {"add_provider": {"name", "host", "protocol", "upstream"?, "inspect"?}}. The providers block of policy.yaml
+    is rewritten one provider per line (the rest of the file is untouched); interception.validate runs on the
+    candidate through the loader; DNS answers and the TLS leaf follow the reload."""
+    from aicl_core.interception import interception_cfg, intercepted_hosts
+    if not isinstance(body, dict) or len(body) != 1:
+        raise PolicyWriteError(422, "send exactly one of add_host, remove_host, add_provider")
+    op, arg = next(iter(body.items()))
+    if not isinstance(arg, dict):
+        raise PolicyWriteError(422, f"{op} needs an object")
+    raw = engine.policy.raw
+    cfg = interception_cfg(raw)
+    providers = {n: dict(p) for n, p in (raw.get("interception") or {}).get("providers", {}).items()}
+    sink = {h.lower().rstrip(".") for h in cfg["dns"].get("doh_sinkhole") or []}
+
+    def check_host(h: Any) -> str:
+        h = str(h or "").strip().lower().rstrip(".")
+        if "*" in h:
+            raise PolicyWriteError(422, "wildcards are not allowed: list each API host")
+        if not _HOST.match(h):
+            raise PolicyWriteError(422, f"{h!r} is not a valid host name")
+        if h in sink:
+            raise PolicyWriteError(422, f"{h} is a DNS-over-HTTPS resolver (dns.doh_sinkhole): it is never intercepted")
+        if h in intercepted_hosts(cfg) and op != "remove_host":
+            raise PolicyWriteError(422, f"{h} is already intercepted")
+        return h
+
+    if op == "add_host":
+        name = arg.get("provider")
+        if name not in providers:
+            raise PolicyWriteError(404, f"provider {name!r} does not exist")
+        providers[name]["hosts"] = list(providers[name].get("hosts") or []) + [check_host(arg.get("host"))]
+        what = f"interception: + host {providers[name]['hosts'][-1]} on {name}"
+    elif op == "remove_host":
+        name, h = arg.get("provider"), str(arg.get("host") or "").lower().rstrip(".")
+        if name not in providers or h not in (providers[name].get("hosts") or []):
+            raise PolicyWriteError(404, f"{h!r} is not a host of {name!r}")
+        if len(providers[name]["hosts"]) == 1:
+            raise PolicyWriteError(422, f"{name} would have no host left; a provider needs at least one")
+        providers[name]["hosts"] = [x for x in providers[name]["hosts"] if x != h]
+        what = f"interception: - host {h} from {name}"
+    elif op == "add_provider":
+        name = str(arg.get("name") or "")
+        if not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", name) or name in providers:
+            raise PolicyWriteError(422, "provider name must be new, lower-case, 2-32 of [a-z0-9_-]")
+        proto = arg.get("protocol")
+        if proto not in DEFAULT_INSPECT:
+            raise PolicyWriteError(422, f"protocol must be {'|'.join(DEFAULT_INSPECT)}")
+        host = check_host(arg.get("host"))
+        up = str(arg.get("upstream") or f"https://{host}")
+        if not up.startswith("https://"):
+            raise PolicyWriteError(422, "upstream must be an https URL")
+        providers[name] = {"hosts": [host], "protocol": proto, "upstream": up,
+                           "inspect": list(arg.get("inspect") or DEFAULT_INSPECT[proto])}
+        what = f"interception: + provider {name} ({proto}, {host})"
+    else:
+        raise PolicyWriteError(422, f"unknown operation {op!r}")
+
+    lines = path.read_text(encoding="utf-8").split("\n")
+    i, ind, end = _find(lines, ["interception", "providers"])
+    if i < 0:
+        raise PolicyWriteError(422, "policy.yaml has no interception.providers section")
+    child = child_indent(lines, i + 1, end, ind)
+    pad = " " * (child if child > 0 else ind + 2)
+    w = max(len(n) for n in providers) + 1
+    block = [f"{pad}{(n + ':').ljust(w)} {_render_provider(p)}" for n, p in providers.items()]
+    j = end
+    while j - 1 > i and not lines[j - 1].strip():
+        j -= 1
+    lines[i + 1:j] = block
+    res = write_policy(path, "\n".join(lines), engine)
+    res["what"] = what
+    res["hosts"] = intercepted_hosts(interception_cfg(engine.policy.raw))
+    return res
+
+
 def seed_policy(env: dict) -> None:
     """AICL_POLICY_SEED=<dir with policy.yaml>: copy it to the AICL_POLICY directory once (never overwrite)."""
     seed, target = env.get("AICL_POLICY_SEED"), env.get("AICL_POLICY")
