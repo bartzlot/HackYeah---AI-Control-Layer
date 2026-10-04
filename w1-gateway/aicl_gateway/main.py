@@ -198,6 +198,8 @@ def create_app_from_env(env: dict | None = None, *, upstreams: dict | None = Non
 
     cfg["console"]["info"] = policy_info
     cfg["before_auth"] = sync_policy
+    # the reload thread applies a new version at once (budgets on the console follow an edit with no traffic)
+    engine.store.on_change.append(lambda _pol: sync_policy() if "app" in holder else None)
     app = create_app(decide, cfg, upstreams)
     holder["app"] = app
     app.state.engine, app.state.judge = engine, judge

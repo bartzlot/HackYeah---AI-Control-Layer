@@ -361,3 +361,12 @@ async def test_console_v4_views(rig):
     html = (await gw.get("/console")).text
     for page in ("clients", "network", "performance", "policy", "security"):
         assert f'data-page="{page}"' in html
+
+
+async def test_budget_edit_applies_without_any_traffic(rig):
+    app, c, _, pdir = rig()
+    (pdir / "local.d").mkdir(exist_ok=True)
+    (pdir / "local.d" / "zz-b.yaml").write_text("budgets: {agents: {demo-dev: {tokens: 7777, usd: 0.5, period: day}}}\n",
+                                               encoding="utf-8")
+    app.state.engine.store.refresh(force=True)          # what the 1 s reload thread does
+    assert app.state.ledger.limits["demo-dev"]["tokens"] == 7777
