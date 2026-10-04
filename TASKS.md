@@ -102,3 +102,17 @@ T-[0-9]{3}
 head
 -n
 1
+- [ ] T-206 [w2] (T1) coding-agent tool firewall: TOOL-01 rules per tool name for Claude Code / Codex (Bash / shell / exec_command: curl|sh, rm -rf /, reads of ~/.aws ~/.ssh .env; Write / Edit / apply_patch paths outside the project; WebFetch to unknown hosts; historical rules on commands and written code); tool_result parts run INJ-03 + INJ-04 as an untrusted channel; Authorization headers never scanned as parts; cases [14 s.7] | deps: OK add [lead] (T1) v4 contracts + policy: Event gains protocol (anthropic_messages / openai_responses / openai_chat), upstream_host, client_ip, credential_hash, user_agent; policy.yaml interception: block (providers hosts + protocol + inspected paths, proxy_other_paths, max_body_kb 4096, dns, tls, block_style per protocol) and clients: identities; prices for the real Claude / OpenAI models from the pricing pages; policy/README; deps dnslib [14 s.4, s.6] by lead/Przemyslaw_Raczynski@przemek-pc
+- [ ] T-013 [lead] (T1) v4 contracts + policy: Event gains protocol (anthropic_messages / openai_responses / openai_chat), upstream_host, client_ip, credential_hash, user_agent; policy.yaml interception: block (providers hosts + protocol + inspected paths, proxy_other_paths, max_body_kb 4096, dns, tls, block_style per protocol) and clients: identities; prices for the real Claude / OpenAI models from the pricing pages; policy/README; deps dnslib [14 s.4, s.6] | deps: -
+/
+tail
+-n
+1
+/
+grep
+-o
+T-[0-9]{3}
+/
+head
+-n
+1
