@@ -1,0 +1,17 @@
+# Cloud Build: both images to Artifact Registry (T-012). Substitutions come from scripts/cloudrun-deploy.sh.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "w1-gateway/Dockerfile", "-t", "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/aicl:latest", "."]
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-f", "deploy/cloudrun/ollama.Dockerfile", "--build-arg", "MODEL=${_MODEL}",
+           "-t", "${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/aicl-ollama:latest", "deploy/cloudrun"]
+images:
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/aicl:latest
+  - ${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/aicl-ollama:latest
+substitutions:
+  _REGION: europe-central2
+  _REPO: aicl
+  _MODEL: qwen3.5:2b-q4_K_M
+options:
+  machineType: E2_HIGHCPU_8
+timeout: 3600s
