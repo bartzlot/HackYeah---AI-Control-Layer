@@ -162,6 +162,18 @@ To roll this out in an organization:
 2. Install the root CA once: `python -m aicl_gateway.ca export` prints the commands for Windows, macOS, Linux, Node, Python and Rust.
 3. Apply the egress rules: [`deploy/firewall/nftables-aicl.conf`](deploy/firewall/nftables-aicl.conf) or [`windows-firewall-aicl.ps1`](deploy/firewall/windows-firewall-aicl.ps1).
 
+## Public demo through ngrok (two URLs)
+
+One running gateway (host port 18080, e.g. `make demo-transparent`) behind two ngrok HTTPS URLs: one for the console, one used as the API base URL.
+
+1. `make models-onnx` once (local classifier), set `AICL_ADMIN_TOKEN` in `.env` (required: with a token set, every console edit needs it, also for traffic that arrives through the local ngrok agent), start the stack.
+2. Install ngrok and log in with your own account: `ngrok config add-authtoken <token>`.
+3. Start both tunnels from the repo root: `ngrok start --all --config "%LOCALAPPDATA%/ngrok/ngrok.yml" --config deploy/ngrok/ngrok.yml` (Windows) or `ngrok start --all --config ~/.config/ngrok/ngrok.yml --config deploy/ngrok/ngrok.yml` (macOS / Linux). ngrok prints two URLs.
+4. Console: open `<console url>/console`. Anyone with the link can read it (no raw prompt text is stored); editing needs the admin token from `.env` through the **Unlock editing** button.
+5. API: `ANTHROPIC_BASE_URL=<api url> claude` (your own Claude login or key, inspected by AICL), OpenAI SDKs and Codex use `<api url>/openai/v1`. Blocks come back in the native format; the decisions appear in the console within a second.
+
+Not production: one instance (budgets and audit in one process, SQLite + JSONL), demo CA, no SSO on the console, secrets in `.env`, ngrok free URLs change on every start. For an organization: explicit proxy or transparent mode on the internal network, the console behind SSO, secrets in a vault, audit shipped to a SIEM.
+
 ## Limits
 
 - AICL sees only traffic that crosses it. Without the egress firewall, a user can bypass DNS; VPNs, hotspots and personal devices are endpoint and HR policy.

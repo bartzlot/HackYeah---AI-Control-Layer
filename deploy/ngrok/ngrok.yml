@@ -1,0 +1,14 @@
+# Two public HTTPS URLs for the running AICL gateway (host port 18080, any compose stack).
+#   ngrok config add-authtoken <your token>        (once, your own ngrok account)
+#   ngrok start --all --config "%LOCALAPPDATA%/ngrok/ngrok.yml" --config deploy/ngrok/ngrok.yml   (Windows)
+#   ngrok start --all --config ~/.config/ngrok/ngrok.yml --config deploy/ngrok/ngrok.yml          (macOS / Linux)
+# console: open <console url>/console. Reading is public; every edit still needs AICL_ADMIN_TOKEN (set in .env:
+#          with a token set, loopback is NOT trusted, so traffic arriving through the ngrok agent cannot edit).
+# api:     ANTHROPIC_BASE_URL=<api url> claude   /   OpenAI SDKs and Codex: <api url>/openai/v1
+version: 3
+agent: {}
+endpoints:
+  - name: console
+    upstream: {url: 18080}
+  - name: api
+    upstream: {url: 18080}
