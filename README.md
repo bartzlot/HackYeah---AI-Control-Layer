@@ -17,11 +17,14 @@ Requirements: Python 3.13 with [uv](https://docs.astral.sh/uv/), Docker. No paid
 
 | Goal | Command |
 |---|---|
-| Run the offline test suite (852 tests, about 30 s) | `uv sync && make test` |
+| Run the offline test suite (1009 tests, about 30 s) | `uv sync && make test` |
+| **Requirements report**: every PDF requirement -> its tests, PASS / FAIL (`reports/requirements_report.md`) | `make verify` (offline) or `make verify-live` (+ real Claude Code, Codex CLI, console UI in Chrome) |
 | Performance telemetry (`reports/bench.json`) | `make bench` |
 | **Transparent demo**: corp network in miniature with a developer laptop running Claude Code, DNS pointing at AICL, AICL CA trusted, no route around the gateway | `make demo-transparent` (uses your local Claude Code login: access token only), or `make demo-transparent-offline` (Anthropic mock, no tokens) |
 | Use the demo laptop | `docker compose -f docker-compose.transparent.yml exec devbox claude -p "hello" --model claude-haiku-4-5` |
-| Dashboard | http://127.0.0.1:18080/console |
+| Dashboard (also the policy, budget, control and AI-domain editor) | http://127.0.0.1:18080/console |
+| Classic demo stack with your own Ollama on the host | `make demo-local` |
+| Public demo on Cloud Run (base-URL mode) | `GCP_PROJECT=<project> make cloudrun` |
 | Base-URL mode on your own machine | `uv run python -m aicl_gateway.serve`, then `ANTHROPIC_BASE_URL=http://127.0.0.1:18080 claude` |
 | Codex in base-URL mode | `codex -c model_provider=aicl -c 'model_providers.aicl={name="aicl",base_url="http://127.0.0.1:18080/openai/v1",env_key="OPENAI_API_KEY",wire_api="responses"}'` |
 | Live tests with the real CLIs | `make live` (Claude Code, base URL), `make live-transparent` (Claude Code in the demo laptop), `tests/live/test_live_codex.py` (Codex CLI) |
@@ -31,7 +34,7 @@ Requirements: Python 3.13 with [uv](https://docs.astral.sh/uv/), Docker. No paid
 - Paste `AKIAIOSFODNN7EXAMPLE` or a PESEL into a prompt: the value is redacted before it leaves, and the session keeps working.
 - `Read notes.txt` where the file hides "ignore all previous instructions ...": the next request is blocked natively (injection in a tool result).
 - Ask Claude Code to read `.env` or `cat ~/.aws/credentials`, or to pipe a script into `sh`: the tool call is replaced by `[AICL] tool call blocked` before Claude Code runs it.
-- Edit `policy/policy.yaml` (switch a control to `off`, change `profile`, lower a budget) and send the next prompt: the change is live within about 1 s. A broken edit is rejected and the last good policy stays.
+- Edit `policy/policy.yaml` (switch a control to `off`, change `profile`, lower a budget) and send the next prompt: the change is live within about 1 s. A broken edit is rejected and the last good policy stays. The same from the console: Controls page switches (off / shadow / enforce per profile), Policy page YAML editor and budget table, Network page AI domains (a new host is answered by DNS and gets a TLS certificate at once, no restart). Every edit is a `POLICY_CHANGED` audit record; writes need `AICL_ADMIN_TOKEN`.
 - Try to get around it: `dig @1.1.1.1 api.anthropic.com`, DNS-over-HTTPS, `ANTHROPIC_BASE_URL=https://elsewhere`, or a lookup without a connection. There is no route, and the Network page raises an alert (NET-01).
 
 ## How it works
@@ -91,14 +94,14 @@ Bypass is stopped by the egress firewall ([reference rules](deploy/firewall/)) a
 | 3.1b Architecture diagram | above, plus [`research/14`](research/14-transparent-interception.md) |
 | 3.2 Documented policy with strictness levels and budgets | [`policy/policy.yaml`](policy/policy.yaml) (profiles strict / balanced / permissive, matrix, controls, budgets, interception, clients) + [`policy/README.md`](policy/README.md) |
 | 3.3 Interactive dashboard | Console: posture, blocked threats, spend, clients, network and bypass, performance, policy, live events with explain, playground |
-| 3.4 / 4.6 Executable test suite, positive and negative | `make test`: 852 offline tests including per-control case files with allowed and blocked cases, mutation proof and native-contract tests; `make live*`: the real Claude Code and Codex CLIs |
+| 3.4 / 4.6 Executable test suite, positive and negative | `make test`: 1009 offline tests including per-control case files with allowed and blocked cases, mutation proof and native-contract tests; `make live*`: the real Claude Code and Codex CLIs |
 | 4.1 Centralized policy engine | one file plus `local.d/` overlays and `rules/*.yaml`, hot reload, last good on error, version hash on every decision |
 | 4.2.1 Deterministic controls | DLP-01 secrets, DLP-02 PII with checksums, DLP-05 destination matrix, INJ-03 signatures, TOOL-01 tool firewall, ACCESS-01 identity and models, KILL-01 |
 | 4.2.2 Semantic controls | INJ-04 local LLM judge (Ollama `qwen3.5:2b`, JSON-schema verdicts, cache, fail-degrade) |
 | 4.3 Budgets (tokens, money, compute) | BUD-01 per principal and org; prices from the official pricing pages including prompt-cache multipliers; native 402 at the cap; loop guard |
-| 4.4 Historical attack mitigation | `policy/rules/historical.yaml` (curl or wget piped to a shell, pickle, `trust_remote_code`, foreign model pulls) and `coding_agent.yaml` (credential reads, exfiltration, reverse shells, persistence), each with inline tests |
+| 4.4 Historical attack mitigation | signed signature feed from an external publisher (`python -m aicl_gateway.feed`: Ed25519, pinned key, no rollback, inline tests gate activation); `policy/rules/historical.yaml` (curl or wget piped to a shell, pickle, `trust_remote_code`, foreign model pulls) and `coding_agent.yaml` (credential reads, exfiltration, reverse shells, persistence), each with inline tests |
 | 4.5 Reporting and exportable audit | JSONL audit (spans as hashes, no raw text), JSONL and CSV export, live SSE, per-request `Server-Timing` |
-| 6 Live config edits, ad-hoc prompts, telemetry | edit the YAML (reload in about 1 s, visible on the Policy page); playground; `make bench` and the Performance page |
+| 6 Live config edits, ad-hoc prompts, telemetry | edit the YAML or use the console editors (validated, atomic, live at once, audited); playground; `make bench` and the Performance page |
 | 8 Robustness | normalization against zero-width, homoglyph, Unicode tag and fullwidth tricks; canonical-path and duplicate-key checks; fail-closed PEP; findings from two fresh-session security reviews fixed with regression tests |
 
 ## Numbers
@@ -114,11 +117,12 @@ Performance (`make bench`, laptop CPU):
 | Local judge on a new untrusted text (CPU, 2B model) | 1-3 s, then cached |
 
 Tests:
-- `make test`: 852 offline tests pass.
+- `make test`: 1009 offline tests pass; `make verify-live` (2026-10-04): 1001+ tests, 0 failed, all 16 PDF requirements PASS.
 - Live with the real CLIs:
   - Claude Code in base-URL mode: 7 of 7.
   - Claude Code in transparent mode: 9 of 9.
   - Codex CLI through AICL to the OpenAI mock: 5 of 5 (no OpenAI subscription is provided in the challenge).
+  - Console in a real Chrome (puppeteer): editor rejects a bad edit and applies a good one, budget saved, control switched off, AI domain added, all pages, playground, no JS errors.
 
 ## Policy and rules
 

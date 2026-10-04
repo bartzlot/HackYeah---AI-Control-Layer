@@ -1,6 +1,7 @@
 """Run the test suites and report, requirement by requirement, whether the CRIETRIA PDF is met.
 
     make verify            offline suite only (852+ tests, no network, about 30 s)
+    python scripts/verify.py --report    rebuild the report from the junit files already in reports/
     make verify-live       + live suites: console UI in Chrome, Claude Code base URL, Claude Code transparent,
                              Codex CLI (each skips itself when its prerequisites are not running)
 Writes reports/junit-*.xml and reports/requirements_report.md (from tests/requirements.yaml).
@@ -64,14 +65,17 @@ def evidence_status(t: str, res: dict) -> str:
 
 def main() -> int:
     live = "--live" in sys.argv
+    report_only = "--report" in sys.argv          # rebuild the report from the junit files already in reports/
     REPORTS.mkdir(exist_ok=True)
     junits = [REPORTS / "junit-offline.xml"]
-    rc = run([], junits[0])
-    if live:
+    rc = 0 if report_only else run([], junits[0])
+    if live or report_only:
         for i, mod in enumerate(LIVE):
             j = REPORTS / f"junit-live-{i}.xml"
             junits.append(j)
-            run(["-m", "live", mod], j)
+            if not report_only:
+                run(["-m", "live", mod], j)
+    live = live or any(j.exists() for j in junits[1:])
     res = results(junits)
     req = yaml.safe_load((ROOT / "tests" / "requirements.yaml").read_text(encoding="utf-8"))
     lines = ["# Requirements report (CRIETRIA PDF -> tests)", "",
