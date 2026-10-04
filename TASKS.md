@@ -88,3 +88,17 @@ T-[0-9]{3}
 head
 -n
 1
+- [ ] T-111 [w1] (T1) DNS resolver (dnslib, UDP + TCP :53): intercepted hosts -> A gateway_ip, empty AAAA; doh_sinkhole names -> NXDOMAIN; everything else forwarded to interception.dns.upstream; reload with the policy; every query = one audit record (client ip, name, type, intercepted, answer) [14 s.5] | deps: OK add [lead] (T1) v4 contracts + policy: Event gains protocol (anthropic_messages / openai_responses / openai_chat), upstream_host, client_ip, credential_hash, user_agent; policy.yaml interception: block (providers hosts + protocol + inspected paths, proxy_other_paths, max_body_kb 4096, dns, tls, block_style per protocol) and clients: identities; prices for the real Claude / OpenAI models from the pricing pages; policy/README; deps dnslib [14 s.4, s.6] by lead/Przemyslaw_Raczynski@przemek-pc
+- [ ] T-013 [lead] (T1) v4 contracts + policy: Event gains protocol (anthropic_messages / openai_responses / openai_chat), upstream_host, client_ip, credential_hash, user_agent; policy.yaml interception: block (providers hosts + protocol + inspected paths, proxy_other_paths, max_body_kb 4096, dns, tls, block_style per protocol) and clients: identities; prices for the real Claude / OpenAI models from the pricing pages; policy/README; deps dnslib [14 s.4, s.6] | deps: -
+/
+tail
+-n
+1
+/
+grep
+-o
+T-[0-9]{3}
+/
+head
+-n
+1
