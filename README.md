@@ -17,7 +17,7 @@ Requirements: Python 3.13 with [uv](https://docs.astral.sh/uv/), Docker. No paid
 
 | Goal | Command |
 |---|---|
-| Run the offline test suite (846 tests, about 30 s) | `uv sync && make test` |
+| Run the offline test suite (852 tests, about 30 s) | `uv sync && make test` |
 | Performance telemetry (`reports/bench.json`) | `make bench` |
 | **Transparent demo**: corp network in miniature with a developer laptop running Claude Code, DNS pointing at AICL, AICL CA trusted, no route around the gateway | `make demo-transparent` (uses your local Claude Code login: access token only), or `make demo-transparent-offline` (Anthropic mock, no tokens) |
 | Use the demo laptop | `docker compose -f docker-compose.transparent.yml exec devbox claude -p "hello" --model claude-haiku-4-5` |
@@ -91,7 +91,7 @@ Bypass is stopped by the egress firewall ([reference rules](deploy/firewall/)) a
 | 3.1b Architecture diagram | above, plus [`research/14`](research/14-transparent-interception.md) |
 | 3.2 Documented policy with strictness levels and budgets | [`policy/policy.yaml`](policy/policy.yaml) (profiles strict / balanced / permissive, matrix, controls, budgets, interception, clients) + [`policy/README.md`](policy/README.md) |
 | 3.3 Interactive dashboard | Console: posture, blocked threats, spend, clients, network and bypass, performance, policy, live events with explain, playground |
-| 3.4 / 4.6 Executable test suite, positive and negative | `make test`: 846 offline tests including per-control case files with allowed and blocked cases, mutation proof and native-contract tests; `make live*`: the real Claude Code and Codex CLIs |
+| 3.4 / 4.6 Executable test suite, positive and negative | `make test`: 852 offline tests including per-control case files with allowed and blocked cases, mutation proof and native-contract tests; `make live*`: the real Claude Code and Codex CLIs |
 | 4.1 Centralized policy engine | one file plus `local.d/` overlays and `rules/*.yaml`, hot reload, last good on error, version hash on every decision |
 | 4.2.1 Deterministic controls | DLP-01 secrets, DLP-02 PII with checksums, DLP-05 destination matrix, INJ-03 signatures, TOOL-01 tool firewall, ACCESS-01 identity and models, KILL-01 |
 | 4.2.2 Semantic controls | INJ-04 local LLM judge (Ollama `qwen3.5:2b`, JSON-schema verdicts, cache, fail-degrade) |
@@ -114,9 +114,9 @@ Performance (`make bench`, laptop CPU):
 | Local judge on a new untrusted text (CPU, 2B model) | 1-3 s, then cached |
 
 Tests:
-- `make test`: 846 offline tests pass.
+- `make test`: 852 offline tests pass.
 - Live with the real CLIs:
-  - Claude Code in base-URL mode: 6 of 7 (one skipped because the model refused on its own).
+  - Claude Code in base-URL mode: 7 of 7.
   - Claude Code in transparent mode: 9 of 9.
   - Codex CLI through AICL to the OpenAI mock: 5 of 5 (no OpenAI subscription is provided in the challenge).
 

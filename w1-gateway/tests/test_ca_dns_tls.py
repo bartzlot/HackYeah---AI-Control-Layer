@@ -292,3 +292,15 @@ async def test_net01_passthrough_requests_clear_the_pending_lookup(tmp_path):
     await c.head("/api/hello", headers={"x-api-key": "sk-ant-synthetic"})
     assert w.sweep() == []
     eng.REGISTRY.pop("INJ-04", None)
+
+
+def test_leaf_is_reissued_when_the_gateway_ip_or_the_ca_changes(tmp_path):
+    tls = {"ca_cert": "ca/aicl-ca.pem", "ca_key": "ca/aicl-ca.key"}
+    c1, _ = ca.ensure(tls, HOSTS, ["10.77.0.2"], root=tmp_path)
+    first = c1.read_bytes()
+    ca.ensure(tls, HOSTS, ["10.77.0.3"], root=tmp_path)
+    second = c1.read_bytes()
+    assert second != first
+    ca.init_ca(tmp_path / "ca/aicl-ca.pem", tmp_path / "ca/aicl-ca.key", force=True)   # new root
+    ca.ensure(tls, HOSTS, ["10.77.0.3"], root=tmp_path)
+    assert c1.read_bytes() != second

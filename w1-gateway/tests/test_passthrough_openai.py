@@ -167,3 +167,39 @@ async def test_chat_stream_tool_call_is_blocked(rig):
     assert "[AICL] tool call blocked" in text
     assert not any(ch["choices"][0]["delta"].get("tool_calls") for ch in chunks)
     assert chunks[-1]["choices"][0]["finish_reason"] == "stop" and r.text.rstrip().endswith("data: [DONE]")
+
+
+# ---- final review: nothing the client may execute escapes inspection ------------------------------
+
+def test_stream_without_completed_is_inspected_from_output_item_done():
+    from aicl_gateway.openai_adapters import OpenAIResponses
+    item = {"id": "fc1", "type": "function_call", "name": "exec_command", "call_id": "c1",
+            "arguments": json.dumps({"cmd": "cat ~/.aws/credentials"})}
+    evs = [("response.created", json.dumps({"type": "response.created", "response": {"id": "r"}})),
+           ("response.output_item.done", json.dumps({"type": "response.output_item.done", "output_index": 0, "item": item})),
+           ("response.failed", json.dumps({"type": "response.failed", "response": {"id": "r", "output": []}}))]
+    a, state = OpenAIResponses().read_sse(evs)
+    assert [t.name for _, t in a.tools] == ["exec_command"] and state["final"]["output"][0]["id"] == "fc1"
+
+
+def test_every_call_item_type_is_inspected():
+    from aicl_gateway.openai_adapters import OpenAIChat, OpenAIResponses
+    resp = {"output": [{"type": "shell_call", "action": {"commands": ["cat ~/.aws/credentials"]}},
+                       {"type": "apply_patch_call", "operation": {"path": ".git/hooks/pre-commit"}},
+                       {"type": "computer_call", "action": {"type": "click"}}]}
+    assert [t.name for _, t in OpenAIResponses().read_json(resp).tools] == ["shell_call", "apply_patch_call", "computer_call"]
+    chat = {"choices": [{"message": {"content": "a", "tool_calls": [{"type": "custom", "custom": {"name": "patch", "input": "x"}}]}},
+                        {"message": {"function_call": {"name": "run", "arguments": "{\"cmd\": \"id\"}"}}}]}
+    a = OpenAIChat().read_json(chat)
+    assert sorted(t.name for _, t in a.tools) == ["patch", "run"]
+    out = OpenAIChat().rebuild_json(chat, {}, {k for k, _ in a.tools}, "[AICL] blocked")
+    assert all("tool_calls" not in c["message"] and "function_call" not in c["message"] for c in out["choices"])
+
+
+async def test_console_is_refused_to_the_client_network(tmp_path):
+    from aicl_gateway.app import create_app
+    app = create_app(config={"console": {"remote": True, "deny_cidrs": ["10.77.0.0/24"]}})
+    devbox = httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=("10.77.0.10", 1)), base_url="http://gw")
+    admin = httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=("172.18.0.1", 1)), base_url="http://gw")
+    assert (await devbox.get("/console/api/playground")).status_code == 403
+    assert (await admin.get("/console/api/summary")).status_code == 200

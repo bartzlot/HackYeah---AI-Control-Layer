@@ -105,7 +105,8 @@ def build_config(raw: dict, env: dict, policy_fn: Callable[[], dict]) -> dict:
         "audit_path": env.get("AICL_AUDIT_PATH") or str(data / "audit.jsonl"),
         "budget_db": env.get("AICL_BUDGET_DB") or str(data / "budget.db"),
         "console": {"policy": policy_fn, "demo_key": env.get("AICL_KEY_DEMO") or None,
-                    "remote": env.get("AICL_CONSOLE_REMOTE") == "1"},
+                    "remote": env.get("AICL_CONSOLE_REMOTE") == "1",
+                    "deny_cidrs": [c.strip() for c in (env.get("AICL_CONSOLE_DENY_CIDRS") or "").split(",") if c.strip()]},
         **config_from_policy(raw),
     }
     return cfg

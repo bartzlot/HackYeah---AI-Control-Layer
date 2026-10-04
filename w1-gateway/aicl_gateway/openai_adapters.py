@@ -158,6 +158,11 @@ class OpenAIResponses:
                 cmd = ((item.get("action") or {}).get("command")) or []
                 a.tools.append((oi, ToolCall(name="local_shell", arguments={
                     "command": " ".join(map(str, cmd)) if isinstance(cmd, list) else str(cmd)})))
+            elif isinstance(t, str) and t.endswith("_call"):
+                # computer_call, shell_call, apply_patch_call, mcp_call, any future *_call the client may run:
+                # inspected with every field it carries (name falls back to the item type)
+                args = {k: v for k, v in item.items() if k not in ("id", "type", "status", "call_id")}
+                a.tools.append((oi, ToolCall(name=str(item.get("name") or t), arguments=args)))
         u = resp.get("usage") or {}
         try:
             a.usage = Usage(input_tokens=int(u.get("input_tokens") or 0), output_tokens=int(u.get("output_tokens") or 0),
@@ -168,14 +173,25 @@ class OpenAIResponses:
         return a
 
     def read_sse(self, events: list[tuple[str | None, str]]) -> tuple[Answer, dict]:
-        final = None
+        """The answer from response.completed, else from the output_item.done items: a client may act on an item
+        as soon as it is done, so a stream that fails or ends without response.completed is still inspected."""
+        final, done = None, {}
         for name, data in events:
-            if name in ("response.completed", "response.incomplete") or '"response.completed"' in data[:60]:
-                try:
-                    final = json.loads(data).get("response")
-                except ValueError:
-                    final = None
-        if not isinstance(final, dict):     # failed / unexpected stream: nothing to inspect, pass it through
+            try:
+                d = json.loads(data) if data[:1] == "{" else None
+            except ValueError:
+                d = None
+            if not isinstance(d, dict):
+                continue
+            t = d.get("type") or name
+            if t in ("response.completed", "response.incomplete", "response.failed") and isinstance(d.get("response"), dict):
+                final = d["response"]
+            elif t == "response.output_item.done" and isinstance(d.get("item"), dict):
+                done[d.get("output_index", len(done))] = d["item"]
+        if done and (not isinstance(final, dict) or not final.get("output")):
+            final = dict(final or {"id": "resp_aicl_partial", "object": "response", "model": None}, status="completed",
+                         output=[done[k] for k in sorted(done)])
+        if not isinstance(final, dict):
             return Answer(), {"final": None}
         return self.read_json(final), {"final": final}
 
@@ -252,14 +268,25 @@ class OpenAIChat:
         return JSONResponse(resp, headers={"x-request-id": rid})
 
     def read_json(self, resp: dict) -> Answer:
+        """Every choice (n > 1), function and custom tool calls, and the legacy message.function_call."""
         a = Answer()
-        ch = (resp.get("choices") or [{}])[0]
-        msg = ch.get("message") or {}
-        if isinstance(msg.get("content"), str):
-            a.texts.append((0, msg["content"]))
-        for i, t in enumerate(msg.get("tool_calls") or []):
-            fn = (t or {}).get("function") or {}
-            a.tools.append((i, ToolCall(name=str(fn.get("name") or ""), arguments=_args(fn.get("arguments")))))
+        for ci, ch in enumerate(resp.get("choices") or []):
+            msg = (ch or {}).get("message") or {}
+            if isinstance(msg.get("content"), str):
+                a.texts.append((ci * 1000, msg["content"]))
+            calls = list(msg.get("tool_calls") or [])
+            if isinstance(msg.get("function_call"), dict):
+                calls.append({"type": "function", "function": msg["function_call"]})
+            for i, t in enumerate(calls):
+                t = t or {}
+                if t.get("type") == "custom" or "custom" in t:
+                    cu = t.get("custom") or {}
+                    a.tools.append((ci * 1000 + i, ToolCall(name=str(cu.get("name") or "custom"),
+                                                            arguments={"input": cu.get("input")})))
+                else:
+                    fn = t.get("function") or {}
+                    a.tools.append((ci * 1000 + i, ToolCall(name=str(fn.get("name") or ""),
+                                                            arguments=_args(fn.get("arguments")))))
         u = resp.get("usage") or {}
         try:
             a.usage = Usage(input_tokens=int(u.get("prompt_tokens") or 0),
@@ -272,6 +299,7 @@ class OpenAIChat:
     def read_sse(self, events: list[tuple[str | None, str]]) -> tuple[Answer, dict]:
         """Aggregate chat.completion.chunk deltas into one completion (content, tool calls, usage)."""
         content, calls, finish, usage, head = [], {}, None, None, {}
+        legacy = {"name": "", "arguments": ""}
         for _, data in events:
             if not data or data.strip() == "[DONE]":
                 continue
@@ -286,6 +314,9 @@ class OpenAIChat:
                 delta = c.get("delta") or {}
                 if isinstance(delta.get("content"), str):
                     content.append(delta["content"])
+                if isinstance(delta.get("function_call"), dict):       # legacy streaming function_call
+                    legacy["name"] += delta["function_call"].get("name") or ""
+                    legacy["arguments"] += delta["function_call"].get("arguments") or ""
                 for tc in delta.get("tool_calls") or []:
                     slot = calls.setdefault(tc.get("index", 0), {"id": None, "type": "function",
                                                                  "function": {"name": "", "arguments": ""}})
@@ -295,6 +326,8 @@ class OpenAIChat:
                     slot["function"]["arguments"] += fn.get("arguments") or ""
                 finish = c.get("finish_reason") or finish
         msg: dict[str, Any] = {"role": "assistant", "content": "".join(content) or None}
+        if legacy["name"]:
+            calls[len(calls)] = {"id": None, "type": "function", "function": legacy}
         if calls:
             msg["tool_calls"] = [calls[k] for k in sorted(calls)]
         resp = {"id": head.get("id"), "object": "chat.completion", "created": head.get("created"),
@@ -304,14 +337,15 @@ class OpenAIChat:
 
     def _rebuilt(self, resp: dict, new_text: dict[int, str], drop: set[int], note: str | None) -> dict:
         out = copy.deepcopy(resp)
-        ch = out["choices"][0]
-        msg = ch.setdefault("message", {"role": "assistant"})
-        if 0 in new_text:
-            msg["content"] = new_text[0]
-        if drop:
-            msg.pop("tool_calls", None)
-            msg["content"] = ((msg.get("content") or "") + "\n" if msg.get("content") else "") + (note or "[AICL] tool call blocked")
-            ch["finish_reason"] = "stop"
+        for ci, ch in enumerate(out.get("choices") or []):
+            msg = ch.setdefault("message", {"role": "assistant"})
+            if ci * 1000 in new_text:
+                msg["content"] = new_text[ci * 1000]
+            if any(k // 1000 == ci for k in drop):
+                msg.pop("tool_calls", None)
+                msg.pop("function_call", None)
+                msg["content"] = ((msg.get("content") or "") + "\n" if msg.get("content") else "") + (note or "[AICL] tool call blocked")
+                ch["finish_reason"] = "stop"
         return out
 
     def rebuild_json(self, resp: dict, new_text: dict[int, str], drop_tools: set[int], note: str | None) -> dict:

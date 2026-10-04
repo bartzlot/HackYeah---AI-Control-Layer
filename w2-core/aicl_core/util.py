@@ -55,8 +55,18 @@ _WS_RUN = re.compile(r"\s{2,}")
 _WS = re.compile(r"\s")
 
 
-@lru_cache(maxsize=48)
+CACHE_MAX_CHARS = 1_000_000       # a bigger part is normalized each time (bounded memory: about 4 MB per entry)
+
+
 def normalized_view(text: str, collapse_ws: bool = True) -> tuple[str, "array[int]"]:
+    """See _normalized_view; memoized for parts up to CACHE_MAX_CHARS."""
+    if len(text) > CACHE_MAX_CHARS:
+        return _normalized_view.__wrapped__(text, collapse_ws)
+    return _normalized_view(text, collapse_ws)
+
+
+@lru_cache(maxsize=32)
+def _normalized_view(text: str, collapse_ws: bool = True) -> tuple[str, "array[int]"]:
     """Scan view of `text` with an offset map (omap[j] = index in the ORIGINAL text of view char j):
     format characters (category Cf: zero-width, bidi marks, word joiners) dropped, Unicode tag characters
     decoded to ASCII as a separate word, NFKC + diacritics folded (also l with stroke), whitespace runs
@@ -66,13 +76,13 @@ def normalized_view(text: str, collapse_ws: bool = True) -> tuple[str, "array[in
     if text.isascii():
         return _ascii_view(text, collapse_ws)
     v, m = _slow_view(text, collapse_ws)
-    return v, array("q", m)
+    return v, array("i", m)
 
 
 def _ascii_view(text: str, collapse_ws: bool) -> tuple[str, "array[int]"]:
     if not collapse_ws:
-        return text, array("q", range(len(text)))
-    omap: array = array("q")
+        return text, array("i", range(len(text)))
+    omap: array = array("i")
     parts: list[str] = []
     pos = 0
     for m in _WS_RUN.finditer(text):

@@ -42,3 +42,15 @@ def test_single_regex_find_terms_matches_the_per_term_version():
         assert got == _old_find_terms(t, terms), t
     marks = ["CONFIDENTIAL", "INTERNAL ONLY"]
     assert [h.value for h in find_terms("keep this confidential. CONFIDENTIAL", marks, "M", case_sensitive=True)] == ["CONFIDENTIAL"]
+
+
+def test_overlapping_terms_are_all_found():
+    hits = find_terms("Report on Blue Falcon Nest status", ["Blue Falcon", "Falcon Nest"], "X")
+    assert sorted(h.value for h in hits) == ["Blue Falcon", "Falcon Nest"]
+
+
+def test_huge_parts_are_not_cached():
+    from aicl_core import util
+    before = util._normalized_view.cache_info().currsize
+    v, m = normalized_view("x " * (util.CACHE_MAX_CHARS // 2 + 10))
+    assert util._normalized_view.cache_info().currsize == before and len(m) == len(v)

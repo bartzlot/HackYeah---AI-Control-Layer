@@ -11,11 +11,12 @@ rules:
     category: tool_abuse
     severity: critical
     # v4: only absolute, home or wildcard targets (rm -rf node_modules / ./build is routine for coding agents)
-    pattern: '\brm\b(?=[^\n|;&]*\s(-[a-z]*r[a-z]*|--recursive)(\s|$))(?=[^\n|;&]*\s(-[a-z]*f[a-z]*|--force)(\s|$))(?=[^\n|;&]*\s(/|~|\$HOME|\*))'
+    pattern: '\brm\b(?=[^\n|;&]*\s(-[a-z]*r[a-z]*|--recursive)(\s|$))(?=[^\n|;&]*\s(-[a-z]*f[a-z]*|--force)(\s|$))(?=[^\n|;&]*\s["'']?(/|~|\$\{?HOME|\*|\.\.?["'']?(\s|$)))'
     action_untrusted: BLOCK
     action_user: LOG
     match: ['command=rm -rf /', 'cmd=sudo rm -fr ~/projects', 'rm -r -f /var/data', 'rm -r --force /', 'rm --recursive --force /srv',
-            'command=rm -rf *']
+            'command=rm -rf *', 'command=rm -rf ${HOME}', 'command=rm -rf "$HOME"', "command=rm -rf '/'", 'command=rm -rf ..',
+            'command=rm -rf .']
     no_match: ['command=rm notes.txt', 'remove the -rf flag from the docs', 'command=ls -rf', 'rm -r old_dir', 'rm -f x.tmp',
                'command=rm -rf node_modules', 'command=rm -rf ./build dist']
   - id: TOOL-ARG-002

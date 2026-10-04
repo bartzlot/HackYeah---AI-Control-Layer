@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import ipaddress
 import io
 import json
 from collections import deque
@@ -400,13 +401,23 @@ def is_local(request: Request) -> bool:
 
 
 def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], dict] | None" = None,
-                        remote: bool = False, info: "dict[str, Callable[[], Any]] | None" = None) -> APIRouter:
+                        remote: bool = False, info: "dict[str, Callable[[], Any]] | None" = None,
+                        deny_cidrs: "list[str] | None" = None) -> APIRouter:
     """The console (UI, audit API, exports, playground demo key) is host-only (research/13 section 14):
     non-loopback clients get 403 unless remote=True (console.remote, only on a firewalled demo host)."""
+
+    denied = [ipaddress.ip_network(c, strict=False) for c in (deny_cidrs or []) if c]
 
     async def host_only(request: Request) -> None:
         if not remote and not is_local(request):
             raise HTTPException(403, "console is host-only (set console.remote on a firewalled demo host)")
+        if denied and request.client:        # the client network (developer laptops) never reaches the console
+            try:
+                ip = ipaddress.ip_address(request.client.host)
+            except ValueError:
+                ip = None
+            if ip is not None and any(ip in n for n in denied):
+                raise HTTPException(403, "console is not served to the client network (AICL_CONSOLE_DENY_CIDRS)")
 
     router = APIRouter(prefix="/console", dependencies=[Depends(host_only)])
 

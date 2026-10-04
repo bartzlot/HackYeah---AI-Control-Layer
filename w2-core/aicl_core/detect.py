@@ -229,10 +229,11 @@ def find_terms(text: str, terms: list[str], typ: str, case_sensitive: bool = Fal
             return []
     view, omap = normalized_view(text)
     hits = []
-    for m in rx.finditer(view):
-        st, en = view_span(omap, m.start(), m.end(), len(text))
-        key = m.group(0) if case_sensitive else m.group(0).lower()
-        hits.append(Hit(st, en, typ, text[st:en], 0.9, {"term": by_view.get(key, m.group(0))}))
+    for m in rx.finditer(view):         # zero-width lookahead: overlapping terms are all found
+        a, b = m.start(1), m.end(1)
+        st, en = view_span(omap, a, b, len(text))
+        key = m.group(1) if case_sensitive else m.group(1).lower()
+        hits.append(Hit(st, en, typ, text[st:en], 0.9, {"term": by_view.get(key, m.group(1))}))
     return hits
 
 
@@ -247,7 +248,7 @@ def _terms_rx(terms: tuple[str, ...], case_sensitive: bool):
             views[tv if case_sensitive else tv.lower()] = t
     alts = sorted(views, key=len, reverse=True)
     pat = "|".join(re.escape(v).replace(r"\ ", " ") for v in alts) or "(?!)"
-    rx = re.compile(r"(?<!\w)(?:" + pat + r")(?!\w)", 0 if case_sensitive else re.IGNORECASE)
+    rx = re.compile(r"(?=(?<!\w)(" + pat + r")(?!\w))", 0 if case_sensitive else re.IGNORECASE)
     probes = []
     for v in alts:
         runs = re.findall(r"[A-Za-z]+", v)

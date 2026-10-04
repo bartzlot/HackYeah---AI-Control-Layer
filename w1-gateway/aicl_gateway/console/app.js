@@ -234,9 +234,9 @@
 
   // ---- policy
   function yamlHtml(t) {
-    return esc(t).split("\n").map((l) => {
-      const i = l.indexOf("#");
-      const code = i >= 0 ? l.slice(0, i) : l, cmt = i >= 0 ? '<span class="c">' + l.slice(i) + "</span>" : "";
+    return String(t).split("\n").map((raw) => {      // find the comment in the RAW line, then escape both halves
+      const m = raw.match(/^((?:[^#"']|"[^"]*"|'[^']*')*)(#.*)?$/);
+      const code = esc(m ? m[1] : raw), cmt = m && m[2] ? '<span class="c">' + esc(m[2]) + "</span>" : "";
       return code.replace(/^(\s*-?\s*)([A-Za-z0-9_."*-]+)(:)/, '$1<span class="k">$2</span>$3') + cmt;
     }).join("\n");
   }

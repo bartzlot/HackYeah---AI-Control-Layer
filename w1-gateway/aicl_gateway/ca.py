@@ -31,12 +31,16 @@ def _now() -> dt.datetime:
 
 def _write(path: Path, data: bytes, private: bool = False) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
-    if private:
+    if private:                       # created 0600 from the first byte (never briefly world-readable)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
         try:
             os.chmod(path, 0o600)
         except OSError:
             pass
+    else:
+        path.write_bytes(data)
 
 
 def init_ca(cert_path: str | Path, key_path: str | Path, days: int = 365, force: bool = False) -> x509.Certificate:
@@ -70,6 +74,14 @@ def _sans(hosts: list[str], ips: list[str]) -> list[x509.GeneralName]:
         except ValueError:
             pass
     return out
+
+
+def leaf_ips(cert: x509.Certificate) -> list[str]:
+    try:
+        return sorted(str(i) for i in cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+                      .get_values_for_type(x509.IPAddress))
+    except x509.ExtensionNotFound:
+        return []
 
 
 def leaf_hosts(cert: x509.Certificate) -> list[str]:
@@ -106,6 +118,14 @@ def issue_leaf(ca_cert_path: str | Path, ca_key_path: str | Path, hosts: list[st
     return cert
 
 
+def _signed_by(cert: x509.Certificate, root: x509.Certificate) -> bool:
+    try:
+        root.public_key().verify(cert.signature, cert.tbs_certificate_bytes, ec.ECDSA(cert.signature_hash_algorithm))
+        return True
+    except Exception:  # noqa: BLE001 - a leaf from another (regenerated) CA must be reissued
+        return False
+
+
 def ensure(tls: dict, hosts: list[str], ips: list[str], root: Path | None = None) -> tuple[Path, Path]:
     """CA present (created once), leaf current for `hosts` -> (leaf chain path, leaf key path)."""
     base = root or Path.cwd()
@@ -113,10 +133,13 @@ def ensure(tls: dict, hosts: list[str], ips: list[str], root: Path | None = None
     init_ca(ca_cert, ca_key)
     leaf_cert, leaf_key = ca_cert.parent / "aicl-leaf.pem", ca_cert.parent / "aicl-leaf.key"
     want = sorted(set(hosts + LEAF_EXTRA))
+    want_ips = sorted(set(ips + ["127.0.0.1"]))
+    root = x509.load_pem_x509_certificate(ca_cert.read_bytes())
     fresh = False
     if leaf_cert.exists() and leaf_key.exists():
         cur = x509.load_pem_x509_certificate(leaf_cert.read_bytes())
-        fresh = leaf_hosts(cur) == want and cur.not_valid_after_utc - _now() > dt.timedelta(days=2)
+        fresh = (leaf_hosts(cur) == want and leaf_ips(cur) == want_ips and cur.issuer == root.subject
+                 and _signed_by(cur, root) and cur.not_valid_after_utc - _now() > dt.timedelta(days=2))
     if not fresh:
         issue_leaf(ca_cert, ca_key, hosts, leaf_cert, leaf_key, ips=ips, days=int(tls.get("leaf_days", 30)))
     return leaf_cert, leaf_key

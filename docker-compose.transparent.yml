@@ -39,6 +39,7 @@ services:
       AICL_CA_ROOT: /app
       AICL_CA_PUBLISH: /app/ca-public
       AICL_CONSOLE_REMOTE: "1"           # the browser arrives from the bridge; the port below is host-only
+      AICL_CONSOLE_DENY_CIDRS: 10.77.0.0/24   # ...and the developer laptops on corp never reach the console
       AICL_OLLAMA_URL: http://ollama:11434
       AICL_UPSTREAM_ANTHROPIC: ${AICL_UPSTREAM_ANTHROPIC:-}   # set by AICL_OFFLINE=1 to the mock
       AICL_KEY_DEMO: ${AICL_KEY_DEMO:-aicl_transparent_demo_key}
