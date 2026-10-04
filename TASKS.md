@@ -116,3 +116,17 @@ T-[0-9]{3}
 head
 -n
 1
+- [ ] T-207 [w2] (T1) runner v4: case files gain protocol: (anthropic_messages / openai_responses / openai_chat) and drive the gateway through a mock upstream; assert the native contract (status, error envelope type, SSE event sequence parses, block text starts with [AICL], unknown fields + thinking blocks byte-identical after redaction); meta-test: allowed + blocked per control per implemented protocol [14 s.8] | deps: OK add [w1] (T1) Anthropic Messages adapter POST /v1/messages (stream + non-stream): parts from system / text / tool_result (untrusted channel) / tool_use; in-place redaction keeping unknown fields and never touching thinking / redacted_thinking blocks; buffer the upstream SSE, decide() on text + tool_use, re-emit events in the original order; native shapes: hard block = 400 invalid_request_error, budget = 402 billing_error, soft block / blocked tool_use = 200 assistant text [AICL] with stop_reason end_turn; never refusal, 403, 429/5xx or mid-stream error events; recorded Claude Code 2.1.289 request fixture + mock upstream; cases [14 s.3, s.7] by lead/Przemyslaw_Raczynski@przemek-pc
+1
+/
+tail
+-n
+1
+/
+grep
+-o
+T-[0-9]{3}
+/
+head
+-n
+1
