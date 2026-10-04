@@ -73,8 +73,31 @@
   }
 
   // ---- overview
+  // T-117: INJ-04 judge tile. status: warm (last model call answered) / degraded (last call failed or breaker open) /
+  // idle (not called yet) / off (disabled in policy); unknown = the API did not answer
+  const JUDGE_LOOK = { warm: ["Warm", "ok"], degraded: ["Degraded", "warn"], idle: ["Idle", "violet"], off: ["Off", ""], unknown: ["Unknown", ""] };
+  function judgeTile(j) {
+    j = j || { status: "unknown", reason: "judge state unavailable" };
+    const look = JUDGE_LOOK[j.status] || JUDGE_LOOK.unknown;
+    const looked = (j.cache_hits || 0) + (j.cache_misses || 0);
+    const sub = j.status === "unknown" ? esc(j.reason || "") :
+      '<span class="mono" title="' + esc(j.policy_model && j.policy_model !== j.model ? "policy model " + j.policy_model : "model Ollama runs") + '">' + esc(j.model || "-") + "</span><br>" +
+      (j.status !== "warm" && j.reason ? esc(j.reason) + "<br>" : "") +
+      "p50 " + (j.p50_ms != null ? esc(Math.round(j.p50_ms)) + " ms" : "-") + ", cache hits " + num(j.cache_hits) + (looked ? " (" + esc(j.cache_hit_pct) + "%)" : "");
+    return tile("Local AI judge (INJ-04)", look[0], look[1], sub);
+  }
+  function topRules(rows) {
+    $("#top-rules tbody").innerHTML = rows.map((r) => "<tr><td class='wrap'><code>" + esc(r.rule_id).replace(/([._])/g, "$1<wbr>") + "</code></td><td class='wrap'><b>" + esc(r.control_id) + "</b>" +
+      (r.control_name ? '<span class="sub2">' + esc(r.control_name) + "</span>" : "") + '</td><td class="num">' + num(r.count) + "</td><td class='muted'>" +
+      esc(String(r.last_seen || "").slice(5, 10) + " " + String(r.last_seen || "").slice(11, 16)) + "</td></tr>").join("") ||
+      '<tr><td class="empty" colspan="4">No blocked requests yet. <a href="#playground" data-go="playground">Send the example AWS key from Try it</a> to see a rule fire.</td></tr>';
+  }
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest("[data-go]");
+    if (a) { e.preventDefault(); go(a.dataset.go); }
+  });
   async function loadSummary() {
-    const s = await getJSON(API + "/summary");
+    const [s, j] = await Promise.all([getJSON(API + "/summary"), getJSON(API + "/judge").catch(() => null)]);
     const oh = s.overhead_ms || {};
     $("#tiles").innerHTML =
       tile("AI requests checked", num(s.requests), "", s.requests ? num(s.events_total) + " decisions" : "none yet: try a prompt") +
@@ -84,7 +107,8 @@
       tile("API spend", usd(s.cost_usd), s.budget_used_pct >= 80 ? "bad" : "", num(s.tokens) + " tokens, " + s.budget_used_pct + "% of " + usd(s.budget_usd), s.budget_used_pct) +
       tile("Protections on", s.posture_pct + "%", s.posture_pct >= 80 ? "ok" : "warn", s.controls_enforced + " of " + s.controls_total + " protections enforced", s.posture_pct, true) +
       tile("Time AICL adds", s.requests ? (oh.p50 || 0) + " ms" : "-", "ok", s.requests ? "typical; slowest 5%: " + (oh.p95 || 0) + " ms" : "no traffic yet") +
-      tile("Bypass attempts", num(s.bypass_alerts), s.bypass_alerts ? "bad" : "ok", s.bypass_alerts ? "see Network" : "none detected");
+      tile("Bypass attempts", num(s.bypass_alerts), s.bypass_alerts ? "bad" : "ok", s.bypass_alerts ? "see Network" : "none detected") +
+      judgeTile(j);
     setCount("#nav-blocks", s.blocked);
     renderRecent();
     emptyChart("#ch-time", !s.requests);
@@ -92,6 +116,7 @@
     emptyChart("#ch-proto", !Object.keys(s.protocols || {}).length);
     setCount("#nav-bypass", s.bypass_alerts);
     renderBudgets(s.agent_budgets || []);
+    topRules(s.top_rules || []);
     const tl = s.timeline || [];
     const tlabels = tl.map((x) => x.t.slice(11));
     drawChart("time", "#ch-time", "#fb-time", {
@@ -179,12 +204,9 @@
       : '<div class="empty-state">Nothing stopped yet. <br><button onclick="document.querySelector(\'#nav [data-page=playground]\').click()">Try a risky prompt</button></div>';
     document.querySelectorAll("#recent .recent-row").forEach((el) => (el.onclick = () => { go("security"); select(hits[+el.dataset.i]); }));
   }
+  // T-117: an empty chart shows its hint + a link to Try it (the Playground page) (markup in index.html, .chart-empty) instead of a blank canvas
   function emptyChart(canvasSel, empty) {
-    const box = $(canvasSel).parentElement;
-    let msg = box.querySelector(".empty-state");
-    if (empty && !msg) { msg = document.createElement("div"); msg.className = "empty-state"; msg.textContent = "No data yet. Send a prompt from Try it, or run Claude Code / Codex through AICL."; box.appendChild(msg); }
-    if (msg) msg.style.display = empty ? "block" : "none";
-    $(canvasSel).style.display = empty ? "none" : "";
+    $(canvasSel).parentElement.classList.toggle("empty", empty);
   }
   function row(r, isNew) {
     const tr = document.createElement("tr");
