@@ -23,12 +23,11 @@
 
 ## 3. What we know
 - 00-13: v3 research (threats, patterns, protocols, engines, DLP, identity, budgets, feed, landscape, policy, tests, decisions). 14: transparent interception, bypass model, native contract table measured on Claude Code 2.1.289 (2026-10-04), DNS / CA design, demo. brief: PDF verbatim incl. weights (robustness 30, architecture + performance 20, reporting 20, test suite 15, implementability 15).
-- Built and green on main (TASKS.md): policy engine + `decide()`, detectors, tool rules, test runner with meta-test, OpenAI-compatible gateway, budgets + loop guard, dashboard, INJ-04 judge, walking skeleton, containers.
+- Built and green on main (TASKS.md), 2026-10-04: v3 core (policy engine, decide(), detectors, tool rules, runner, managed gateway, budgets, judge, console) plus v4: interception policy + clients (T-013), passthrough PEP with Anthropic Messages (T-108/T-109), OpenAI Responses + Chat (T-112), AICL CA + TLS (T-110), DNS resolver (T-111), transparent compose demo (T-014), coding-agent tool rules (T-206), NET-01 (T-208), console v4 + 8x faster decision path (T-113). 846 offline tests; live: real Claude Code base URL 6/7 (1 model refusal), transparent 9/9, real Codex CLI 5/5 (OpenAI mock upstream).
 
 ## 4. What we do not know
-- How Codex CLI renders each block shape on `/v1/responses` and where a ChatGPT-login Codex sends traffic (spike in the Codex task).
-- Whether the Claude Code native build trusts the OS CA store or only `NODE_EXTRA_CA_CERTS`; whether a name-constrained CA works with our own TLS listener.
-- Latency of buffering a full SSE answer before release on long coding-agent turns.
+- Answered 2026-10-04: Codex block rendering (research/14 s.3); Claude Code in the devbox works with the OS store + NODE_EXTRA_CA_CERTS; gateway overhead 30 ms p50 on a 222 KB Claude Code request (make bench).
+- Open: name-constrained CA (not used); ChatGPT-login Codex (out of scope); time-to-first-token cost of buffering long answers.
 - Whether judges can join our network for mode C (else they use mode A on Cloud Run).
 - Real false-positive rate of the judge and the coding-agent tool rules on normal developer traffic.
 
