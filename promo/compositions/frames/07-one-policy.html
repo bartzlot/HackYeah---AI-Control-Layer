@@ -1,0 +1,496 @@
+<template>
+  <style>
+    @font-face { font-family: "Inter"; font-style: normal; font-weight: 400 900; font-display: block; src: url("fonts/Inter-latin.woff2") format("woff2"); }
+    @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: block; src: url("fonts/JetBrainsMono-latin.woff2") format("woff2"); }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      color: #f1f5f9;
+      font-family: "Inter", sans-serif;
+    }
+
+    /* ---------- layer 1: ground + dimmed policy page ---------- */
+    .p07-bg {
+      position: absolute;
+      inset: 0;
+      background: #0a1726;
+      overflow: hidden;
+    }
+    .p07-bgimg {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      object-fit: cover;
+      opacity: 0.22;
+      transform-origin: 30% 60%;
+    }
+
+    /* ---------- layer 2: editor + terminal (the couple) ---------- */
+    .p07-content {
+      position: absolute;
+      inset: 0;
+    }
+    .p07-world {
+      position: absolute;
+      inset: 0;
+      transform-origin: 50% 42%;
+    }
+    .p07-rule {
+      position: absolute;
+      left: 96px;
+      top: 162px;
+      width: 36px;
+      height: 2px;
+      background: #11b9e4;
+      transform-origin: 0 50%;
+    }
+    .p07-kicker {
+      position: absolute;
+      left: 148px;
+      top: 148px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 22px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #11b9e4;
+      white-space: nowrap;
+    }
+    .p07-chip {
+      position: absolute;
+      right: 924px;
+      top: 140px;
+      height: 42px;
+      padding: 0 18px 0 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border: 1px solid rgba(17, 185, 228, 0.55);
+      border-radius: 999px;
+      background: rgba(17, 185, 228, 0.10);
+      font-family: "JetBrains Mono", monospace;
+      font-size: 18px;
+      font-weight: 500;
+      color: #f1f5f9;
+      white-space: pre;
+      transform-origin: 100% 50%;
+    }
+    .p07-chip b {
+      font-weight: 600;
+      color: #11b9e4;
+    }
+    .p07-dotwrap {
+      position: relative;
+      width: 10px;
+      height: 10px;
+    }
+    .p07-dot,
+    .p07-ring {
+      position: absolute;
+      inset: 0;
+      border-radius: 50%;
+      background: #11b9e4;
+    }
+    .p07-ring {
+      background: transparent;
+      border: 2px solid #11b9e4;
+    }
+
+    .p07-win {
+      position: absolute;
+      top: 200px;
+      height: 420px;
+      background: #0f2236;
+      border: 1px solid #1d3550;
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .p07-editor {
+      left: 96px;
+      width: 900px;
+    }
+    .p07-term {
+      left: 1036px;
+      width: 788px;
+    }
+    .p07-bar {
+      height: 46px;
+      padding: 0 16px 0 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #1d3550;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 15px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #8fa3b8;
+      white-space: nowrap;
+    }
+    .p07-bar b {
+      color: #11b9e4;
+      font-weight: 500;
+      margin-right: 14px;
+    }
+    .p07-path {
+      text-transform: none;
+      letter-spacing: 0.02em;
+      font-size: 17px;
+      color: #f1f5f9;
+    }
+
+    /* editor body */
+    .p07-code {
+      padding: 22px 0 0;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 24px;
+    }
+    .p07-ln {
+      position: relative;
+      height: 46px;
+      display: flex;
+      align-items: center;
+      white-space: pre;
+    }
+    .p07-band {
+      position: absolute;
+      inset: 0;
+      background: rgba(17, 185, 228, 0.14);
+      border-left: 3px solid #11b9e4;
+      transform-origin: 0 50%;
+    }
+    .p07-gut {
+      position: relative;
+      width: 64px;
+      padding-right: 22px;
+      text-align: right;
+      font-size: 17px;
+      color: #34506c;
+      flex: none;
+    }
+    .p07-txt {
+      position: relative;
+      color: #f1f5f9;
+    }
+    .p07-v { color: #38bdf8; }
+    .p07-c { color: #8fa3b8; }
+    .p07-val > span { border-radius: 4px; }
+    .p07-ecaret {
+      display: inline-block;
+      width: 3px;
+      height: 1.15em;
+      margin-left: 1px;
+      margin-right: -4px;
+      vertical-align: -0.22em;
+      background: #11b9e4;
+      opacity: 0;
+    }
+
+    /* terminal body */
+    .p07-tbody {
+      padding: 20px 24px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 20px;
+      line-height: 1.5;
+    }
+    .p07-tbody > div {
+      white-space: pre-wrap;
+      overflow-wrap: break-word;
+    }
+    .p07-o402 {
+      display: none;
+      margin: 0 -8px 12px;
+      padding: 2px 8px;
+      border-radius: 6px;
+      color: #fbbf24;
+    }
+    .p07-cmd { color: #f1f5f9; }
+    .p07-cmd i {
+      font-style: normal;
+      color: #11b9e4;
+    }
+    .p07-tcaret {
+      display: inline-block;
+      width: 0.6em;
+      height: 1.05em;
+      margin-left: 2px;
+      vertical-align: -0.17em;
+      background: #11b9e4;
+    }
+    .p07-o400 {
+      display: none;
+      margin-top: 8px;
+      color: #f87171;
+    }
+    .p07-badge {
+      display: inline-block;
+      padding: 6px 14px 5px;
+      border-radius: 999px;
+      background: rgba(248, 113, 113, 0.16);
+      color: #f87171;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      line-height: 1;
+      transform-origin: 100% 50%;
+    }
+
+    /* ---------- layer 3: Protections strip (front, tilted, right edge) ---------- */
+    /* cut from assets/controls.png (3840x2160 = 1920x1080 CSS) at 0.8 scale (1536x864):
+       rows DLP-01 y170-227, INJ-04 y396-453, BUD-01 y529-605; cells x268-714 (text), x746-1240 (switches) */
+    .p07-stripwrap {
+      position: absolute;
+      left: 1071px;
+      top: 660px;
+      width: 753px;
+      height: 188px;
+    }
+    .p07-slabel {
+      position: absolute;
+      left: 0;
+      top: 0;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 16px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #8fa3b8;
+      white-space: pre;
+    }
+    .p07-slabel b {
+      font-weight: 500;
+      color: #11b9e4;
+    }
+    .p07-strip {
+      position: absolute;
+      left: 0;
+      top: 32px;
+      background: #1d3550;
+      border: 1px solid #1d3550;
+      border-radius: 14px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      transform-origin: 100% 50%;
+    }
+    .p07-slice {
+      display: flex;
+      flex: none;
+      gap: 1px;
+    }
+    .p07-cell {
+      position: relative;
+      height: 100%;
+      overflow: hidden;
+      flex: none;
+      background: #0f2236;
+    }
+    .p07-shot {
+      position: absolute;
+      width: 1536px;
+      height: 864px;
+      max-width: none;
+    }
+    .p07-pick {
+      position: absolute;
+      left: 385px;
+      top: 52px;
+      width: 94px;
+      height: 33px;
+      border: 2px solid #11b9e4;
+      border-radius: 9px;
+      background: rgba(17, 185, 228, 0.10);
+    }
+  </style>
+
+  <div data-hf-id="hf-hwca" id="root" data-composition-id="07-one-policy" data-width="1920" data-height="1080" data-duration="6.8">
+    <!-- layer 1: ground -->
+    <div data-hf-id="hf-y0zh" id="p07-bg" class="p07-bg clip" data-start="0" data-duration="6.8" data-track-index="0">
+      <img data-hf-id="hf-6pao" id="p07-bgimg" class="p07-bgimg" src="assets/policy.png" alt="">
+    </div>
+
+    <!-- layers 2 + 3 -->
+    <div data-hf-id="hf-74va" id="p07-content" class="p07-content clip" data-start="0" data-duration="6.8" data-track-index="1">
+      <div data-hf-id="hf-gmm2" id="p07-world" class="p07-world">
+        <div data-hf-id="hf-1bfm" id="p07-rule" class="p07-rule"></div>
+        <div data-hf-id="hf-7sc1" id="p07-kicker" class="p07-kicker">ONE FILE. LIVE RELOAD.</div>
+
+        <div data-hf-id="hf-prbe" id="p07-chip" class="p07-chip"><span data-hf-id="hf-xwdq" class="p07-dotwrap"><span data-hf-id="hf-eti2" class="p07-dot"></span><span data-hf-id="hf-7mu3" id="p07-ring" class="p07-ring"></span></span><span data-hf-id="hf-v4bt">policy reloaded  <b data-hf-id="hf-fzrt">~1 s</b></span></div>
+
+        <!-- editor -->
+        <div data-hf-id="hf-y6h4" id="p07-editor" class="p07-win p07-editor">
+          <div data-hf-id="hf-2dtr" class="p07-bar"><span data-hf-id="hf-uckh"><b data-hf-id="hf-i3lq">yaml</b><span data-hf-id="hf-p38q" class="p07-path">policy/policy.yaml</span></span><span data-hf-id="hf-3fxw">editor</span></div>
+          <div data-hf-id="hf-5ia7" class="p07-code">
+            <div data-hf-id="hf-gj4d" id="p07-l1" class="p07-ln"><span data-hf-id="hf-5epc" id="p07-band1" class="p07-band"></span><span data-hf-id="hf-x9eq" class="p07-gut">1</span><span data-hf-id="hf-8ii2" class="p07-txt">profile: <span data-hf-id="hf-xd4a" id="p07-prof" class="p07-v">balanced</span><span data-hf-id="hf-pe77" id="p07-ecaret" class="p07-ecaret"></span>  <span data-hf-id="hf-jlvd" class="p07-c"># strict | balanced | permissive</span></span></div>
+            <div data-hf-id="hf-kh8e" id="p07-l2" class="p07-ln"><span data-hf-id="hf-xnpr" class="p07-gut">2</span><span data-hf-id="hf-8m23" class="p07-txt"> </span></div>
+            <div data-hf-id="hf-qmy7" id="p07-l3" class="p07-ln"><span data-hf-id="hf-y20s" class="p07-gut">3</span><span data-hf-id="hf-we3j" class="p07-txt">budgets:</span></div>
+            <div data-hf-id="hf-ul28" id="p07-l4" class="p07-ln"><span data-hf-id="hf-tkd9" id="p07-band4" class="p07-band"></span><span data-hf-id="hf-ygbt" class="p07-gut">4</span><span data-hf-id="hf-3qrl" class="p07-txt">  anna.k:  {tokens: <span data-hf-id="hf-ngok" id="p07-tok" class="p07-v p07-val"><span data-hf-id="hf-ecte" id="p07-tok-old">20000000</span><span data-hf-id="hf-aibc" id="p07-tok-new" style="display: none">3000000</span></span>, usd: <span data-hf-id="hf-fm52" id="p07-usd" class="p07-v p07-val"><span data-hf-id="hf-1bdg" id="p07-usd-old">40.00</span><span data-hf-id="hf-0jzl" id="p07-usd-new" style="display: none">2.00</span></span>, period: <span data-hf-id="hf-hkmd" class="p07-v">day</span>}</span></div>
+            <div data-hf-id="hf-vcq1" id="p07-l5" class="p07-ln"><span data-hf-id="hf-yumu" class="p07-gut">5</span><span data-hf-id="hf-rybv" class="p07-txt"> </span></div>
+            <div data-hf-id="hf-zau2" id="p07-l6" class="p07-ln"><span data-hf-id="hf-z8xv" class="p07-gut">6</span><span data-hf-id="hf-dxgl" class="p07-txt">controls:</span></div>
+            <div data-hf-id="hf-38y3" id="p07-l7" class="p07-ln"><span data-hf-id="hf-zn8w" class="p07-gut">7</span><span data-hf-id="hf-wwqq" class="p07-txt">  DLP-01: {mode: <span data-hf-id="hf-mkw9" class="p07-v">enforce</span>}</span></div>
+          </div>
+        </div>
+
+        <!-- terminal -->
+        <div data-hf-id="hf-pvuw" id="p07-term" class="p07-win p07-term">
+          <div data-hf-id="hf-2073" class="p07-bar"><span data-hf-id="hf-hlsw"><b data-hf-id="hf-0ogj">$</b>claude code</span><span data-hf-id="hf-h5oa" id="p07-badge" class="p07-badge">block</span></div>
+          <div data-hf-id="hf-e5ko" class="p07-tbody">
+            <div data-hf-id="hf-qclu" id="p07-o402" class="p07-o402">API Error: 402 [AICL] budget exceeded for anna.k: request needs 144963 tokens / 2.627852 USD, more than the whole budget ...</div>
+            <div data-hf-id="hf-j0j0" id="p07-cmdline" class="p07-cmd"><i data-hf-id="hf-4qq0">$ </i><span data-hf-id="hf-6ovm" id="p07-cmd"></span><span data-hf-id="hf-benf" id="p07-tcaret" class="p07-tcaret"></span></div>
+            <div data-hf-id="hf-k9qe" id="p07-o400" class="p07-o400">API Error: 400 [AICL] request blocked by policy: DLP-01 rule AWS_KEY: BLOCK at part 5 [24:44] AWS_KEY - AWS_KEY detected; DLP-05 rule matrix.restricted.external: BLOCK ...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- layer 3: Protections strip cut from the real Protections page (DLP-01, INJ-04, BUD-01) -->
+      <div data-hf-id="hf-b136" id="p07-stripwrap" class="p07-stripwrap">
+        <div data-hf-id="hf-8rrb" id="p07-slabel" class="p07-slabel"><b data-hf-id="hf-vf3r">protections</b>  on / watch only</div>
+        <div data-hf-id="hf-my2a" id="p07-strip" class="p07-strip">
+          <div data-hf-id="hf-surf" class="p07-slice" style="height: 45.6px">
+            <div data-hf-id="hf-8vjm" class="p07-cell" style="width: 356.8px"><img data-hf-id="hf-jso7" class="p07-shot" src="assets/controls.png" alt="" style="left: -214.4px; top: -136px"></div>
+            <div data-hf-id="hf-brcr" class="p07-cell" style="width: 395.2px"><img data-hf-id="hf-jvfd" class="p07-shot" src="assets/controls.png" alt="" style="left: -596.8px; top: -136px"></div>
+          </div>
+          <div data-hf-id="hf-4zik" class="p07-slice" style="height: 45.6px">
+            <div data-hf-id="hf-ix6e" class="p07-cell" style="width: 356.8px"><img data-hf-id="hf-smbd" class="p07-shot" src="assets/controls.png" alt="" style="left: -214.4px; top: -316.8px"></div>
+            <div data-hf-id="hf-tczf" class="p07-cell" style="width: 395.2px"><img data-hf-id="hf-jwzr" class="p07-shot" src="assets/controls.png" alt="" style="left: -596.8px; top: -316.8px"></div>
+          </div>
+          <div data-hf-id="hf-drl0" class="p07-slice" style="height: 60.8px">
+            <div data-hf-id="hf-jbhf" class="p07-cell" style="width: 356.8px"><img data-hf-id="hf-e9ro" class="p07-shot" src="assets/controls.png" alt="" style="left: -214.4px; top: -423.2px"></div>
+            <div data-hf-id="hf-syoe" class="p07-cell" style="width: 395.2px"><img data-hf-id="hf-xdza" class="p07-shot" src="assets/controls.png" alt="" style="left: -596.8px; top: -423.2px"></div>
+          </div>
+          <div data-hf-id="hf-q3tq" id="p07-pick" class="p07-pick"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      window.__timelines = window.__timelines || {};
+      var ID = "07-one-policy";
+      var DUR = 6.4;
+      var scope = document.querySelector('[data-composition-id="' + ID + '"]') || document;
+      function q(n) { return scope.querySelector('[id="p07-' + n + '"]'); }
+
+      var tl = gsap.timeline({ paused: true });
+
+      // ---------- discrete states (discrete-text-sequence) ----------
+      // Every state change is a zero-length fromTo on display / opacity, so the state is a pure
+      // function of the playhead and renders on any seek (no reliance on callbacks).
+      var T_BS = 3.74, BS_STEP = 0.04;         // backspace "balanced"
+      var T_TY = 4.12, TY_STEP = 0.05;         // retype "strict"
+      var T_BUDGET = 2.52;                     // budget values snap to the limit behind the real 402
+      var T_402 = 2.80;
+      var T_CMD = 5.20, CMD_DUR = 0.34;        // same AWS-key prompt as frame 5
+      var T_400 = 5.62;
+      var CMD = 'claude -p "My AWS access key id is AKIAIOSFODNN7EXAMPLE, why does the deploy fail?"';
+      var SNAP = 0.001;
+
+      var elEC = q("ecaret"), elTC = q("tcaret"), el402 = q("o402"), el400 = q("o400");
+
+      function charSpans(host, text, hidden) {
+        var out = [];
+        for (var c = 0; c < text.length; c++) {
+          var s = document.createElement("span");
+          s.textContent = text.charAt(c);
+          if (hidden) s.style.display = "none";
+          host.appendChild(s);
+          out.push(s);
+        }
+        return out;
+      }
+      function show(el, at, disp) {
+        tl.fromTo(el, { display: "none" }, { display: disp || "inline", duration: SNAP, ease: "none", immediateRender: false }, at);
+      }
+      function hide(el, at, disp) {
+        tl.fromTo(el, { display: disp || "inline" }, { display: "none", duration: SNAP, ease: "none", immediateRender: false }, at);
+      }
+      // square-wave blink as an ease: 0 = from value (visible), 1 = to value (hidden)
+      function blinkEase(cycles) {
+        return function (p) { return Math.sin(p * Math.PI * 2 * cycles) > -0.2 ? 0 : 1; };
+      }
+
+      // profile value: "balanced" backspaced char by char, then "strict" typed
+      var elProf = q("prof");
+      elProf.textContent = "";
+      var bChars = charSpans(elProf, "balanced", false);
+      var sChars = charSpans(elProf, "strict", true);
+      for (var b = 0; b < bChars.length; b++) hide(bChars[bChars.length - 1 - b], T_BS + b * BS_STEP);
+      for (var s2 = 0; s2 < sChars.length; s2++) show(sChars[s2], T_TY + s2 * TY_STEP);
+
+      // budget values: 20000000 / 40.00 -> 3000000 / 2.00
+      var tokOld = q("tok-old"), tokNew = q("tok-new"), usdOld = q("usd-old"), usdNew = q("usd-new");
+      hide(tokOld, T_BUDGET); show(tokNew, T_BUDGET);
+      hide(usdOld, T_BUDGET); show(usdNew, T_BUDGET);
+
+      // terminal output lines
+      show(el402, T_402, "block");
+      show(el400, T_400, "block");
+
+      // the prompt types in
+      var cmdChars = charSpans(q("cmd"), CMD, true);
+      for (var k = 0; k < cmdChars.length; k++) show(cmdChars[k], T_CMD + (k / cmdChars.length) * CMD_DUR);
+
+      // editor caret: on at 3.66, solid through the retype, blinks, gone when the policy reloads
+      tl.fromTo(elEC, { opacity: 0 }, { opacity: 1, duration: SNAP, ease: "none", immediateRender: false }, 3.66);
+      tl.fromTo(elEC, { opacity: 1 }, { opacity: 0, duration: 5.08 - 4.46, ease: blinkEase(1.1), immediateRender: false }, 4.46);
+      tl.fromTo(elEC, { opacity: 1 }, { opacity: 0, duration: SNAP, ease: "none", immediateRender: false }, 5.08);
+
+      // terminal caret: idle blink, solid while typing, gone once the request is sent
+      tl.fromTo(elTC, { opacity: 1 }, { opacity: 0, duration: T_CMD, ease: blinkEase(8.8), immediateRender: false }, 0);
+      tl.fromTo(elTC, { opacity: 1 }, { opacity: 1, duration: SNAP, ease: "none", immediateRender: false }, T_CMD);
+      tl.fromTo(elTC, { opacity: 1 }, { opacity: 0, duration: SNAP, ease: "none", immediateRender: false }, T_400 - 0.04);
+
+      // ---------- camera: locked couple with one slow continuous push; ground drifts the other way ----------
+      tl.fromTo(q("bgimg"), { scale: 1.08 }, { scale: 1.0, duration: DUR, ease: "none" }, 0);
+      tl.fromTo(q("world"), { scale: 0.985 }, { scale: 1.015, duration: DUR, ease: "power1.inOut" }, 0);
+
+      // ---------- Scene 1 (0.28-1.6s): editor + empty terminal, kicker ----------
+      tl.fromTo(q("editor"), { opacity: 0, x: -80 }, { opacity: 1, x: 0, duration: 0.6, ease: "power3.out" }, 0.1);
+      tl.fromTo(q("rule"), { scaleX: 0 }, { scaleX: 1, duration: 0.45, ease: "power3.out" }, 0.28);
+      tl.fromTo(q("kicker"), { opacity: 0, x: -16 }, { opacity: 1, x: 0, duration: 0.45, ease: "power2.out" }, 0.34);
+      for (var i = 1; i <= 7; i++) {
+        tl.fromTo(q("l" + i), { opacity: 0, x: -14 }, { opacity: 1, x: 0, duration: 0.35, ease: "power2.out" }, 0.42 + (i - 1) * 0.08);
+      }
+      tl.fromTo(q("term"), { opacity: 0, x: 70 }, { opacity: 1, x: 0, duration: 0.6, ease: "power3.out" }, 0.55);
+
+      // ---------- Scene 2 (2.40-3.5s): anna.k budget line lights up; the real 402 prints in amber, then dims ----------
+      tl.fromTo(q("band4"), { scaleX: 0, opacity: 1 }, { scaleX: 1, opacity: 1, duration: 0.35, ease: "power3.out" }, 2.40);
+      tl.fromTo([q("tok-new"), q("usd-new")], { backgroundColor: "rgba(17,185,228,0.55)" }, { backgroundColor: "rgba(17,185,228,0)", duration: 0.7, ease: "power2.out" }, T_BUDGET);
+      tl.fromTo(el402, { opacity: 0, clipPath: "inset(0% 0% 100% 0%)" }, { opacity: 1, clipPath: "inset(0% 0% 0% 0%)", duration: 0.24, ease: "steps(3)" }, T_402);
+      tl.fromTo(el402, { backgroundColor: "rgba(251,191,36,0.22)" }, { backgroundColor: "rgba(251,191,36,0)", duration: 0.6, ease: "power2.out" }, T_402 + 0.1);
+      tl.fromTo(el402, { opacity: 1 }, { opacity: 0.38, duration: 0.4, ease: "power2.inOut", immediateRender: false }, 3.36);
+
+      // ---------- Scene 3 (3.66-4.9s): backspace "balanced", retype "strict"; Protections strip slides in ----------
+      tl.fromTo(q("band4"), { opacity: 1 }, { opacity: 0, duration: 0.3, ease: "power2.out", immediateRender: false }, 3.66);
+      tl.fromTo(q("band1"), { scaleX: 0 }, { scaleX: 1, duration: 0.35, ease: "power3.out" }, 3.66);
+      tl.fromTo(q("strip"), { opacity: 0, x: 620, rotationY: -30, transformPerspective: 1400 }, { opacity: 1, x: 0, rotationY: -12, transformPerspective: 1400, duration: 0.75, ease: "power3.out" }, 3.80);
+      tl.fromTo(q("slabel"), { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.4, ease: "power2.out" }, 4.0);
+      tl.fromTo(q("stripwrap"), { x: 0 }, { x: -16, duration: DUR - 3.8, ease: "none" }, 3.8);
+      // live-sync couple: "strict" lands in the file and the INJ-04 strict switch lights on the strip in the same beat
+      tl.fromTo(q("pick"), { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(2.2)" }, 4.44);
+
+      // ---------- Scene 4 (5.08-6.4s): reload chip ticks in; same AWS-key prompt now BLOCKed; hold ----------
+      tl.fromTo(q("chip"), { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.42, ease: "back.out(2.4)" }, 5.08);
+      tl.fromTo(q("ring"), { opacity: 0.9, scale: 1 }, { opacity: 0, scale: 2.8, duration: 0.7, ease: "power2.out" }, 5.14);
+      tl.fromTo(q("band1"), { opacity: 1 }, { opacity: 0.55, duration: 0.4, ease: "power2.out", immediateRender: false }, 5.1);
+      tl.fromTo(el402, { opacity: 0.38 }, { opacity: 0.26, duration: 0.3, ease: "power2.out", immediateRender: false }, 5.16);
+      tl.fromTo(el400, { opacity: 0, clipPath: "inset(0% 0% 100% 0%)" }, { opacity: 1, clipPath: "inset(0% 0% 0% 0%)", duration: 0.27, ease: "steps(3)" }, T_400);
+      tl.fromTo(q("badge"), { opacity: 0, scale: 1.7 }, { opacity: 1, scale: 1, duration: 0.36, ease: "back.out(1.8)" }, 5.86);
+      tl.fromTo(q("term"), { borderColor: "#1d3550" }, { borderColor: "rgba(248,113,113,0.55)", duration: 0.3, ease: "power2.out" }, 5.86);
+
+      window.__timelines[ID] = tl;
+    })();
+  </script>
+</template>

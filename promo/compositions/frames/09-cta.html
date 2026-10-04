@@ -1,0 +1,181 @@
+<template>
+  <style>
+    @font-face { font-family: "Inter"; font-style: normal; font-weight: 400 900; font-display: block; src: url("fonts/Inter-latin.woff2") format("woff2"); }
+    @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: block; src: url("fonts/JetBrainsMono-latin.woff2") format("woff2"); }
+
+    #root {
+      position: relative;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      container-type: size;
+      color: #f1f5f9;
+      font-family: "Inter", sans-serif;
+    }
+    #root .clip { position: absolute; inset: 0; }
+
+    #c09-ground { background: #0c1e31; }
+
+    /* lockup: the real logo, ~60% of frame width, centered, upper half */
+    #c09-lockup {
+      position: absolute;
+      left: 20cqw;
+      top: 13cqh;
+      width: 60cqw;
+      height: 13.94cqw; /* 60cqw / 4.3041 (viewBox 1825 x 424) */
+    }
+    #c09-logo {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      clip-path: inset(0 79.726% 0 0);
+    }
+    .c09-mark {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 20.274%; /* 370 / 1825: the shield's share of the lockup */
+      height: 100%;
+      display: block;
+    }
+    #c09-mark-left { clip-path: inset(0 49% 0 0); }
+    #c09-mark-right { clip-path: inset(0 0 0 49%); }
+
+    #c09-descriptor {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 42cqh;
+      text-align: center;
+      font-family: "JetBrains Mono", monospace;
+      font-weight: 500;
+      font-size: 1.25cqw;
+      letter-spacing: 0.42em;
+      padding-left: 0.42em;
+      text-transform: uppercase;
+      color: #8fa3b8;
+      white-space: nowrap;
+    }
+
+    /* tagline: two h2 lines, lowercase Inter display */
+    #c09-tagline {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 50.5cqh;
+      text-align: center;
+      font-weight: 700;
+      font-size: 4.5cqw;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      white-space: nowrap;
+      color: #f1f5f9;
+    }
+    .c09-line { display: block; }
+    .c09-word { display: inline-block; }
+    #c09-w-control { color: #11b9e4; }
+
+    /* mono footer, bottom-left above the safe band */
+    #c09-footer {
+      position: absolute;
+      left: 5.5cqw;
+      top: 76cqh;
+      display: flex;
+      flex-direction: column;
+      gap: 1.4cqh;
+    }
+    #c09-rule { width: 36px; height: 2px; background: #11b9e4; transform-origin: 0 50%; }
+    #c09-footer-text {
+      font-family: "JetBrains Mono", monospace;
+      font-weight: 500;
+      font-size: 0.95cqw;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #8fa3b8;
+      white-space: nowrap;
+    }
+
+    #c09-black { background: #000; }
+  </style>
+
+  <div id="root" data-composition-id="09-cta" data-width="1920" data-height="1080" data-start="0" data-duration="6.6">
+    <div id="c09-ground" class="clip" data-start="0" data-duration="6.6" data-track-index="0"></div>
+
+    <div id="c09-content" class="clip" data-start="0" data-duration="6.6" data-track-index="1">
+      <div id="c09-lockup">
+        <img id="c09-logo" src="assets/brand/agentsshield-logo-dark.svg" alt="AgentsShield" />
+        <img id="c09-mark-left" class="c09-mark" src="assets/brand/agentsshield-mark-dark.svg" alt="" />
+        <img id="c09-mark-right" class="c09-mark" src="assets/brand/agentsshield-mark-dark.svg" alt="" />
+      </div>
+
+      <div id="c09-descriptor">AI Control Layer</div>
+
+      <div id="c09-tagline">
+        <span id="c09-line1" class="c09-line"><span id="c09-w-see" class="c09-word">see</span> <span id="c09-w-every1" class="c09-word">every</span> <span id="c09-w-ai" class="c09-word">ai</span> <span id="c09-w-request" class="c09-word">request.</span></span>
+        <span id="c09-line2" class="c09-line"><span id="c09-w-control" class="c09-word">control</span> <span id="c09-w-every2" class="c09-word">every</span> <span id="c09-w-one" class="c09-word">one.</span></span>
+      </div>
+
+      <div id="c09-footer">
+        <div id="c09-rule"></div>
+        <div id="c09-footer-text">HACKYEAH 2026 / AI CONTROL LAYER CHALLENGE</div>
+      </div>
+    </div>
+
+    <div id="c09-black" class="clip" data-start="0" data-duration="6.6" data-track-index="2"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      window.__timelines = window.__timelines || {};
+      var tl = gsap.timeline({ paused: true });
+      var scope = '[data-composition-id="09-cta"] ';
+      var q = function (s) { return document.querySelector(scope + s); };
+
+      // Initial states (seek-safe, set at t=0 on the timeline).
+      tl.set(q('#c09-black'), { opacity: 0 }, 0);
+      tl.set(q('#c09-logo'), { opacity: 0, clipPath: 'inset(0 79.726% 0 0)' }, 0);
+      // Lockup starts shifted so the shield sits at frame center (shield center 10.137% of width; 50% - 10.137% = 39.863%).
+      tl.set(q('#c09-lockup'), { xPercent: 39.863 }, 0);
+
+      // Scene 1a, "Agents"@0.24: the shield builds at center, light left half then cyan right half (with the three dots).
+      tl.fromTo(q('#c09-mark-left'), { x: -70, opacity: 0 }, { x: 0, opacity: 1, duration: 0.42, ease: 'power3.out' }, 0.24);
+      tl.fromTo(q('#c09-mark-right'), { x: 70, opacity: 0 }, { x: 0, opacity: 1, duration: 0.39, ease: 'power3.out' }, 0.30);
+      tl.fromTo(q('#c09-lockup'), { scale: 0.9 }, { scale: 1, duration: 0.8, ease: 'power3.out', transformOrigin: '10.137% 50%' }, 0.24);
+
+      // Scene 1b, "Shield."@0.69: swap the built mark for the real lockup, the shield slides left as the wordmark wipes in left to right.
+      tl.set(q('#c09-logo'), { opacity: 1 }, 0.69);
+      tl.set(q('#c09-mark-left'), { opacity: 0 }, 0.69);
+      tl.set(q('#c09-mark-right'), { opacity: 0 }, 0.69);
+      tl.to(q('#c09-lockup'), { xPercent: 0, duration: 0.8, ease: 'power3.inOut' }, 0.69);
+      tl.fromTo(q('#c09-logo'), { clipPath: 'inset(0 79.726% 0 0)' }, { clipPath: 'inset(0 0% 0 0)', duration: 0.8, ease: 'power3.inOut' }, 0.69);
+
+      // Descriptor under the lockup.
+      tl.fromTo(q('#c09-descriptor'), { y: 16, opacity: 0 }, { y: 0, opacity: 1, duration: 0.6, ease: 'power3.out' }, 1.12);
+
+      // Scene 2, "See every AI request"@1.50: line 1 builds per word on the voice.
+      var rise = function (sel, at) {
+        tl.fromTo(q(sel), { yPercent: 45, opacity: 0 }, { yPercent: 0, opacity: 1, duration: 0.5, ease: 'power3.out' }, at);
+      };
+      rise('#c09-w-see', 1.50);
+      rise('#c09-w-every1', 1.83);
+      rise('#c09-w-ai', 2.15);
+      rise('#c09-w-request', 2.56);
+
+      // Scene 3, "Control every one"@3.29: line 2 builds, "control" in cyan; mono footer settles bottom-left.
+      rise('#c09-w-control', 3.29);
+      rise('#c09-w-every2', 3.78);
+      rise('#c09-w-one', 4.02);
+      tl.fromTo(q('#c09-rule'), { scaleX: 0 }, { scaleX: 1, duration: 0.45, ease: 'power3.out' }, 4.12);
+      tl.fromTo(q('#c09-footer-text'), { clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0% 0 0)', duration: 0.6, ease: 'power3.inOut' }, 4.2);
+
+      // Scene 4 (4.6-6.6s): the finished lock-up holds still; fade to black only in the last 0.4s (final frame exit).
+      tl.fromTo(q('#c09-black'), { opacity: 0 }, { opacity: 1, duration: 0.4, ease: 'sine.inOut' }, 6.2);
+
+      window.__timelines["09-cta"] = tl;
+    })();
+  </script>
+</template>

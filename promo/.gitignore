@@ -1,0 +1,21 @@
+# HyperFrames working state (regenerated)
+node_modules/
+.thumbnails/
+.waveform-cache/
+.hyperframes/
+snapshots/
+beats/
+.audio.log
+# renders: only the current cut is tracked
+renders/*
+!renders/agentsshield-promo-60s.mp4
+# media scratch (catalog candidates, voice takes); metadata stays tracked
+.media/audio/bgm/
+.media/audio/voice-aicl-old/
+.media/audio/*/*.wav
+.media/frames-old/
+# duplicate / superseded captures (the used ones are capture/assets, capture/terminal, capture/extracted)
+capture/console/
+capture/console-v1/
+capture/console-v2/
+.DS_Store
