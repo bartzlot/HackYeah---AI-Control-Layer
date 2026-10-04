@@ -48,7 +48,7 @@ const OUT = process.argv[3] || ".";
   const api = await page.evaluate(async () => (await (await fetch("/console/api/budgets")).json()).agents["demo-dev"]);
   step("budget saved through the UI", /Saved/.test(m3) && api.usd === 0.42, m3 + " :: " + JSON.stringify(api));
 
-  // 3b. control toggle (T-114): DLP-01 off from the Controls page, KILL-01 has no "off"
+  // 3b. control toggle (T-114): DLP-01 off from the Protections page, KILL-01 has no "off"
   await page.click("#nav button[data-page='controls']");
   await page.waitForSelector("#ctl select.modesel[data-id='DLP-01']", { timeout: 20000 });
   await page.select("#ctl select.modesel[data-id='DLP-01']", "off");
@@ -75,13 +75,19 @@ const OUT = process.argv[3] || ".";
   await page.screenshot({ path: OUT + "/network-domains.png" });
 
   // 4. every page renders without JS errors
-  for (const p of ["overview", "clients", "security", "network", "controls", "performance", "playground", "audit", "policy"]) {
+  for (const p of ["overview", "clients", "playground", "security", "network", "controls", "policy", "performance"]) {
     await page.click(`#nav button[data-page='${p}']`);
     await new Promise((r) => setTimeout(r, 400));
     const visible = await page.$eval(`#page-${p}`, (e) => e.classList.contains("active"));
     if (!visible) step("page " + p, false);
   }
-  step("all 9 pages navigate", true);
+  step("all 8 pages navigate", true);
+  // 4b. plain language + one place to unlock editing (loopback = already unlocked)
+  const unlocked = await page.evaluate(() => !document.body.classList.contains("locked"));
+  const ctlHead = await page.$$eval("#page-controls th", (ts) => ts.map((t) => t.textContent).join("|"));
+  step("loopback console is unlocked, Protections table in plain words", unlocked && ctlHead === "Protection|Status|Times it acted", ctlHead);
+  const exportLinks = await page.$$eval("#page-security a[href*='export']", (as) => as.length);
+  step("audit export lives on the Activity page", exportLinks === 2);
   // 5. playground sends a prompt through the gateway
   await page.click("#nav button[data-page='playground']");
   await page.select("#pg-dest", "unknown");
