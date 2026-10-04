@@ -27,3 +27,12 @@ def test_every_svg_has_a_source():
     for svg in DIR.glob("*.svg"):
         stem = svg.name.rsplit(".", 2)[0]
         assert (DIR / f"{stem}.mmd").is_file(), f"{svg.name} has no .mmd source"
+
+
+def test_readme_images_exist():
+    import re
+    root = DIR.parents[1]
+    refs = re.findall(r'(?:src|srcset)="([^"]+)"', (root / "README.md").read_text(encoding="utf-8"))
+    assert refs, "README references no images"
+    for ref in refs:
+        assert (root / ref).is_file(), f"README references missing {ref}"
