@@ -252,9 +252,69 @@
       '<div class="card"><h2>Native block contract</h2><div class="tablewrap"><table><thead><tr><th>API</th><th>Hard</th><th>Soft</th><th>Budget</th></tr></thead><tbody>' + styles + "</tbody></table></div></div>" +
       '<div class="card"><h2>Clients (identity)</h2><table><thead><tr><th>Match</th><th>Principal</th><th>Profile</th></tr></thead><tbody>' +
       (p.clients || []).map((c) => "<tr><td class='mono'>" + esc(JSON.stringify(c.match)) + "</td><td>" + esc(c.principal) + "</td><td>" + esc(c.profile || "-") + "</td></tr>").join("") + "</tbody></table></div>";
-    $("#pol-yaml").innerHTML = yamlHtml(p.yaml || "");
+    if (!editing) { $("#pol-yaml").innerHTML = yamlHtml(p.yaml || ""); polText = p.yaml || ""; }
     $("#foot-policy").textContent = "policy " + (p.version || "").slice(0, 12);
+    await loadBudgetEditor();
   }
+
+  // ---- policy + budget editor (T-107)
+  let editing = false, polText = "";
+  try { $("#admin-token").value = sessionStorage.getItem("aicl-admin") || ""; } catch (e) {}
+  $("#admin-token").oninput = () => { try { sessionStorage.setItem("aicl-admin", $("#admin-token").value); } catch (e) {} };
+  function authHeaders(extra) {
+    const t = $("#admin-token").value.trim();
+    return Object.assign(t ? { Authorization: "Bearer " + t } : {}, extra || {});
+  }
+  function setEditing(on) {
+    editing = on;
+    $("#pol-text").style.display = on ? "block" : "none";
+    $("#pol-yaml").style.display = on ? "none" : "block";
+    $("#pol-save").style.display = on ? "inline-flex" : "none";
+    $("#pol-cancel").style.display = on ? "inline-flex" : "none";
+    $("#pol-edit").style.display = on ? "none" : "inline-flex";
+    if (on) $("#pol-text").value = polText;
+  }
+  $("#pol-edit").onclick = () => { setEditing(true); $("#pol-msg").textContent = ""; };
+  $("#pol-cancel").onclick = () => { setEditing(false); $("#pol-msg").textContent = ""; };
+  $("#pol-save").onclick = async () => {
+    const m = $("#pol-msg");
+    m.textContent = "Validating...";
+    try {
+      const r = await fetch(API + "/policy", { method: "PUT", headers: authHeaders({ "Content-Type": "text/plain" }), body: $("#pol-text").value });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.ok) { m.style.color = "var(--ok)"; m.textContent = "Applied, policy " + String(j.version).slice(0, 12); setEditing(false); refresh(true); }
+      else { m.style.color = "var(--red)"; m.textContent = "Rejected (HTTP " + r.status + "), live policy unchanged: " + (j.error || j.detail || ""); }
+    } catch (e) { m.style.color = "var(--red)"; m.textContent = "Not saved: " + e.message; }
+  };
+  async function loadBudgetEditor() {
+    const b = await getJSON(API + "/budgets");
+    const used = {};
+    (b.usage || []).forEach((u) => (used[u.agent_id] = u));
+    const rows = Object.entries(b.agents || {});
+    $("#bud-edit tbody").innerHTML = rows.map(([id, v]) => {
+      const u = used[id] || {};
+      const per = ["minute", "hour", "day", "month"].map((p) => "<option" + (p === v.period ? " selected" : "") + ">" + p + "</option>").join("");
+      return '<tr data-id="' + esc(id) + '"><td><b>' + esc(id) + '</b></td><td><input data-k="tokens" type="number" min="0" step="1000" value="' + esc(v.tokens ?? "") +
+        '" style="width:140px"></td><td><input data-k="usd" type="number" min="0" step="0.01" value="' + esc(v.usd ?? "") + '" style="width:110px"></td><td><select data-k="period">' + per +
+        "</select></td><td class='muted'>" + num((u.tokens || 0) + (u.reserved_tokens || 0)) + " tok, " + usd((u.usd || 0) + (u.reserved_usd || 0)) + "</td></tr>";
+    }).join("") || '<tr><td class="empty" colspan="5">No budgets in the policy.</td></tr>';
+  }
+  $("#bud-save").onclick = async () => {
+    const agents = {};
+    document.querySelectorAll("#bud-edit tbody tr[data-id]").forEach((tr) => {
+      const e = {};
+      tr.querySelectorAll("[data-k]").forEach((i) => { if (i.value !== "") e[i.dataset.k] = i.dataset.k === "period" ? i.value : Number(i.value); });
+      agents[tr.dataset.id] = e;
+    });
+    const m = $("#bud-msg");
+    try {
+      const r = await fetch(API + "/budgets", { method: "PUT", headers: authHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ agents }) });
+      const j = await r.json().catch(() => ({}));
+      m.style.color = r.ok && j.ok ? "var(--ok)" : "var(--red)";
+      m.textContent = r.ok && j.ok ? "Saved and applied, policy " + String(j.version).slice(0, 12) : "Rejected (HTTP " + r.status + "): " + (j.error || j.detail || "");
+      if (r.ok) refresh(true);
+    } catch (e) { m.style.color = "var(--red)"; m.textContent = "Not saved: " + e.message; }
+  };
 
   // ---- performance
   async function loadPerformance() {

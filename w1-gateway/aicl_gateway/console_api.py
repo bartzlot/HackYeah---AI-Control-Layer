@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import hmac
 import ipaddress
 import io
 import json
@@ -402,7 +403,7 @@ def is_local(request: Request) -> bool:
 
 def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], dict] | None" = None,
                         remote: bool = False, info: "dict[str, Callable[[], Any]] | None" = None,
-                        deny_cidrs: "list[str] | None" = None) -> APIRouter:
+                        deny_cidrs: "list[str] | None" = None, admin_token: str | None = None) -> APIRouter:
     """The console (UI, audit API, exports, playground demo key) is host-only (research/13 section 14):
     non-loopback clients get 403 unless remote=True (console.remote, only on a firewalled demo host)."""
 
@@ -473,6 +474,49 @@ def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], di
     async def policy():
         """Read-only view of the live policy: version, reload error, interception, files."""
         return _info("policy", {}) or {}
+
+    def admin(request: Request) -> None:
+        """Writes need Bearer AICL_ADMIN_TOKEN; with no token configured, only a direct loopback client may write."""
+        if admin_token:
+            got = request.headers.get("authorization", "")
+            if not hmac.compare_digest(got.encode(), f"Bearer {admin_token}".encode()):
+                raise HTTPException(401, "admin token required (Authorization: Bearer AICL_ADMIN_TOKEN)")
+        elif not is_local(request):
+            raise HTTPException(403, "set AICL_ADMIN_TOKEN to edit the policy from a non-loopback client")
+
+    async def _write(kind: str, request: Request):
+        admin(request)
+        fn = (info or {}).get(kind)
+        if fn is None:
+            raise HTTPException(501, "policy editing is not wired in this process")
+        if kind == "policy_write":
+            ctype = request.headers.get("content-type", "")
+            if ctype.startswith("application/json"):
+                payload = (await request.json() or {}).get("yaml", "")
+            else:
+                payload = (await request.body()).decode("utf-8", "replace")
+        else:
+            payload = await request.json()
+        try:
+            return fn(payload)
+        except Exception as e:  # noqa: BLE001 - PolicyWriteError carries the HTTP status
+            status = getattr(e, "status", 422)
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=status)
+
+    @router.put("/api/policy")
+    async def put_policy(request: Request):
+        """Replace policy.yaml: validated by the real loader first; 422 keeps the live file."""
+        return await _write("policy_write", request)
+
+    @router.get("/api/budgets")
+    async def get_budgets():
+        pol = store.policy() or {}
+        b = pol.get("budgets") or {}
+        return {"agents": b.get("agents") or {}, "org": b.get("org") or {}, "usage": store.agent_budgets()}
+
+    @router.put("/api/budgets")
+    async def put_budgets(request: Request):
+        return await _write("budgets_write", request)
 
     @router.get("/api/export.jsonl")
     async def export_jsonl():

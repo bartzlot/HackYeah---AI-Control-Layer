@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AI Control Layer - Console</title>
 <link rel="stylesheet" href="/console/static/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%234f46e5%22/%3E%3Ctext x=%2216%22 y=%2222%22 font-size=%2218%22 text-anchor=%22middle%22 fill=%22white%22 font-family=%22sans-serif%22%3EA%3C/text%3E%3C/svg%3E">
 </head>
 <body>
 <div class="app">
@@ -103,7 +104,17 @@
 <section id="page-policy" class="page">
   <div id="pol-banner" class="banner">Loading policy...</div>
   <div class="grid3" id="pol-cards"></div>
-  <div class="card"><h2>policy/policy.yaml <span class="hint">edit the file (or drop an overlay in policy/local.d/); reload in about 1 s, an invalid edit keeps the last good policy</span></h2><pre class="yaml" id="pol-yaml"></pre></div>
+  <div class="card" style="margin-bottom:14px"><h2>Budgets per principal <span class="hint">BUD-01; saved into policy.yaml (comments kept), applied at once</span></h2>
+    <div class="tablewrap"><table id="bud-edit"><thead><tr><th>Principal</th><th>Tokens / period</th><th>USD / period</th><th>Period</th><th>Used now</th></tr></thead><tbody></tbody></table></div>
+    <div class="toolbar" style="margin-top:12px"><button id="bud-save" class="primary">Save budgets</button><span id="bud-msg" class="muted"></span></div>
+  </div>
+  <div class="card"><h2>policy/policy.yaml <span class="hint">edit here or in the file (or an overlay in policy/local.d/); an invalid edit is rejected and the last good policy stays</span></h2>
+    <div class="toolbar">
+      <button id="pol-edit">Edit</button><button id="pol-save" class="primary" style="display:none">Validate &amp; apply</button><button id="pol-cancel" style="display:none">Cancel</button>
+      <input id="admin-token" type="password" placeholder="admin token (AICL_ADMIN_TOKEN)" size="28">
+      <span id="pol-msg" class="muted"></span>
+    </div>
+    <pre class="yaml" id="pol-yaml"></pre><textarea id="pol-text" rows="28" style="display:none" spellcheck="false"></textarea></div>
 </section>
 
 <section id="page-performance" class="page">

@@ -140,8 +140,9 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
 
     app.include_router(make_console_router(store, playground_view, remote=bool(ccfg.get("remote")),
                                            info={"dns": lambda: getattr(getattr(app.state, "dns", None), "stats", {}),
-                                                 "policy": lambda: (ccfg.get("info") or dict)()},
-                                           deny_cidrs=ccfg.get("deny_cidrs")))
+                                                 "policy": lambda: (ccfg.get("info") or dict)(),
+                                                 **(ccfg.get("writers") or {})},
+                                           deny_cidrs=ccfg.get("deny_cidrs"), admin_token=ccfg.get("admin_token")))
 
     def live_policy() -> dict | None:
         p = ccfg.get("policy")

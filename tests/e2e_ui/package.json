@@ -1,0 +1,6 @@
+{
+  "name": "aicl-console-e2e",
+  "private": true,
+  "description": "Real-browser end-to-end test of the AICL console (policy + budget editor, navigation, playground)",
+  "dependencies": {"puppeteer-core": "^24.0.0"}
+}

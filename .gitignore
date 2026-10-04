@@ -9,3 +9,4 @@ reports/
 .pytest_cache/
 data-live/
 data-codex/
+data-edit/

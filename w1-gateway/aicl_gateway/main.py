@@ -30,6 +30,7 @@ from typing import Any, Callable
 from aicl_core.engine import Engine, register
 
 from . import judge as judge_mod
+from . import policy_admin
 from .app import create_app
 from .budget import config_from_policy
 
@@ -106,7 +107,8 @@ def build_config(raw: dict, env: dict, policy_fn: Callable[[], dict]) -> dict:
         "budget_db": env.get("AICL_BUDGET_DB") or str(data / "budget.db"),
         "console": {"policy": policy_fn, "demo_key": env.get("AICL_KEY_DEMO") or None,
                     "remote": env.get("AICL_CONSOLE_REMOTE") == "1",
-                    "deny_cidrs": [c.strip() for c in (env.get("AICL_CONSOLE_DENY_CIDRS") or "").split(",") if c.strip()]},
+                    "deny_cidrs": [c.strip() for c in (env.get("AICL_CONSOLE_DENY_CIDRS") or "").split(",") if c.strip()],
+                    "admin_token": env.get("AICL_ADMIN_TOKEN") or None},
         **config_from_policy(raw),
     }
     return cfg
@@ -122,6 +124,7 @@ def create_app_from_env(env: dict | None = None, *, upstreams: dict | None = Non
                         start_reload: bool = True):
     """App factory. env defaults to os.environ; upstreams / judge_chat are test seams (ASGI mocks, fake Ollama)."""
     env = dict(os.environ) if env is None else dict(env)
+    policy_admin.seed_policy(env)                 # AICL_POLICY_SEED -> writable AICL_POLICY on the first start
     engine = Engine(env.get("AICL_POLICY") or "policy/policy.yaml", interval=reload_interval, start=start_reload)
     cfg = build_config(engine.policy.raw, env, lambda: engine.policy.raw)
     _ensure_parent(cfg["audit_path"])
@@ -197,6 +200,10 @@ def create_app_from_env(env: dict | None = None, *, upstreams: dict | None = Non
                 "yaml": main_file.read_text(encoding="utf-8") if main_file.is_file() else ""}
 
     cfg["console"]["info"] = policy_info
+    live_path = Path(env.get("AICL_POLICY") or "policy/policy.yaml").resolve()
+    cfg["console"]["writers"] = {
+        "policy_write": lambda text: policy_admin.write_policy(live_path, text, engine),
+        "budgets_write": lambda body: policy_admin.patch_budgets(live_path, body, engine)}
     cfg["before_auth"] = sync_policy
     # the reload thread applies a new version at once (budgets on the console follow an edit with no traffic)
     engine.store.on_change.append(lambda _pol: sync_policy() if "app" in holder else None)
