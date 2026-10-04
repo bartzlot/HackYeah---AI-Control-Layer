@@ -201,6 +201,24 @@ class ConsoleStore:
                 n += 1
         return n
 
+    def load_tail(self, path: str | Path, n: int = 5000) -> int:
+        """The last n records of the audit JSONL: the console keeps its history across a restart."""
+        p = Path(path)
+        if not p.is_file():
+            return 0
+        lines = deque(maxlen=n)
+        with p.open(encoding="utf-8", errors="replace") as f:
+            for line in f:
+                lines.append(line)
+        loaded = 0
+        for line in lines:
+            try:
+                self._records.append(json.loads(line))
+                loaded += 1
+            except ValueError:
+                continue
+        return loaded
+
     def load_file(self, path: str | Path = FIXTURES) -> int:
         p = Path(path)
         if not p.exists():
@@ -521,6 +539,16 @@ def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], di
         except Exception as e:  # noqa: BLE001 - PolicyWriteError carries the HTTP status
             status = getattr(e, "status", 422)
             return JSONResponse({"ok": False, "error": str(e)}, status_code=status)
+
+    @router.get("/api/whoami")
+    async def whoami(request: Request):
+        """Can this browser edit? (drives the Unlock editing button; the PUT endpoints check again)."""
+        try:
+            admin(request)
+            can = True
+        except HTTPException:
+            can = False
+        return {"can_edit": can, "needs_token": bool(admin_token) or not is_local(request)}
 
     @router.put("/api/policy")
     async def put_policy(request: Request):

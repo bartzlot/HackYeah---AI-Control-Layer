@@ -128,6 +128,8 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
     store = ConsoleStore(budget_usd=ccfg.get("budget_usd"), policy=ccfg.get("policy"), budgets=ledger.snapshot)
     if ccfg.get("fixtures"):
         store.load_file()
+    elif cfg.get("audit_path"):
+        store.load_tail(cfg["audit_path"])      # the dashboard keeps its history across a restart
     bus.listeners.append(store.append)
 
     app = FastAPI(title="aicl-gateway")
