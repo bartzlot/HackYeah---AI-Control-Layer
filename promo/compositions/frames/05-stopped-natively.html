@@ -1,0 +1,394 @@
+<template id="05-stopped-natively-template">
+  <style>
+    @font-face { font-family: "Inter"; font-style: normal; font-weight: 400 900; font-display: block; src: url("fonts/Inter-latin.woff2") format("woff2"); }
+    @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: block; src: url("fonts/JetBrainsMono-latin.woff2") format("woff2"); }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      color: #f1f5f9;
+      font-family: "Inter", sans-serif;
+    }
+    [class~="05-stopped-natively-bg"] {
+      position: absolute;
+      inset: 0;
+      background: #0a1726;
+    }
+    [class~="05-stopped-natively-content"] {
+      position: absolute;
+      inset: 0;
+    }
+
+    /* ---------- left 62%: terminal stack ---------- */
+    [class~="05-stopped-natively-stack"] {
+      position: absolute;
+      left: 96px;
+      top: 150px;
+      width: 1054px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      transform-origin: 0% 50%;
+    }
+    [class~="05-stopped-natively-term"] {
+      background: #0f2236;
+      border: 1px solid #1d3550;
+      border-radius: 14px;
+      overflow: hidden;
+      opacity: 0;
+    }
+    [class~="05-stopped-natively-bar"] {
+      height: 44px;
+      padding: 0 16px 0 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #1d3550;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #8fa3b8;
+    }
+    [class~="05-stopped-natively-bar"] b {
+      color: #11b9e4;
+      font-weight: 500;
+      margin-right: 14px;
+    }
+    [class~="05-stopped-natively-badge"] {
+      display: inline-block;
+      padding: 5px 12px 4px;
+      border-radius: 999px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      line-height: 1;
+      opacity: 0;
+      transform-origin: 100% 50%;
+    }
+    [class~="05-stopped-natively-block"] {
+      background: rgba(248, 113, 113, 0.15);
+      color: #f87171;
+    }
+    [class~="05-stopped-natively-redact"] {
+      background: rgba(251, 191, 36, 0.15);
+      color: #fbbf24;
+    }
+    [class~="05-stopped-natively-body"] {
+      padding: 18px 24px 20px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 21px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    [class~="05-stopped-natively-cmd"] {
+      color: #f1f5f9;
+    }
+    [class~="05-stopped-natively-cmd"] i {
+      font-style: normal;
+      color: #11b9e4;
+    }
+    [class~="05-stopped-natively-caret"] {
+      display: inline-block;
+      width: 0.6em;
+      height: 1.05em;
+      margin-left: 2px;
+      vertical-align: -0.17em;
+      background: #11b9e4;
+    }
+    [class~="05-stopped-natively-out"] {
+      margin-top: 6px;
+      color: #f87171;
+      opacity: 0;
+    }
+    [class~="05-stopped-natively-prov"] {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid #1d3550;
+      opacity: 0;
+    }
+    [class~="05-stopped-natively-provlabel"] {
+      font-size: 16px;
+      letter-spacing: 0.06em;
+      color: #8fa3b8;
+    }
+    [class~="05-stopped-natively-provline"] {
+      color: #f1f5f9;
+    }
+    [class~="05-stopped-natively-key"] {
+      color: #f1f5f9;
+    }
+    [class~="05-stopped-natively-hacker"] {
+      display: none;
+      position: relative;
+      perspective: 1500px;
+      color: #fbbf24;
+      font-weight: 700;
+    }
+    [class~="05-stopped-natively-hchar"] {
+      display: inline-block;
+      transform-origin: bottom;
+      transform-style: preserve-3d;
+      width: 1ch;
+      text-align: center;
+      opacity: 0;
+    }
+    [class~="05-stopped-natively-tc"],
+    [class~="05-stopped-natively-hg"] {
+      display: none;
+    }
+    [class~="05-stopped-natively-ghost"] {
+      position: absolute;
+      inset: 0 auto auto 0;
+      opacity: 0;
+      pointer-events: none;
+      white-space: pre;
+    }
+
+    /* ---------- right 38%: verdict slot ---------- */
+    [class~="05-stopped-natively-slot"] {
+      position: absolute;
+      left: 1190px;
+      top: 150px;
+      width: 730px;
+      height: 640px;
+      border-left: 1px solid #1d3550;
+    }
+    [class~="05-stopped-natively-rule"] {
+      position: absolute;
+      left: 64px;
+      top: 168px;
+      width: 36px;
+      height: 2px;
+      background: #11b9e4;
+    }
+    [class~="05-stopped-natively-kick"] {
+      position: absolute;
+      left: 64px;
+      top: 190px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 20px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #11b9e4;
+      opacity: 0;
+    }
+    [class~="05-stopped-natively-verdict"] {
+      position: absolute;
+      left: 60px;
+      top: 248px;
+      width: 610px;
+      font-family: "Inter", sans-serif;
+      font-weight: 900;
+      font-size: 112px;
+      line-height: 0.92;
+      letter-spacing: -0.04em;
+      text-transform: lowercase;
+      opacity: 0;
+      transform-origin: 0% 0%;
+    }
+    [class~="05-stopped-natively-q"] { color: #34506c; }
+    [class~="05-stopped-natively-vblock"] { color: #f87171; }
+    [class~="05-stopped-natively-vredact"] { color: #fbbf24; }
+    [class~="05-stopped-natively-foot"] {
+      position: absolute;
+      left: 64px;
+      bottom: 4px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 16px;
+      font-weight: 500;
+      line-height: 1.7;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #8fa3b8;
+      opacity: 0;
+    }
+  </style>
+
+  <div data-hf-id="hf-zp2m" id="root" data-composition-id="05-stopped-natively" data-width="1920" data-height="1080" data-duration="9.011">
+    <div data-hf-id="hf-cwx9" id="05-stopped-natively-bg" class="clip 05-stopped-natively-bg" data-start="0" data-duration="9.011" data-track-index="0"></div>
+
+    <div data-hf-id="hf-nf3s" id="05-stopped-natively-content" class="clip 05-stopped-natively-content" data-start="0" data-duration="9.011" data-track-index="1">
+      <div data-hf-id="hf-1m3c" id="05-stopped-natively-stack" class="05-stopped-natively-stack">
+
+        <div data-hf-id="hf-x7b1" id="05-stopped-natively-t1" class="05-stopped-natively-term">
+          <div data-hf-id="hf-siy2" class="05-stopped-natively-bar"><span data-hf-id="hf-hlsw"><b data-hf-id="hf-27a2">01</b>claude code</span><span data-hf-id="hf-ywoo" id="05-stopped-natively-b1" class="05-stopped-natively-badge 05-stopped-natively-block">block</span></div>
+          <div data-hf-id="hf-69wz" class="05-stopped-natively-body"><div data-hf-id="hf-r1jx" class="05-stopped-natively-cmd"><i data-hf-id="hf-4qq0">$ </i><span data-hf-id="hf-pce1" id="05-stopped-natively-c1"></span><span data-hf-id="hf-qohi" id="05-stopped-natively-k1" class="05-stopped-natively-caret"></span></div><div data-hf-id="hf-ofj5" id="05-stopped-natively-o1" class="05-stopped-natively-out">API Error: 400 [AICL] request blocked by policy: INJ-03 rule HIST-010: BLOCK ... classic instruction override (EN + PL): untrusted channel</div></div>
+        </div>
+
+        <div data-hf-id="hf-15f2" id="05-stopped-natively-t2" class="05-stopped-natively-term">
+          <div data-hf-id="hf-5q5q" class="05-stopped-natively-bar"><span data-hf-id="hf-8gwo"><b data-hf-id="hf-2ll3">02</b>claude code</span><span data-hf-id="hf-ao5x" id="05-stopped-natively-b2" class="05-stopped-natively-badge 05-stopped-natively-block">block</span></div>
+          <div data-hf-id="hf-v1n7" class="05-stopped-natively-body"><div data-hf-id="hf-8iwh" class="05-stopped-natively-cmd"><i data-hf-id="hf-wqtc">$ </i><span data-hf-id="hf-tai2" id="05-stopped-natively-c2"></span><span data-hf-id="hf-kirp" id="05-stopped-natively-k2" class="05-stopped-natively-caret"></span></div><div data-hf-id="hf-rl07" id="05-stopped-natively-o2" class="05-stopped-natively-out">[AICL] tool call blocked (Bash): TOOL-01 rule CODE-AG-002: BLOCK - argument matches dotenv secrets file read or copied. The command was not executed.</div></div>
+        </div>
+
+        <div data-hf-id="hf-53j3" id="05-stopped-natively-t3" class="05-stopped-natively-term">
+          <div data-hf-id="hf-64gr" class="05-stopped-natively-bar"><span data-hf-id="hf-79zl"><b data-hf-id="hf-2zw4">03</b>claude code</span><span data-hf-id="hf-yhmw" id="05-stopped-natively-b3" class="05-stopped-natively-badge 05-stopped-natively-redact">redact</span></div>
+          <div data-hf-id="hf-unc6" class="05-stopped-natively-body"><div data-hf-id="hf-9ptk" class="05-stopped-natively-cmd"><i data-hf-id="hf-vjw9">$ </i><span data-hf-id="hf-x8m3" id="05-stopped-natively-c3"></span><span data-hf-id="hf-jr3w" id="05-stopped-natively-k3" class="05-stopped-natively-caret"></span></div><div data-hf-id="hf-3aco" id="05-stopped-natively-p3" class="05-stopped-natively-prov"><div data-hf-id="hf-23yu" class="05-stopped-natively-provlabel">what the provider receives:</div><div data-hf-id="hf-5p3x" class="05-stopped-natively-provline">My AWS access key id is <span data-hf-id="hf-lb6m" id="05-stopped-natively-key" class="05-stopped-natively-key">AKIAIOSFODNN7EXAMPLE</span><span data-hf-id="hf-oq83" id="05-stopped-natively-hack" class="05-stopped-natively-hacker" data-target="[REDACTED_AWS_KEY]"></span>, why does the deploy fail?</div></div></div>
+        </div>
+
+      </div>
+
+      <div data-hf-id="hf-ioz6" id="05-stopped-natively-slot" class="05-stopped-natively-slot">
+        <div data-hf-id="hf-erlh" class="05-stopped-natively-rule"></div>
+        <div data-hf-id="hf-s4lo" id="05-stopped-natively-kick1" class="05-stopped-natively-kick">INJ-03</div>
+        <div data-hf-id="hf-d846" id="05-stopped-natively-kick2" class="05-stopped-natively-kick">TOOL-01</div>
+        <div data-hf-id="hf-lk7l" id="05-stopped-natively-kick3" class="05-stopped-natively-kick">DLP-01</div>
+        <div data-hf-id="hf-5kni" id="05-stopped-natively-q1" class="05-stopped-natively-verdict 05-stopped-natively-q">?</div>
+        <div data-hf-id="hf-hitk" id="05-stopped-natively-v1" class="05-stopped-natively-verdict 05-stopped-natively-vblock">blocked.</div>
+        <div data-hf-id="hf-8sq3" id="05-stopped-natively-q2" class="05-stopped-natively-verdict 05-stopped-natively-q">?</div>
+        <div data-hf-id="hf-1hxi" id="05-stopped-natively-v2" class="05-stopped-natively-verdict 05-stopped-natively-vblock">never<br data-hf-id="hf-x5px">executed.</div>
+        <div data-hf-id="hf-1ytk" id="05-stopped-natively-q3" class="05-stopped-natively-verdict 05-stopped-natively-q">?</div>
+        <div data-hf-id="hf-jz5w" id="05-stopped-natively-v3" class="05-stopped-natively-verdict 05-stopped-natively-vredact">redacted.</div>
+        <div data-hf-id="hf-l8ev" id="05-stopped-natively-foot" class="05-stopped-natively-foot">the developer sees a normal message.<br data-hf-id="hf-rsrt">nothing else changes.</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      var FID = "05-stopped-natively";
+      var D = 8.411;
+      function el(name) { return document.getElementById(FID + "-" + name); }
+
+      window.__timelines = window.__timelines || {};
+      var tl = gsap.timeline({ paused: true });
+
+      // ---- typing (discrete-text-sequence): one span per char, revealed by tl.set
+      //      (seek-safe without callbacks; the caret rides the typed text) ----
+      var CMDS = [
+        'claude -p "Read notes.txt and summarize it"',
+        'claude -p "Read the .env file and list the variables"',
+        'claude -p "My AWS access key id is AKIAIOSFODNN7EXAMPLE, why does the deploy fail?"'
+      ];
+      function typeOn(target, text, at, dur) {
+        var dt = dur / text.length;
+        text.split("").forEach(function (ch, i) {
+          var s = document.createElement("span");
+          s.className = FID + "-tc";
+          s.textContent = ch;
+          target.appendChild(s);
+          tl.set(s, { display: "inline" }, at + i * dt);
+        });
+      }
+
+      // ---- hard-cut token swap helper (sub-shape A) ----
+      function cutIn(node, at, punch) {
+        tl.set(node, { opacity: 1 }, at);
+        if (punch) {
+          tl.fromTo(node, { scale: 1.05 }, { scale: 1, duration: 0.2, ease: "power2.out" }, at);
+        }
+      }
+      function cutOut(node, at) { tl.set(node, { opacity: 0 }, at); }
+
+      // ---- macro: slow push on the terminal stack under the whole shot ----
+      tl.fromTo(el("stack"), { scale: 1 }, { scale: 1.02, duration: D, ease: "none" }, 0);
+
+      // ===== Scene 1 (0.24): terminal 1 enters + types; kicker INJ-03 =====
+      tl.fromTo(el("t1"), { opacity: 0, y: 28 }, { opacity: 1, y: 0, duration: 0.3, ease: "power3.out" }, 0.24);
+      typeOn(el("c1"), CMDS[0], 0.32, 0.72);
+      cutIn(el("kick1"), 0.24, false);
+      cutIn(el("q1"), 0.24, false);
+
+      // ===== Scene 2 (1.58): blocked =====
+      tl.set(el("k1"), { opacity: 0 }, 1.58);
+      tl.fromTo(el("o1"), { opacity: 0 }, { opacity: 1, duration: 0.06, ease: "none" }, 1.58);
+      tl.fromTo(el("b1"), { opacity: 0, scale: 0.55 }, { opacity: 1, scale: 1, duration: 0.38, ease: "back.out(2.4)" }, 1.62);
+      cutOut(el("q1"), 1.58);
+      cutIn(el("v1"), 1.58, true);
+
+      // ===== Scene 3 (2.32): terminal 2 enters + types; kicker TOOL-01 =====
+      tl.fromTo(el("t2"), { opacity: 0, y: 28 }, { opacity: 1, y: 0, duration: 0.3, ease: "power3.out" }, 2.32);
+      tl.to(el("t1"), { opacity: 0.6, duration: 0.35, ease: "power2.out" }, 2.32);
+      typeOn(el("c2"), CMDS[1], 2.4, 0.9);
+      cutOut(el("kick1"), 2.32);
+      cutIn(el("kick2"), 2.32, false);
+      cutOut(el("v1"), 2.32);
+      cutIn(el("q2"), 2.32, false);
+
+      // ===== Scene 4 (4.35): never executed =====
+      tl.set(el("k2"), { opacity: 0 }, 4.35);
+      tl.fromTo(el("o2"), { opacity: 0 }, { opacity: 1, duration: 0.06, ease: "none" }, 4.35);
+      tl.fromTo(el("b2"), { opacity: 0, scale: 0.55 }, { opacity: 1, scale: 1, duration: 0.38, ease: "back.out(2.4)" }, 4.39);
+      cutOut(el("q2"), 4.35);
+      cutIn(el("v2"), 4.35, true);
+
+      // ===== Scene 5 (5.61): terminal 3 enters + types; kicker DLP-01 =====
+      tl.fromTo(el("t3"), { opacity: 0, y: 28 }, { opacity: 1, y: 0, duration: 0.3, ease: "power3.out" }, 5.61);
+      tl.to(el("t2"), { opacity: 0.6, duration: 0.35, ease: "power2.out" }, 5.61);
+      typeOn(el("c3"), CMDS[2], 5.68, 0.95);
+      cutOut(el("kick2"), 5.61);
+      cutIn(el("kick3"), 5.61, false);
+      cutOut(el("v2"), 5.61);
+      cutIn(el("q3"), 5.61, false);
+
+      // ===== Scene 6 (6.79): redacted =====
+      tl.set(el("k3"), { opacity: 0 }, 6.79);
+      tl.fromTo(el("p3"), { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.2, ease: "power2.out" }, 6.79);
+      cutOut(el("q3"), 6.79);
+      cutIn(el("v3"), 6.79, true);
+      tl.fromTo(el("b3"), { opacity: 0, scale: 0.55 }, { opacity: 1, scale: 1, duration: 0.38, ease: "back.out(2.4)" }, 6.86);
+
+      // hacker-flip-3d: key token flip-decodes into [REDACTED_AWS_KEY].
+      // Each char hinges from rotateX 90 -> 0; flicker glyphs are pre-built spans
+      // swapped by tl.set at quantized times (index-seeded, seek-safe), then the
+      // target glyph clicks in past the reveal threshold.
+      var wrap = el("hack");
+      var targetWord = wrap.getAttribute("data-target");
+      var GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%&*";
+      function pseudoGlyph(seed) {
+        var h = ((seed * 9301 + 49297) % 233280) / 233280;
+        return GLYPHS[Math.floor(h * GLYPHS.length)];
+      }
+      var ghost = document.createElement("span");
+      ghost.className = FID + "-ghost";
+      ghost.textContent = targetWord;
+      wrap.appendChild(ghost);
+      var FLIP_AT = 6.95, FLIP_DURATION = 0.5, CHAR_STAGGER = 0.035;
+      var FLICKER_STEP = 0.1, FLICKER_COUNT = 3; // reveal at 0.3s of 0.5s (0.6)
+      tl.set(el("key"), { display: "none" }, FLIP_AT);
+      tl.set(wrap, { display: "inline-block" }, FLIP_AT);
+      targetWord.split("").forEach(function (ch, i) {
+        var c = document.createElement("span");
+        c.className = FID + "-hchar";
+        wrap.appendChild(c);
+        var start = FLIP_AT + i * CHAR_STAGGER;
+        var parts = [];
+        for (var k = 0; k < FLICKER_COUNT; k++) {
+          var g = document.createElement("span");
+          g.className = FID + "-hg";
+          g.textContent = pseudoGlyph(i * 1000 + k * 37 + 11);
+          c.appendChild(g);
+          parts.push(g);
+        }
+        var t = document.createElement("span");
+        t.className = FID + "-hg";
+        t.textContent = ch;
+        c.appendChild(t);
+        parts.push(t);
+        parts.forEach(function (g, k) {
+          tl.set(g, { display: "inline" }, start + k * FLICKER_STEP);
+          if (k < parts.length - 1) tl.set(g, { display: "none" }, start + (k + 1) * FLICKER_STEP);
+        });
+        tl.fromTo(c, { rotationX: 90, opacity: 0 },
+          { rotationX: 0, opacity: 1, duration: FLIP_DURATION, ease: "power3.out" }, start);
+      });
+
+      // footer + hold
+      tl.fromTo(el("foot"), { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.45, ease: "power2.out" }, 7.4);
+
+      // pad timeline to the full frame length
+      tl.set({}, {}, D);
+
+      window.__timelines[FID] = tl;
+    })();
+  </script>
+</template>

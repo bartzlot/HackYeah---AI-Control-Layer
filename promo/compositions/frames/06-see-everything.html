@@ -1,0 +1,288 @@
+<template id="06-see-everything-template">
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <style>
+    @font-face { font-family: "Inter"; font-style: normal; font-weight: 400 900; font-display: block; src: url("fonts/Inter-latin.woff2") format("woff2"); }
+    @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: block; src: url("fonts/JetBrainsMono-latin.woff2") format("woff2"); }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      font-family: "Inter", sans-serif;
+      color: #f1f5f9;
+    }
+    [class~="06-see-everything-bg"] {
+      position: absolute;
+      inset: 0;
+      background: #0a1726;
+    }
+    /* camera viewport: all content stays above y = 900 (soft fade 860 -> 900) */
+    [class~="06-see-everything-viewport"] {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      perspective: 1700px;
+      perspective-origin: 50% 40%;
+      -webkit-mask-image: linear-gradient(to bottom, #000 0px, #000 860px, transparent 900px);
+      mask-image: linear-gradient(to bottom, #000 0px, #000 860px, transparent 900px);
+    }
+    [class~="06-see-everything-rig"] {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      --blur: 0;
+      filter: blur(calc(var(--blur) * 1px));
+    }
+    /* the world plane: ONE camera state. --s scale, (--fx, --fy) = world point placed at screen (960, 430) */
+    [class~="06-see-everything-world"] {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 6720px;
+      height: 1080px;
+      transform-origin: 0 0;
+      transform: translate(calc(960px - var(--fx) * var(--s) * 1px), calc(430px - var(--fy) * var(--s) * 1px)) scale(var(--s));
+    }
+    [class~="06-see-everything-grid"] {
+      position: absolute;
+      left: -1400px;
+      top: -900px;
+      width: 9600px;
+      height: 2900px;
+      background-image: radial-gradient(circle, rgba(52, 80, 108, 0.6) 1.3px, transparent 1.8px);
+      background-size: 56px 56px;
+    }
+    [class~="06-see-everything-win"] {
+      position: absolute;
+      top: -1px;
+      width: 1922px;
+      height: 1082px;
+      border: 1px solid #1d3550;
+      border-radius: 14px;
+      overflow: hidden;
+      background: #0a1726;
+    }
+    [class~="06-see-everything-win"] img {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 1920px;
+      height: 1080px;
+      display: block;
+    }
+    [class~="06-see-everything-glow"] {
+      position: absolute;
+      border: 1px solid #11b9e4;
+      border-radius: 8px;
+      background: rgba(17, 185, 228, 0.07);
+      box-shadow: 0 0 0 3px rgba(17, 185, 228, 0.16), 0 0 22px rgba(17, 185, 228, 0.42);
+    }
+    [class~="06-see-everything-kicker"] {
+      position: absolute;
+      right: 64px;
+      top: 14px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 6px 12px;
+      background: #0a1726;
+      border: 1px solid #1d3550;
+      font-family: "JetBrains Mono", monospace;
+      font-weight: 500;
+      font-size: 14px;
+      line-height: 16px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #11b9e4;
+      white-space: nowrap;
+    }
+    [class~="06-see-everything-stub"] {
+      width: 36px;
+      height: 2px;
+      background: #11b9e4;
+    }
+    [class~="06-see-everything-kicker"] span {
+      color: #8fa3b8;
+    }
+  </style>
+
+  <div id="root" data-composition-id="06-see-everything" data-width="1920" data-height="1080" data-duration="7.422">
+    <div class="clip 06-see-everything-bg" data-start="0" data-duration="7.422" data-track-index="0"></div>
+
+    <div class="06-see-everything-viewport">
+      <div class="06-see-everything-rig" data-el="rig">
+        <div class="06-see-everything-world" data-el="world" data-layout-allow-overflow="" style="--s: 0.85; --fx: 960; --fy: 424;">
+          <div class="06-see-everything-grid"></div>
+
+          <!-- window 1: overview (world x 0) -->
+          <div class="06-see-everything-win" style="left: -1px;">
+            <img src="assets/overview.png" alt="AgentsShield console overview">
+            <div class="06-see-everything-glow" data-el="g-blocked" style="left: 537px; top: 95px; width: 271px; height: 129px; border-radius: 12px;"></div>
+            <div class="06-see-everything-glow" data-el="g-redacted" style="left: 816px; top: 95px; width: 272px; height: 129px; border-radius: 12px;"></div>
+          </div>
+
+          <!-- window 2: people & spend (world x 2400) -->
+          <div class="06-see-everything-win" style="left: 2399px;">
+            <img src="assets/clients.png" alt="AgentsShield console people and spend">
+            <div class="06-see-everything-glow" data-el="g-tool" style="left: 483px; top: 104px; width: 100px; height: 235px; border-radius: 6px;"></div>
+            <div class="06-see-everything-glow" data-el="g-models" style="left: 761px; top: 104px; width: 286px; height: 235px; border-radius: 6px;"></div>
+            <div class="06-see-everything-glow" data-el="g-usd" style="left: 1461px; top: 104px; width: 72px; height: 235px; border-radius: 6px;"></div>
+          </div>
+
+          <!-- window 3: activity + why (world x 4800) -->
+          <div class="06-see-everything-win" style="left: 4799px;">
+            <img src="assets/security.png" alt="AgentsShield console activity and why panel">
+            <div class="06-see-everything-glow" data-el="g-row" style="left: 263px; top: 593px; width: 961px; height: 58px; border-radius: 4px;"></div>
+            <div class="06-see-everything-glow" data-el="g-title" style="left: 1252px; top: 191px; width: 287px; height: 32px; border-radius: 6px;"></div>
+            <div class="06-see-everything-glow" data-el="g-fw" style="left: 1254px; top: 870px; width: 246px; height: 31px; border-radius: 6px;"></div>
+            <div class="06-see-everything-glow" data-el="g-f1" style="left: 1274px; top: 916px; width: 356px; height: 66px; border-radius: 6px;"></div>
+            <div class="06-see-everything-glow" data-el="g-f2" style="left: 1274px; top: 984px; width: 356px; height: 61px; border-radius: 6px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="06-see-everything-kicker" data-el="k-a"><i class="06-see-everything-stub" data-el="k-a-stub"></i>AgentsShield console <span>/ real traffic</span></div>
+    <div class="06-see-everything-kicker" data-el="k-b"><i class="06-see-everything-stub"></i>People &amp; spend <span>/ per person</span></div>
+    <div class="06-see-everything-kicker" data-el="k-c"><i class="06-see-everything-stub"></i>Tokens &amp; USD <span>/ per person</span></div>
+    <div class="06-see-everything-kicker" data-el="k-d"><i class="06-see-everything-stub"></i>Activity <span>/ why</span></div>
+  </div>
+
+  <script>
+    (function () {
+      var ID = "06-see-everything";
+      var root = document.querySelector('[data-composition-id="' + ID + '"]');
+      function el(name) { return root.querySelector('[data-el="' + name + '"]'); }
+
+      var rig = el("rig");
+      var world = el("world");
+      var END = 7.422;
+      var tl = gsap.timeline({ paused: true });
+
+      // ---- camera: one state (--s, --fx, --fy) on the single world wrapper ----
+      // world layout: overview at x 0, people & spend at x 2400, activity at x 4800 (each 1920 x 1080)
+      function cam(prop, from, to, at, dur, ease) {
+        var a = {}; a[prop] = from;
+        var b = { duration: dur, ease: ease, immediateRender: false }; b[prop] = to;
+        tl.fromTo(world, a, b, at);
+      }
+      function blur(at, up, down, peak) {
+        tl.fromTo(rig, { "--blur": 0 }, { "--blur": peak, duration: up, ease: "power1.in", immediateRender: false }, at);
+        tl.fromTo(rig, { "--blur": peak }, { "--blur": 0, duration: down, ease: "power2.out", immediateRender: false }, at + up);
+      }
+
+      // scale legs
+      cam("--s", 0.85, 0.88, 0.00, 1.46, "sine.out");        // Scene 1: window settle drift
+      cam("--s", 0.88, 1.28, 1.46, 0.66, "power4.out");      // Scene 2: push into the KPI rows
+      cam("--s", 1.28, 1.30, 2.12, 0.24, "none");            // drift
+      cam("--s", 1.30, 0.62, 2.36, 0.26, "power2.in");       // Scene 3: pull back, world reveal
+      cam("--s", 0.62, 2.10, 2.62, 0.52, "power4.out");      // dive onto the people rows
+      cam("--s", 2.10, 2.14, 3.14, 0.88, "none");            // drift
+      cam("--s", 2.14, 1.95, 4.02, 0.28, "sine.inOut");      // Scene 4: slide breath
+      cam("--s", 1.95, 2.14, 4.30, 0.34, "power3.out");
+      cam("--s", 2.14, 2.17, 4.64, 0.52, "none");            // drift
+      cam("--s", 2.17, 0.62, 5.16, 0.24, "power2.in");       // Scene 5: pull back
+      cam("--s", 0.62, 1.25, 5.40, 0.34, "power4.out");      // arrive on Activity + Why
+      cam("--s", 1.25, 1.27, 5.74, 0.10, "none");
+      cam("--s", 1.27, 2.10, 5.84, 0.46, "power3.out");      // dive down the decide() timeline
+      cam("--s", 2.10, 2.15, 6.30, END - 6.30, "none");      // land and hold
+
+      // focus x legs (world px)
+      cam("--fx", 960, 954, 1.46, 0.66, "power4.out");
+      cam("--fx", 954, 952, 2.12, 0.24, "none");
+      cam("--fx", 952, 3055, 2.36, 0.74, "power2.inOut");    // to people & spend: WHO .. MODELS
+      cam("--fx", 3055, 3058, 3.10, 0.92, "none");
+      cam("--fx", 3058, 3655, 4.02, 0.60, "power2.inOut");   // slide to TOKENS / USD
+      cam("--fx", 3655, 3658, 4.62, 0.54, "none");
+      cam("--fx", 3658, 5860, 5.16, 0.56, "power2.inOut");   // to activity (table + why panel)
+      cam("--fx", 5860, 5862, 5.72, 0.12, "none");
+      cam("--fx", 5862, 6240, 5.84, 0.46, "power3.out");     // centre the why panel
+      cam("--fx", 6240, 6241, 6.30, END - 6.30, "none");
+
+      // focus y legs (world px)
+      cam("--fy", 424, 345, 1.46, 0.66, "power4.out");
+      cam("--fy", 345, 343, 2.12, 0.24, "none");
+      cam("--fy", 343, 222, 2.36, 0.74, "power2.inOut");
+      cam("--fy", 222, 224, 3.10, 0.92, "none");
+      cam("--fy", 224, 256, 4.02, 0.60, "power2.inOut");
+      cam("--fy", 256, 400, 5.16, 0.56, "power2.inOut");
+      cam("--fy", 400, 402, 5.72, 0.12, "none");
+      cam("--fy", 402, 850, 5.84, 0.46, "power3.out");       // down to Tool firewall + CODE-AG lines
+      cam("--fy", 850, 853, 6.30, END - 6.30, "none");
+
+      // motion blur envelopes ride the travel legs (peak at peak velocity, sharp at landing)
+      blur(1.46, 0.10, 0.34, 2.5);
+      blur(2.36, 0.26, 0.40, 6);
+      blur(4.02, 0.24, 0.32, 3.5);
+      blur(5.16, 0.24, 0.32, 6);
+      blur(5.84, 0.12, 0.30, 3);
+
+      // ---- Scene 1: overview window rises in, 3D tilt flattens to 0 ----
+      tl.fromTo(rig, { opacity: 0 }, { opacity: 1, duration: 0.42, ease: "power1.out" }, 0);
+      tl.fromTo(rig,
+        { y: 170, rotationX: 26, scale: 0.9, transformOrigin: "50% 70%" },
+        { y: 0, rotationX: 0, scale: 1, duration: 1.25, ease: "power3.out" }, 0);
+
+      // ---- kickers (in-frame label swaps) ----
+      function kickIn(name, at) {
+        tl.fromTo(el(name), { opacity: 0, x: 14 }, { opacity: 1, x: 0, duration: 0.36, ease: "power2.out" }, at);
+      }
+      function kickOut(name, at) {
+        tl.fromTo(el(name), { opacity: 1 }, { opacity: 0, duration: 0.18, ease: "power1.in", immediateRender: false }, at);
+      }
+      tl.set([el("k-b"), el("k-c"), el("k-d")], { opacity: 0 }, 0);
+      kickIn("k-a", 0.30);
+      tl.fromTo(el("k-a-stub"), { scaleX: 0, transformOrigin: "0% 50%" }, { scaleX: 1, duration: 0.4, ease: "power3.out" }, 0.36);
+      kickOut("k-a", 2.36); kickIn("k-b", 2.46);
+      kickOut("k-b", 4.02); kickIn("k-c", 4.12);
+      kickOut("k-c", 5.16); kickIn("k-d", 5.26);
+
+      // ---- glows ----
+      function pop(name, at) {
+        tl.fromTo(el(name), { opacity: 0, scale: 1.08 }, { opacity: 1, scale: 1, duration: 0.32, ease: "power3.out" }, at);
+      }
+      function sweepX(name, w, at, dur) {
+        var g = el(name);
+        tl.fromTo(g, { opacity: 0 }, { opacity: 1, duration: 0.12, ease: "none" }, at);
+        tl.fromTo(g,
+          { clipPath: "inset(-30px " + (w + 30) + "px -30px -30px)" },
+          { clipPath: "inset(-30px -30px -30px -30px)", duration: dur, ease: "power2.inOut" }, at);
+      }
+      function sweepY(name, h, at, dur) {
+        var g = el(name);
+        tl.fromTo(g, { opacity: 0 }, { opacity: 1, duration: 0.12, ease: "none" }, at);
+        tl.fromTo(g,
+          { clipPath: "inset(-30px -30px " + (h + 30) + "px -30px)" },
+          { clipPath: "inset(-30px -30px -30px -30px)", duration: dur, ease: "power2.inOut" }, at);
+      }
+
+      // Scene 2: Blocked, then Redacted
+      pop("g-blocked", 1.72);
+      pop("g-redacted", 1.96);
+      // Scene 3: keyword glow sweeps down TOOL, then MODELS
+      sweepY("g-tool", 235, 3.10, 0.34);
+      sweepY("g-models", 235, 3.34, 0.40);
+      // Scene 4: USD values
+      sweepY("g-usd", 235, 4.48, 0.40);
+      // Scene 5: the blocked event row, the Why title, the tool firewall step, then the two findings on "why"
+      sweepX("g-row", 961, 5.46, 0.34);
+      pop("g-title", 5.64);
+      sweepX("g-fw", 246, 6.12, 0.26);
+      sweepX("g-f1", 356, 6.30, 0.30);
+      sweepX("g-f2", 356, 6.44, 0.30);
+
+      tl.set({}, {}, END);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines[ID] = tl;
+    })();
+  </script>
+</template>

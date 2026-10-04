@@ -1,0 +1,450 @@
+<template>
+  <style>
+    @font-face { font-family: "Inter"; font-style: normal; font-weight: 400 900; font-display: block; src: url("fonts/Inter-latin.woff2") format("woff2"); }
+    @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: block; src: url("fonts/JetBrainsMono-latin.woff2") format("woff2"); }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      color: #f1f5f9;
+      font-family: "Inter", sans-serif;
+    }
+
+    .w02-bg {
+      position: absolute;
+      inset: 0;
+      background: #0a1726;
+    }
+
+    .w02-scene {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+    }
+
+    /* virtual camera: the world is one oversized canvas, panned laterally */
+    .w02-world {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 3400px;
+      height: 1080px;
+      will-change: transform;
+    }
+
+    .w02-mono {
+      font-family: "JetBrains Mono", monospace;
+    }
+
+    /* station 1: your network */
+    .w02-kicker {
+      position: absolute;
+      left: 56px;
+      top: 262px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      font-family: "JetBrains Mono", monospace;
+      font-weight: 500;
+      font-size: 16px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #11b9e4;
+    }
+    .w02-rule {
+      width: 36px;
+      height: 2px;
+      background: #11b9e4;
+    }
+
+    .w02-term {
+      position: absolute;
+      left: 56px;
+      width: 404px;
+      background: #0f2236;
+      border: 1px solid #1d3550;
+      border-radius: 14px;
+      overflow: hidden;
+      font-family: "JetBrains Mono", monospace;
+      transform-origin: 0% 50%;
+    }
+    .w02-term-bar {
+      height: 30px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid #1d3550;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #8fa3b8;
+    }
+    .w02-term-body {
+      padding: 10px 14px 12px;
+      font-size: 12.5px;
+      line-height: 1.6;
+      white-space: pre;
+      color: #f1f5f9;
+    }
+    .w02-term-body .w02-cmd {
+      color: #8fa3b8;
+    }
+    .w02-term-body .w02-ok {
+      color: #4ade80;
+    }
+
+    /* hairline tracks */
+    .w02-track {
+      position: absolute;
+      left: 470px;
+      width: 2330px;
+      height: 1px;
+      background: #1d3550;
+      transform-origin: 0% 50%;
+    }
+
+    /* request packets */
+    .w02-pk {
+      position: absolute;
+      left: 0;
+      width: 780px;
+      height: 64px;
+      background: #0f2236;
+      border: 1px solid #1d3550;
+      display: flex;
+      align-items: center;
+      font-family: "JetBrains Mono", monospace;
+    }
+    .w02-pk-bar {
+      width: 4px;
+      align-self: stretch;
+      background: #34506c;
+    }
+    .w02-pk-verb {
+      width: 236px;
+      padding-left: 16px;
+      font-size: 18px;
+      font-weight: 500;
+      color: #8fa3b8;
+      white-space: pre;
+    }
+    .w02-pk-body {
+      position: relative;
+      flex: 1;
+      height: 100%;
+      display: flex;
+      align-items: center;
+    }
+    .w02-pk-hint {
+      font-size: 18px;
+      color: #34506c;
+      white-space: pre;
+    }
+    .w02-chip {
+      position: absolute;
+      left: 0;
+      top: 12px;
+      height: 40px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 19px;
+      font-weight: 600;
+      white-space: pre;
+      border: 1px solid;
+      border-radius: 3px;
+      transform-origin: 0% 50%;
+    }
+    .w02-chip-code {
+      color: #f1f5f9;
+      background: #1a2232;
+      border-color: #8fa3b8;
+    }
+    .w02-chip-block {
+      color: #f87171;
+      background: #32242f;
+      border-color: rgba(248, 113, 113, 0.7);
+    }
+    .w02-chip-redact {
+      color: #fbbf24;
+      background: #332f26;
+      border-color: rgba(251, 191, 36, 0.7);
+    }
+
+    /* the boundary */
+    .w02-boundary {
+      position: absolute;
+      left: 1760px;
+      top: 220px;
+      width: 0;
+      height: 600px;
+      border-left: 1px dashed #8fa3b8;
+      transform-origin: 50% 0%;
+    }
+    .w02-bound-label {
+      position: absolute;
+      top: 836px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 16px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #8fa3b8;
+      white-space: pre;
+    }
+    .w02-bound-left {
+      left: 1460px;
+      width: 280px;
+      text-align: right;
+    }
+    .w02-bound-pipe {
+      left: 1754px;
+      color: #f1f5f9;
+    }
+    .w02-bound-right {
+      left: 1782px;
+      color: #f1f5f9;
+    }
+
+    /* station 2: outside host */
+    .w02-host {
+      position: absolute;
+      left: 2820px;
+      top: 330px;
+      width: 500px;
+      background: #0f2236;
+      border: 1px solid #1d3550;
+      border-radius: 14px;
+      overflow: hidden;
+    }
+    .w02-host-bar {
+      height: 40px;
+      padding: 0 20px;
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid #1d3550;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 14px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #8fa3b8;
+    }
+    .w02-host-body {
+      padding: 34px 28px 38px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 32px;
+      font-weight: 600;
+      color: #f1f5f9;
+      white-space: pre;
+    }
+
+    /* readout: fixed over the whole shot */
+    .w02-readout {
+      position: absolute;
+      left: 104px;
+      top: 64px;
+      padding: 20px 28px 18px;
+      background: #0f2236;
+      border: 1px solid #1d3550;
+      border-radius: 14px;
+    }
+    .w02-readout-title {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 30px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #f1f5f9;
+      white-space: pre;
+    }
+    .w02-readout-count {
+      margin-top: 6px;
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+      color: #f87171;
+    }
+    .w02-readout-num {
+      font-family: "Inter", sans-serif;
+      font-size: 72px;
+      font-weight: 900;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+    .w02-readout-label {
+      font-family: "JetBrains Mono", monospace;
+      font-size: 24px;
+      font-weight: 500;
+      white-space: pre;
+    }
+  </style>
+
+  <div data-hf-id="hf-8mqw" id="root" data-composition-id="02-what-leaves" data-width="1920" data-height="1080" data-duration="7.736">
+    <div data-hf-id="hf-zu5y" class="w02-bg clip" data-start="0" data-duration="7.736" data-track-index="0"></div>
+
+    <div data-hf-id="hf-6rss" class="w02-scene clip" data-start="0" data-duration="7.736" data-track-index="1">
+      <div data-hf-id="hf-03wq" class="w02-world" id="w02-world">
+        <!-- station 1: your network -->
+        <div data-hf-id="hf-dzo2" class="w02-kicker" id="w02-kicker"><span data-hf-id="hf-c3ql" class="w02-rule"></span><span data-hf-id="hf-3msw">Your network</span></div>
+
+        <div data-hf-id="hf-tdtv" class="w02-term" id="w02-term-1" style="top: 306px;">
+          <div data-hf-id="hf-39pb" class="w02-term-bar">claude code</div>
+          <div data-hf-id="hf-b1ge" class="w02-term-body"><span data-hf-id="hf-hxaj" class="w02-cmd">$ claude</span>
+POST https://api.anthropic.com/v1/messages  <span data-hf-id="hf-fmc9" class="w02-ok">200</span></div>
+        </div>
+        <div data-hf-id="hf-fkvf" class="w02-term" id="w02-term-2" style="top: 444px;">
+          <div data-hf-id="hf-dccz" class="w02-term-bar">codex</div>
+          <div data-hf-id="hf-57co" class="w02-term-body"><span data-hf-id="hf-44gx" class="w02-cmd">$ codex exec</span>
+POST https://api.openai.com/v1/responses  <span data-hf-id="hf-5cq5" class="w02-ok">200</span></div>
+        </div>
+        <div data-hf-id="hf-thgz" class="w02-term" id="w02-term-3" style="top: 582px;">
+          <div data-hf-id="hf-vpao" class="w02-term-bar">sdk</div>
+          <div data-hf-id="hf-9ude" class="w02-term-body"><span data-hf-id="hf-szwj" class="w02-cmd">python agent.py</span>
+POST https://api.anthropic.com/v1/messages  <span data-hf-id="hf-6jn8" class="w02-ok">200</span></div>
+        </div>
+
+        <!-- hairline tracks -->
+        <div data-hf-id="hf-wedu" class="w02-track" id="w02-track-1" style="top: 350px;"></div>
+        <div data-hf-id="hf-n67p" class="w02-track" id="w02-track-2" style="top: 440px;"></div>
+        <div data-hf-id="hf-ayqg" class="w02-track" id="w02-track-3" style="top: 530px;"></div>
+        <div data-hf-id="hf-s6n7" class="w02-track" id="w02-track-4" style="top: 620px;"></div>
+
+        <!-- boundary -->
+        <div data-hf-id="hf-fv6u" class="w02-boundary" id="w02-boundary"></div>
+        <div data-hf-id="hf-wx8y" class="w02-bound-label w02-bound-left" id="w02-bl-left">Your network</div>
+        <div data-hf-id="hf-4wjb" class="w02-bound-label w02-bound-pipe" id="w02-bl-pipe">|</div>
+        <div data-hf-id="hf-2ue6" class="w02-bound-label w02-bound-right" id="w02-bl-right">Outside</div>
+
+        <!-- station 2: outside host -->
+        <div data-hf-id="hf-deke" class="w02-host" id="w02-host">
+          <div data-hf-id="hf-5rqv" class="w02-host-bar">outside api</div>
+          <div data-hf-id="hf-6jsd" class="w02-host-body"><span data-hf-id="hf-8sae">api.anthropic.com</span><span data-hf-id="hf-y4gq">api.openai.com</span></div>
+        </div>
+
+        <!-- request packets -->
+        <div data-hf-id="hf-pjiw" class="w02-pk" id="w02-pk-1" style="top: 318px;">
+          <span data-hf-id="hf-tfuw" class="w02-pk-bar" id="w02-pkbar-1"></span>
+          <span data-hf-id="hf-xdx5" class="w02-pk-verb">POST /v1/messages</span>
+          <span data-hf-id="hf-qfqt" class="w02-pk-body"><span data-hf-id="hf-q0fi" class="w02-pk-hint">{ ... }</span>
+            <span data-hf-id="hf-ctp7" class="w02-chip w02-chip-code" id="w02-chip-1">def charge(card, amount):</span></span>
+        </div>
+        <div data-hf-id="hf-w30r" class="w02-pk" id="w02-pk-2" style="top: 408px;">
+          <span data-hf-id="hf-23qr" class="w02-pk-bar" id="w02-pkbar-2"></span>
+          <span data-hf-id="hf-6e8d" class="w02-pk-verb">POST /v1/messages</span>
+          <span data-hf-id="hf-012h" class="w02-pk-body"><span data-hf-id="hf-oyia" class="w02-pk-hint">{ ... }</span>
+            <span data-hf-id="hf-pt1t" class="w02-chip w02-chip-block" id="w02-chip-2">AKIAIOSFODNN7EXAMPLE</span></span>
+        </div>
+        <div data-hf-id="hf-vncj" class="w02-pk" id="w02-pk-3" style="top: 498px;">
+          <span data-hf-id="hf-y5mq" class="w02-pk-bar" id="w02-pkbar-3"></span>
+          <span data-hf-id="hf-7l5g" class="w02-pk-verb">POST /v1/messages</span>
+          <span data-hf-id="hf-17zk" class="w02-pk-body"><span data-hf-id="hf-pctb" class="w02-pk-hint">{ ... }</span>
+            <span data-hf-id="hf-vwfu" class="w02-chip w02-chip-redact" id="w02-chip-3">PESEL 44051401359</span></span>
+        </div>
+        <div data-hf-id="hf-37qa" class="w02-pk" id="w02-pk-4" style="top: 588px;">
+          <span data-hf-id="hf-fdx1" class="w02-pk-bar" id="w02-pkbar-4"></span>
+          <span data-hf-id="hf-76uf" class="w02-pk-verb">POST /v1/messages</span>
+          <span data-hf-id="hf-0toj" class="w02-pk-body"><span data-hf-id="hf-pr4c" class="w02-pk-hint">{ ... }</span>
+            <span data-hf-id="hf-9odj" class="w02-chip w02-chip-redact" id="w02-chip-4">.env  DATABASE_URL=postgres://app:...</span></span>
+        </div>
+      </div>
+
+      <!-- readout, fixed to the frame (outside the camera) -->
+      <div data-hf-id="hf-52xu" class="w02-readout" id="w02-readout">
+        <div data-hf-id="hf-mvhn" class="w02-readout-title">Visibility: none</div>
+        <div data-hf-id="hf-w8yh" class="w02-readout-count" id="w02-count">
+          <span data-hf-id="hf-adle" class="w02-readout-num">0</span>
+          <span data-hf-id="hf-q8kn" class="w02-readout-label">requests inspected</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      window.__timelines = window.__timelines || {};
+      var scope = document.querySelector('[data-composition-id="02-what-leaves"]') || document;
+      function q(id) { return scope.querySelector("#" + id); }
+
+      var tl = gsap.timeline({ paused: true });
+
+      var world = q("w02-world");
+      var terms = [q("w02-term-1"), q("w02-term-2"), q("w02-term-3")];
+      var tracks = [q("w02-track-1"), q("w02-track-2"), q("w02-track-3"), q("w02-track-4")];
+      var pks = [q("w02-pk-1"), q("w02-pk-2"), q("w02-pk-3"), q("w02-pk-4")];
+      var bars = [q("w02-pkbar-1"), q("w02-pkbar-2"), q("w02-pkbar-3"), q("w02-pkbar-4")];
+      var chips = [q("w02-chip-1"), q("w02-chip-2"), q("w02-chip-3"), q("w02-chip-4")];
+      var chipColors = ["#f1f5f9", "#f87171", "#fbbf24", "#fbbf24"];
+
+      // world-space x for each packet: rest (left station), drift, arrival (right station)
+      var restX = [540, 600, 570, 630];
+      var DRIFT = 50;
+      var endX = [1890, 1950, 1920, 1980];
+
+      // ---------- Scene 1 (0.0-1.6s): left station, packets start streaming ----------
+      // camera: slow drift underneath scenes 1-2
+      tl.fromTo(world, { x: 0 }, { x: -40, duration: 4.6, ease: "sine.inOut" }, 0);
+
+      // terminals carried over from frame 01 (visible at t=0), settle into the left edge
+      terms.forEach(function (el, i) {
+        tl.fromTo(el, { opacity: 1, x: 24, scale: 1.04 }, { opacity: 1, x: 0, scale: 1, duration: 0.9, ease: "power3.out" }, i * 0.04);
+      });
+      tl.fromTo(q("w02-kicker"), { opacity: 0, x: -12 }, { opacity: 1, x: 0, duration: 0.5, ease: "power3.out" }, 0.1);
+
+      // hairline tracks draw out to the right on "every request"
+      tracks.forEach(function (el, i) {
+        tl.fromTo(el, { scaleX: 0 }, { scaleX: 1, duration: 1.0, ease: "power2.out" }, 0.24 + i * 0.08);
+      });
+
+      // packets leave the terminals and stream right along the tracks
+      pks.forEach(function (el, i) {
+        tl.fromTo(el, { x: restX[i] - 150, opacity: 0 }, { x: restX[i], opacity: 1, duration: 0.7, ease: "power3.out" }, 0.24 + i * 0.14);
+      });
+
+      // the boundary is there from the start, quietly
+      tl.fromTo(q("w02-boundary"), { scaleY: 0 }, { scaleY: 1, duration: 0.8, ease: "power2.out" }, 0.6);
+      tl.fromTo([q("w02-bl-left"), q("w02-bl-pipe"), q("w02-bl-right")], { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power1.out", stagger: 0.08 }, 1.0);
+
+      // packets keep streaming slowly while the chips light up
+      pks.forEach(function (el, i) {
+        tl.fromTo(el, { x: restX[i] }, { x: restX[i] + DRIFT, duration: 3.2, ease: "sine.inOut", immediateRender: false }, 1.4);
+      });
+
+      // ---------- Scene 2 (1.6-4.0s): payload chips pop on their cues ----------
+      var chipTimes = [1.63, 2.44, 3.37, 3.52];
+      chips.forEach(function (el, i) {
+        var t = chipTimes[i];
+        tl.fromTo(el, { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.45, ease: "back.out(2.2)" }, t);
+        tl.fromTo(bars[i], { backgroundColor: "#34506c" }, { backgroundColor: chipColors[i], duration: 0.25, ease: "power1.out" }, t);
+        tl.fromTo(pks[i], { y: 0 }, { y: -4, duration: 0.14, ease: "power2.out", immediateRender: false }, t);
+        tl.fromTo(pks[i], { y: -4 }, { y: 0, duration: 0.3, ease: "power2.inOut", immediateRender: false }, t + 0.14);
+      });
+
+      // ---------- Scene 3 (4.4-5.9s): one lateral pan across the boundary ----------
+      tl.fromTo(world, { x: -40 }, { x: -1460, duration: 1.2, ease: "power3.inOut", immediateRender: false }, 4.71);
+      pks.forEach(function (el, i) {
+        tl.fromTo(el, { x: restX[i] + DRIFT }, { x: endX[i], duration: 1.15, ease: "power3.inOut", immediateRender: false }, 4.71 + i * 0.05);
+      });
+      // packets land at the outside host
+      tl.fromTo(q("w02-host"), { borderColor: "#1d3550" }, { borderColor: "#11b9e4", duration: 0.35, ease: "power1.out" }, 5.7);
+
+      // ---------- Scene 4 (6.0-7.24s): readout drops in, hold ----------
+      tl.fromTo(q("w02-readout"), { opacity: 0, y: -36 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 6.05);
+      tl.fromTo(q("w02-count"), { opacity: 0 }, { opacity: 1, duration: 0.3, ease: "power1.out" }, 6.25);
+
+      // hold to the frame's fixed duration
+      tl.set({}, {}, 7.236);
+
+      window.__timelines["02-what-leaves"] = tl;
+    })();
+  </script>
+</template>

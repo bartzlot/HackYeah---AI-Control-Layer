@@ -1,0 +1,321 @@
+<template>
+  <style>
+    @font-face { font-family: "Inter"; font-style: normal; font-weight: 400 900; font-display: block; src: url("fonts/Inter-latin.woff2") format("woff2"); }
+    @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: block; src: url("fonts/JetBrainsMono-latin.woff2") format("woff2"); }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      color: #f1f5f9;
+      font-family: "Inter", sans-serif;
+    }
+
+    .n08-bg {
+      position: absolute;
+      inset: 0;
+      background: #0a1726;
+      overflow: hidden;
+    }
+    .n08-bg-img {
+      position: absolute;
+      left: -80px;
+      top: -60px;
+      width: 2080px;
+      height: 1200px;
+      object-fit: cover;
+      filter: blur(14px);
+      opacity: 0.15;
+      transform-origin: 50% 45%;
+    }
+    .n08-bg-shade {
+      position: absolute;
+      inset: 0;
+      background: rgba(10, 23, 38, 0.35);
+    }
+
+    .n08-stage {
+      position: absolute;
+      inset: 0;
+    }
+
+    /* top chrome bar */
+    .n08-topbar {
+      position: absolute;
+      left: 106px;
+      right: 106px;
+      top: 96px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      gap: 28px;
+      font-family: "JetBrains Mono", monospace;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+    }
+    .n08-kicker {
+      font-size: 26px;
+      color: #11b9e4;
+      white-space: pre;
+    }
+    .n08-kicker span { opacity: 0; }
+    .n08-chip {
+      font-size: 22px;
+      color: #f1f5f9;
+      border: 1px solid #34506c;
+      padding: 10px 18px;
+      line-height: 1;
+      opacity: 0;
+    }
+    .n08-agents {
+      margin-left: auto;
+      font-size: 20px;
+      color: #8fa3b8;
+      opacity: 0;
+    }
+    .n08-hair-top {
+      position: absolute;
+      left: 106px;
+      right: 106px;
+      top: 176px;
+      height: 1px;
+      background: #1d3550;
+      transform-origin: 0 50%;
+    }
+
+    /* stat grid */
+    .n08-grid {
+      position: absolute;
+      left: 106px;
+      right: 106px;
+      top: 300px;
+      height: 420px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      column-gap: 72px;
+    }
+    .n08-card {
+      position: relative;
+      padding-top: 30px;
+    }
+    .n08-card-rule {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 0;
+      height: 1px;
+      background: #34506c;
+      transform-origin: 0 50%;
+    }
+    .n08-card-idx {
+      font-family: "JetBrains Mono", monospace;
+      font-weight: 500;
+      font-size: 18px;
+      letter-spacing: 0.14em;
+      color: #8fa3b8;
+      opacity: 0;
+    }
+    .n08-num-wrap {
+      margin-top: 34px;
+      height: 170px;
+      width: 100%;
+      display: flex;
+      align-items: baseline;
+      white-space: nowrap;
+    }
+    .n08-num {
+      display: inline-block;
+      font-family: "Inter", sans-serif;
+      font-weight: 900;
+      font-size: 168px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+      color: #11b9e4;
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1;
+      transform-origin: 0% 85%;
+    }
+    .n08-unit {
+      display: inline-block;
+      margin-left: 18px;
+      font-family: "Inter", sans-serif;
+      font-weight: 800;
+      font-size: 64px;
+      letter-spacing: -0.02em;
+      color: #11b9e4;
+      opacity: 0;
+    }
+    .n08-label {
+      margin-top: 26px;
+      max-width: 500px;
+      font-family: "Inter", sans-serif;
+      font-weight: 400;
+      font-size: 30px;
+      line-height: 1.35;
+      color: #f1f5f9;
+      opacity: 0;
+    }
+    .n08-label em {
+      font-style: normal;
+      color: #8fa3b8;
+    }
+
+    /* bottom chrome */
+    .n08-hair-bot {
+      position: absolute;
+      left: 106px;
+      right: 106px;
+      top: 800px;
+      height: 1px;
+      background: #1d3550;
+      transform-origin: 0 50%;
+    }
+    .n08-footer {
+      position: absolute;
+      left: 106px;
+      right: 106px;
+      top: 826px;
+      display: flex;
+      align-items: center;
+      font-family: "JetBrains Mono", monospace;
+      font-weight: 500;
+      font-size: 22px;
+      letter-spacing: 0.14em;
+      color: #8fa3b8;
+    }
+    .n08-footer-line { opacity: 0; }
+    .n08-footer-line b {
+      font-weight: 500;
+      color: #11b9e4;
+    }
+    .n08-footer-num {
+      margin-left: auto;
+      color: #34506c;
+      opacity: 0;
+    }
+  </style>
+
+  <div data-hf-id="hf-9aoi" id="root" data-composition-id="08-numbers" data-width="1920" data-height="1080" data-duration="6.978">
+    <div data-hf-id="hf-5et8" class="n08-bg clip" data-start="0" data-duration="6.978" data-track-index="0">
+      <img data-hf-id="hf-smhq" class="n08-bg-img" id="n08-bg-img" src="assets/performance.png" alt="">
+      <div data-hf-id="hf-nh0q" class="n08-bg-shade"></div>
+    </div>
+
+    <div data-hf-id="hf-oi4y" class="n08-stage clip" data-start="0" data-duration="6.978" data-track-index="1">
+      <div data-hf-id="hf-l8wz" class="n08-topbar">
+        <div data-hf-id="hf-c5p6" class="n08-kicker" id="n08-kicker"><span data-hf-id="hf-fmnq">S</span><span data-hf-id="hf-l6y4">E</span><span data-hf-id="hf-hm6v">L</span><span data-hf-id="hf-k011">F</span><span data-hf-id="hf-k5wk">-</span><span data-hf-id="hf-j7ez">H</span><span data-hf-id="hf-h7vu">O</span><span data-hf-id="hf-wgd6">S</span><span data-hf-id="hf-efqn">T</span><span data-hf-id="hf-16v8">E</span><span data-hf-id="hf-ksn3">D</span></div>
+        <div data-hf-id="hf-u96v" class="n08-chip" id="n08-chip">LOCAL AI JUDGE (OLLAMA)</div>
+        <div data-hf-id="hf-cj67" class="n08-agents" id="n08-agents">CLAUDE CODE + CODEX</div>
+      </div>
+      <div data-hf-id="hf-p122" class="n08-hair-top" id="n08-hair-top"></div>
+
+      <div data-hf-id="hf-gniz" class="n08-grid">
+        <div data-hf-id="hf-nacr" class="n08-card" id="n08-card1">
+          <div data-hf-id="hf-i6uk" class="n08-card-rule" id="n08-rule1"></div>
+          <div data-hf-id="hf-1fp6" class="n08-card-idx" id="n08-idx1">01 / OVERHEAD</div>
+          <div data-hf-id="hf-7gv6" class="n08-num-wrap">
+            <span data-hf-id="hf-ruh6" class="n08-num" id="n08-num1">0</span><span data-hf-id="hf-zdlk" class="n08-unit" id="n08-unit1">ms</span>
+          </div>
+          <div data-hf-id="hf-u6la" class="n08-label" id="n08-label1">gateway overhead on a full Claude Code request <em data-hf-id="hf-2v6p">(p50)</em></div>
+        </div>
+
+        <div data-hf-id="hf-emgw" class="n08-card" id="n08-card2">
+          <div data-hf-id="hf-t2c7" class="n08-card-rule" id="n08-rule2"></div>
+          <div data-hf-id="hf-yvpq" class="n08-card-idx" id="n08-idx2">02 / DECISION</div>
+          <div data-hf-id="hf-r2fa" class="n08-num-wrap">
+            <span data-hf-id="hf-iceb" class="n08-num" id="n08-num2">0.00</span><span data-hf-id="hf-e30f" class="n08-unit" id="n08-unit2">ms</span>
+          </div>
+          <div data-hf-id="hf-1gbd" class="n08-label" id="n08-label2">per policy decision <em data-hf-id="hf-mp9x">(p50)</em></div>
+        </div>
+
+        <div data-hf-id="hf-fe4p" class="n08-card" id="n08-card3">
+          <div data-hf-id="hf-mwme" class="n08-card-rule" id="n08-rule3"></div>
+          <div data-hf-id="hf-7k5r" class="n08-card-idx" id="n08-idx3">03 / TESTS</div>
+          <div data-hf-id="hf-rgqb" class="n08-num-wrap">
+            <span data-hf-id="hf-z1ng" class="n08-num" id="n08-num3">0</span>
+          </div>
+          <div data-hf-id="hf-l5dz" class="n08-label" id="n08-label3">tests passing <em data-hf-id="hf-p653">(offline suite)</em></div>
+        </div>
+      </div>
+
+      <div data-hf-id="hf-80gi" class="n08-hair-bot" id="n08-hair-bot"></div>
+      <div data-hf-id="hf-rg9y" class="n08-footer">
+        <div data-hf-id="hf-ypsv" class="n08-footer-line" id="n08-footer-line">MEASURED 2026-10-04 <b data-hf-id="hf-x3pa">/</b> make test <b data-hf-id="hf-q6zm">/</b> make bench</div>
+        <div data-hf-id="hf-90rv" class="n08-footer-num" id="n08-footer-num">NO. 08</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      window.__timelines = window.__timelines || {};
+      var scope = document.querySelector('[data-composition-id="08-numbers"]') || document;
+      function q(id) { return scope.querySelector("#" + id); }
+
+      var tl = gsap.timeline({ paused: true });
+
+      // Ground: blurred performance page, slow held drift underneath (no push-through).
+      tl.fromTo(q("n08-bg-img"), { scale: 1.06 }, { scale: 1.0, duration: 6.478, ease: "none" }, 0);
+
+      // Scene 1 (0.28 - 2.9s): top hairline chrome draws, kicker types, chip lands.
+      tl.fromTo(q("n08-hair-top"), { scaleX: 0 }, { scaleX: 1, duration: 0.9, ease: "power3.inOut" }, 0.1);
+
+      var chars = q("n08-kicker").querySelectorAll("span");
+      for (var i = 0; i < chars.length; i++) {
+        tl.fromTo(chars[i], { opacity: 0 }, { opacity: 1, duration: 0.01, ease: "none" }, 0.28 + i * 0.045);
+      }
+
+      tl.fromTo(q("n08-chip"), { opacity: 0, x: -28 }, { opacity: 1, x: 0, duration: 0.5, ease: "power3.out" }, 1.71);
+      tl.fromTo(q("n08-agents"), { opacity: 0, x: 18 }, { opacity: 1, x: 0, duration: 0.6, ease: "power2.out" }, 2.15);
+
+      // Card scaffolding: top-border-only rules draw in before the counts.
+      ["n08-rule1", "n08-rule2", "n08-rule3"].forEach(function (id, k) {
+        tl.fromTo(q(id), { scaleX: 0 }, { scaleX: 1, duration: 0.7, ease: "power3.out" }, 2.45 + k * 0.12);
+      });
+      ["n08-idx1", "n08-idx2", "n08-idx3"].forEach(function (id, k) {
+        tl.fromTo(q(id), { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.45, ease: "power2.out" }, 2.6 + k * 0.12);
+      });
+
+      function withCommas(n) {
+        return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+      }
+
+      // counting-dynamic-scale: proxy count + scale growth, same position, same ease.
+      function countUp(numId, from, to, at, dur, fmt) {
+        var el = q(numId);
+        var state = { v: from };
+        el.textContent = fmt(from);
+        tl.fromTo(state, { v: from }, {
+          v: to,
+          duration: dur,
+          ease: "power2.out",
+          onUpdate: function () { el.textContent = fmt(state.v); },
+          onComplete: function () { el.textContent = fmt(to); }
+        }, at);
+        tl.fromTo(el, { scale: 0.62, opacity: 0.35 }, { scale: 1, opacity: 1, duration: dur, ease: "power2.out" }, at);
+      }
+
+      // Scene 2 (3.21 - 4.7s): card 1 -> 34 ms, card 2 -> 0.07 ms.
+      countUp("n08-num1", 0, 34, 3.21, 0.9, function (v) { return String(Math.round(v)); });
+      tl.fromTo(q("n08-label1"), { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 3.35);
+      tl.fromTo(q("n08-unit1"), { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.4, ease: "back.out(1.7)" }, 4.11);
+
+      countUp("n08-num2", 0, 0.07, 3.72, 0.85, function (v) { return v.toFixed(2); });
+      tl.fromTo(q("n08-label2"), { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 3.86);
+      tl.fromTo(q("n08-unit2"), { opacity: 0, y: 20 }, { opacity: 1, y: 0, duration: 0.4, ease: "back.out(1.7)" }, 4.57);
+
+      // Scene 3 (4.80 - 6.48s): card 3 -> 1,057, footer settles, hold.
+      countUp("n08-num3", 0, 1057, 4.8, 1.0, function (v) { return withCommas(Math.round(v)); });
+      tl.fromTo(q("n08-label3"), { opacity: 0, y: 14 }, { opacity: 1, y: 0, duration: 0.5, ease: "power2.out" }, 4.94);
+
+      tl.fromTo(q("n08-hair-bot"), { scaleX: 0 }, { scaleX: 1, duration: 0.8, ease: "power3.inOut" }, 5.35);
+      tl.fromTo(q("n08-footer-line"), { opacity: 0, y: 12 }, { opacity: 1, y: 0, duration: 0.6, ease: "power2.out" }, 5.6);
+      tl.fromTo(q("n08-footer-num"), { opacity: 0 }, { opacity: 1, duration: 0.6, ease: "power2.out" }, 5.75);
+
+      window.__timelines["08-numbers"] = tl;
+    })();
+  </script>
+</template>

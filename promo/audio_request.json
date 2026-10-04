@@ -1,0 +1,61 @@
+{
+  "lines": [
+    {
+      "id": "01",
+      "sfx": [
+        "keyboard-typing-soft"
+      ]
+    },
+    {
+      "id": "02",
+      "sfx": [
+        "whoosh-soft"
+      ]
+    },
+    {
+      "id": "03",
+      "sfx": [
+        "glitch-short"
+      ]
+    },
+    {
+      "id": "04",
+      "sfx": [
+        "impact-soft"
+      ]
+    },
+    {
+      "id": "05",
+      "sfx": [
+        "thud-soft x3"
+      ]
+    },
+    {
+      "id": "06",
+      "sfx": [
+        "whoosh-soft"
+      ]
+    },
+    {
+      "id": "07",
+      "sfx": [
+        "key-click"
+      ]
+    },
+    {
+      "id": "08",
+      "sfx": [
+        "tick-soft"
+      ]
+    },
+    {
+      "id": "09",
+      "sfx": [
+        "impact-soft"
+      ]
+    }
+  ],
+  "bgm": {
+    "mode": "none"
+  }
+}
