@@ -33,6 +33,7 @@ from aicl_core import interception as icpt
 from aicl_core.engine import resolve_destination
 
 from .budget import prices_from_policy
+from .explain import add_latency, stage_timing
 
 HOP = {"host", "content-length", "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te",
        "trailer", "transfer-encoding", "upgrade", "accept-encoding"}
@@ -434,8 +435,9 @@ class Passthrough:
         total = (time.perf_counter() - t0) * 1000
         resp.headers["x-aicl-request-id"] = ctx["rid"]
         resp.headers["x-aicl-decision"] = ctx["action"].name
-        resp.headers["server-timing"] = (f"aicl;dur={max(total - ctx['up'], 0):.1f}, upstream;dur={ctx['up']:.1f}, "
-                                         f"total;dur={total:.1f}")
+        stages = stage_timing(ctx.get("stages"))
+        resp.headers["server-timing"] = (f"aicl;dur={max(total - ctx['up'], 0):.1f}, " + (stages + ", " if stages else "")
+                                         + f"upstream;dur={ctx['up']:.1f}, total;dur={total:.1f}")
         return resp
 
     def _refuse(self, ctx: dict, status: int, message: str, etype: str = "invalid_request_error") -> Response:
@@ -483,6 +485,7 @@ class Passthrough:
             self.audit.from_decision(event, d, "REQUEST_BLOCKED")
         else:
             self.audit.from_decision(event, d)
+            add_latency(ctx.setdefault("stages", {}), d.latency_us)   # Server-Timing per decide() stage (T-119)
         ctx["action"] = max(ctx["action"], d.action)
         return d
 

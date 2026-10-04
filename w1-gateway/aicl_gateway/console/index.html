@@ -3,27 +3,30 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AI Control Layer - Console</title>
+<title>AgentsShield - AI Control Layer Console</title>
 <link rel="stylesheet" href="/console/static/style.css">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%234f46e5%22/%3E%3Ctext x=%2216%22 y=%2222%22 font-size=%2218%22 text-anchor=%22middle%22 fill=%22white%22 font-family=%22sans-serif%22%3EA%3C/text%3E%3C/svg%3E">
+<link rel="icon" href="/console/static/favicon.ico" sizes="16x16 32x32 48x48">
+<link rel="icon" href="/console/static/favicon-32.png" type="image/png" sizes="32x32">
+<link rel="icon" href="/console/static/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/console/static/apple-touch-icon.png">
+<meta name="theme-color" content="#0c1e31">
 </head>
 <body>
 <div class="app">
 <aside class="side">
-  <div class="brand"><div class="logo">A</div><div>AI Control Layer<small>AICL console</small></div></div>
+  <div class="brand"><svg class="logo" viewBox="0 0 1825 424" role="img" aria-label="AgentsShield"><use href="/console/static/logo.svg#logo"/></svg><small>AI Control Layer console</small></div>
   <div class="nav" id="nav">
     <div class="navgroup">Management</div>
     <button data-page="overview" class="active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</button>
-    <button data-page="clients"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14.8c1.7.8 2.7 2.5 3 5.2"/></svg>Clients &amp; spend</button>
+    <button data-page="clients"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14.8c1.7.8 2.7 2.5 3 5.2"/></svg>People &amp; spend</button>
+    <button data-page="playground"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 5l11 7-11 7z"/></svg>Try it</button>
     <div class="navgroup">Security</div>
-    <button data-page="security"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 3v6c0 4.5-3.3 8.2-8 9-4.7-.8-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>Live events<span class="count" id="nav-blocks"></span></button>
+    <button data-page="security"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 3v6c0 4.5-3.3 8.2-8 9-4.7-.8-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg>Activity<span class="count" id="nav-blocks"></span></button>
     <button data-page="network"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9S14.5 18.4 12 21c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3z"/></svg>Network &amp; bypass<span class="count" id="nav-bypass"></span></button>
-    <button data-page="controls"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>Controls</button>
-    <button data-page="audit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v3h16v-3"/></svg>Audit export</button>
+    <button data-page="controls"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>Protections</button>
     <div class="navgroup">Operations</div>
-    <button data-page="policy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/></svg>Policy</button>
+    <button data-page="policy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3h9l4 4v14H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/></svg>Policy &amp; budgets</button>
     <button data-page="performance"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 20h18"/><path d="M6 16l4-5 3 3 5-7"/></svg>Performance</button>
-    <button data-page="playground"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 5l11 7-11 7z"/></svg>Playground</button>
   </div>
   <div class="foot">
     <span id="foot-policy" class="mono">policy -</span>
@@ -33,31 +36,34 @@
 
 <div>
 <header class="top">
-  <div><h1 id="title">Management overview</h1><div class="sub" id="subtitle">Security posture, blocked threats and spend across every AI client</div></div>
+  <div><h1 id="title">Overview</h1><div class="sub" id="subtitle">Is AI use safe right now: what was stopped, what it costs, how well protected</div></div>
   <div class="right">
     <span class="chip mode" id="chip-mode" title="Runtime mode: the listeners this process really runs">mode -</span>
     <span class="chip" id="chip-policy">policy -</span>
     <span id="live" class="chip off"><span class="dot"></span>offline</span>
+    <button id="unlock" class="ghost" title="Editing the policy, budgets, protections and AI domains needs the admin token">Unlock editing</button>
+    <span id="unlock-box" style="display:none"><input id="admin-token" type="password" placeholder="admin token (AICL_ADMIN_TOKEN)" size="24"><button id="unlock-ok" class="primary">Unlock</button></span>
   </div>
 </header>
 
 <main>
 <section id="page-overview" class="page active">
   <div class="tiles" id="tiles"></div>
+  <div class="card" style="margin-bottom:14px"><h2>What AICL stopped recently <span class="hint">click to see why</span></h2><div id="recent"></div></div>
   <div class="grid2">
     <div class="card"><h2>Requests over time <span class="hint">final decision per request</span></h2><div class="chartbox"><canvas id="ch-time"></canvas><div class="fallback" id="fb-time"></div></div></div>
     <div class="card"><h2>Findings by category</h2><div class="chartbox"><canvas id="ch-cat"></canvas><div class="fallback" id="fb-cat"></div></div></div>
   </div>
   <div class="grid2">
-    <div class="card"><h2>Budgets per principal <span class="hint">BUD-01, current period</span></h2>
-      <div class="tablewrap"><table id="budgets"><thead><tr><th>Principal</th><th>Tokens</th><th>USD</th><th class="num">Requests</th><th class="num">Denied</th><th class="num">Resets in</th></tr></thead><tbody><tr><td class="empty" colspan="6">No budget data yet.</td></tr></tbody></table></div>
+    <div class="card"><h2>Budgets <span class="hint">per person / agent, current period</span></h2>
+      <div class="tablewrap"><table id="budgets"><thead><tr><th>Who</th><th>Tokens</th><th>USD</th><th class="num">Requests</th><th class="num">Denied</th><th class="num">Resets in</th></tr></thead><tbody><tr><td class="empty" colspan="6">No budget data yet.</td></tr></tbody></table></div>
     </div>
     <div class="card"><h2>Traffic by API contract</h2><div class="chartbox" style="height:210px"><canvas id="ch-proto"></canvas><div class="fallback" id="fb-proto"></div></div></div>
   </div>
 </section>
 
 <section id="page-clients" class="page">
-  <div class="card scroll"><table id="clients"><thead><tr><th>Principal</th><th>Address</th><th>Tool</th><th>API</th><th>Models</th><th class="num">Requests</th><th class="num">Blocked</th><th class="num">Redacted</th><th class="num">Tokens</th><th class="num">USD</th><th>Last seen</th></tr></thead><tbody><tr><td class="empty" colspan="11">No client traffic yet.</td></tr></tbody></table></div>
+  <div class="card scroll"><table id="clients"><thead><tr><th>Who</th><th>Address</th><th>Tool</th><th>Via</th><th>Models</th><th class="num">Requests</th><th class="num">Blocked</th><th class="num">Redacted</th><th class="num">Tokens</th><th class="num">USD</th><th>Last seen</th></tr></thead><tbody><tr><td class="empty" colspan="11">No client traffic yet.</td></tr></tbody></table></div>
 </section>
 
 <section id="page-security" class="page">
@@ -66,10 +72,13 @@
     <select id="f-proto"><option value="ai">AI decisions</option><option value="">All records</option><option value="anthropic_messages">Anthropic Messages</option><option value="openai_responses">OpenAI Responses</option><option value="openai_chat">OpenAI Chat</option><option value="managed">Managed gateway</option><option value="dns">DNS / network</option></select>
     <input id="f-text" placeholder="Filter: client, tool, control, rule, model..." size="34">
     <span class="muted" id="count"></span>
+    <span style="margin-left:auto"></span>
+    <a class="btn" href="/console/api/export.jsonl" download title="One record per decision, no raw text">Export JSONL</a>
+    <a class="btn" href="/console/api/export.csv" download>Export CSV</a>
   </div>
   <div class="split">
     <div class="card scroll"><table id="events" class="click"><thead><tr><th>Time</th><th>Decision</th><th>Event</th><th>Client</th><th>Model / tool</th><th>Controls</th><th class="num">ms</th></tr></thead><tbody></tbody></table></div>
-    <aside class="card" id="explain"><h2>Explain</h2><p class="muted">Select an event to see who sent it, which controls fired, on which span, and why.</p></aside>
+    <aside class="card" id="explain"><h2>Why</h2><p class="muted">Click an event to see who sent it, what AICL found in it and what it did.</p></aside>
   </div>
 </section>
 
@@ -100,11 +109,11 @@
   <div class="card" style="margin-bottom:14px"><h2>Intercepted AI domains <span class="hint">DNS answers these with the gateway; the TLS leaf is reissued on save, no restart</span></h2>
     <div class="tablewrap"><table id="icpt"><thead><tr><th>Provider</th><th>Hosts</th><th>API contract</th><th>Upstream</th><th>Inspected paths</th><th>Raw paths</th></tr></thead><tbody></tbody></table></div>
     <div class="toolbar" style="margin-top:12px">
-      <select id="icpt-prov"></select><input id="icpt-host" placeholder="api.example-llm.com" size="26"><button id="icpt-add" class="primary">Add host</button>
+      <select id="icpt-prov"></select><input id="icpt-host" placeholder="api.example-llm.com" size="26"><button id="icpt-add" class="primary needs-admin">Add host</button>
       <span class="muted">or a new provider:</span>
       <input id="icpt-name" placeholder="name" size="10"><input id="icpt-phost" placeholder="host" size="20">
       <select id="icpt-proto"><option>anthropic_messages</option><option>openai_responses</option><option>openai_chat</option></select>
-      <input id="icpt-up" placeholder="https://upstream (optional)" size="22"><button id="icpt-addp">Add provider</button>
+      <input id="icpt-up" placeholder="https://upstream (optional)" size="22"><button id="icpt-addp" class="needs-admin">Add provider</button>
     </div>
     <div id="icpt-msg" class="muted"></div>
   </div>
@@ -117,21 +126,20 @@
 </section>
 
 <section id="page-controls" class="page">
-  <div class="toolbar"><span class="muted">Switch a control off / shadow / enforce: only its mode line in policy.yaml changes, validated and live at once (admin token from the Policy page).</span><span id="ctl-msg"></span></div>
-  <div class="card scroll"><table id="ctl"><thead><tr><th>ID</th><th>Control</th><th>Category</th><th>Severity</th><th>Mode</th><th>Switch</th><th>Default action</th><th class="num">Hits</th></tr></thead><tbody></tbody></table></div>
+  <div class="toolbar"><span class="muted">On = acts (blocks / redacts). Watch only = records what it would do and lets the request through. Changes are live at once; Unlock editing first (top right).</span><span id="ctl-msg"></span></div>
+  <div class="card scroll"><table id="ctl"><thead><tr><th>Protection</th><th>Status</th><th class="num">Times it acted</th></tr></thead><tbody></tbody></table></div>
 </section>
 
 <section id="page-policy" class="page">
   <div id="pol-banner" class="banner">Loading policy...</div>
   <div class="grid3" id="pol-cards"></div>
-  <div class="card" style="margin-bottom:14px"><h2>Budgets per principal <span class="hint">BUD-01; saved into policy.yaml (comments kept), applied at once</span></h2>
-    <div class="tablewrap"><table id="bud-edit"><thead><tr><th>Principal</th><th>Tokens / period</th><th>USD / period</th><th>Period</th><th>Used now</th></tr></thead><tbody></tbody></table></div>
-    <div class="toolbar" style="margin-top:12px"><button id="bud-save" class="primary">Save budgets</button><span id="bud-msg" class="muted"></span></div>
+  <div class="card" style="margin-bottom:14px"><h2>Budgets <span class="hint">saved into policy.yaml, applied at once</span></h2><p class="lockhint">Read-only: click <b>Unlock editing</b> (top right) to change budgets, the policy, protections or AI domains.</p>
+    <div class="tablewrap"><table id="bud-edit"><thead><tr><th>Who</th><th>Tokens / period</th><th>USD / period</th><th>Period</th><th>Used now</th></tr></thead><tbody></tbody></table></div>
+    <div class="toolbar" style="margin-top:12px"><button id="bud-save" class="primary needs-admin">Save budgets</button><span id="bud-msg" class="muted"></span></div>
   </div>
   <div class="card"><h2>policy/policy.yaml <span class="hint">edit here or in the file (or an overlay in policy/local.d/); an invalid edit is rejected and the last good policy stays</span></h2>
     <div class="toolbar">
-      <button id="pol-edit">Edit</button><button id="pol-save" class="primary" style="display:none">Validate &amp; apply</button><button id="pol-cancel" style="display:none">Cancel</button>
-      <input id="admin-token" type="password" placeholder="admin token (AICL_ADMIN_TOKEN)" size="28">
+      <button id="pol-edit" class="needs-admin">Edit</button><button id="pol-save" class="primary" style="display:none">Validate &amp; apply</button><button id="pol-cancel" style="display:none">Cancel</button>
       <span id="pol-msg" class="muted"></span>
     </div>
     <pre class="yaml" id="pol-yaml"></pre><textarea id="pol-text" rows="28" style="display:none" spellcheck="false"></textarea></div>
@@ -160,16 +168,6 @@
   </div>
 </section>
 
-<section id="page-audit" class="page">
-  <div class="card">
-    <h2>Exportable audit log</h2>
-    <p class="muted">One record per decision: who (principal, address, tool), what (API, model, stage), which controls and rules fired, span positions with hashes, cost, latency and the policy version. Raw prompt text is never stored.</p>
-    <div class="toolbar">
-      <a class="btn primary" href="/console/api/export.jsonl" download>Download JSONL</a>
-      <a class="btn" href="/console/api/export.csv" download>Download CSV</a>
-    </div>
-  </div>
-</section>
 </main>
 </div>
 </div>

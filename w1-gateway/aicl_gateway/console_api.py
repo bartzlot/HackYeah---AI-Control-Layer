@@ -201,6 +201,24 @@ class ConsoleStore:
                 n += 1
         return n
 
+    def load_tail(self, path: str | Path, n: int = 5000) -> int:
+        """The last n records of the audit JSONL: the console keeps its history across a restart."""
+        p = Path(path)
+        if not p.is_file():
+            return 0
+        lines = deque(maxlen=n)
+        with p.open(encoding="utf-8", errors="replace") as f:
+            for line in f:
+                lines.append(line)
+        loaded = 0
+        for line in lines:
+            try:
+                self._records.append(json.loads(line))
+                loaded += 1
+            except ValueError:
+                continue
+        return loaded
+
     def load_file(self, path: str | Path = FIXTURES) -> int:
         p = Path(path)
         if not p.exists():
@@ -220,6 +238,17 @@ class ConsoleStore:
 
     def all(self) -> list[dict[str, Any]]:
         return list(self._records)
+
+    def explain(self, event_id: str) -> dict[str, Any] | None:
+        """T-119 drawer: the decide() timeline of the request the clicked record belongs to (None = unknown id)."""
+        from .explain import timeline
+        rec = next((r for r in reversed(self._records) if r.get("event_id") == event_id), None)
+        if rec is None:
+            return None
+        rid = rec.get("request_id")
+        group = [r for r in self._records if r.get("request_id") == rid
+                 and r.get("stage") not in ("lifecycle", "dns")] if rid else []
+        return {"event_id": event_id, **timeline(group or [rec])}
 
     def decisions(self) -> list[dict[str, Any]]:
         """Records that are policy decisions on AI traffic (not DNS lookups, not proxied probes)."""
@@ -490,6 +519,14 @@ def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], di
         except Exception:  # noqa: BLE001 - a view must never break the console
             return default
 
+    @router.get("/api/explain/{event_id}")
+    async def explain(event_id: str):
+        """T-119: per-request decide() timeline for the explain drawer (spans as hashes / tokens only)."""
+        out = store.explain(event_id)
+        if out is None:
+            return JSONResponse({"error": "unknown event"}, status_code=404)
+        return out
+
     @router.get("/api/clients")
     async def clients():
         return {"clients": store.clients()}
@@ -550,6 +587,16 @@ def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], di
         except Exception as e:  # noqa: BLE001 - PolicyWriteError carries the HTTP status
             status = getattr(e, "status", 422)
             return JSONResponse({"ok": False, "error": str(e)}, status_code=status)
+
+    @router.get("/api/whoami")
+    async def whoami(request: Request):
+        """Can this browser edit? (drives the Unlock editing button; the PUT endpoints check again)."""
+        try:
+            admin(request)
+            can = True
+        except HTTPException:
+            can = False
+        return {"can_edit": can, "needs_token": bool(admin_token) or not is_local(request)}
 
     @router.put("/api/policy")
     async def put_policy(request: Request):
