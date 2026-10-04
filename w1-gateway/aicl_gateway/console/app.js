@@ -212,6 +212,8 @@
     const n = await getJSON(API + "/network");
     const st = n.resolver || {};
     const hosts = n.intercepted_by_host || {};
+    paintFlow(n.last_request);
+    $("#flow-last").innerHTML = flowLast(n.last_request);
     $("#net-tiles").innerHTML =
       tile("Intercepted lookups", num(Object.values(hosts).reduce((a, b) => a + b, 0)), "violet", plural(Object.keys(hosts).length, "provider host")) +
       tile("Resolver queries", num(st.queries || 0), "", num(st.forwarded || 0) + " forwarded upstream") +
@@ -226,13 +228,41 @@
       '<tr><td class="empty" colspan="2">None.</td></tr>';
   }
 
-  // ---- intercepted domains (T-115)
+  // ---- interception diagram: highlight the path of the last request (T-118)
+  const DEC_CLS = { ALLOW: "ok", LOG: "ok", WARN: "warn", REDACT: "warn", BLOCK: "bad" };
+  function paintFlow(lr) {
+    const f = $("#flow");
+    if (!f) return;
+    const taken = lr ? { laptop: 1, tls: 1, gateway: 1, dns: lr.dns_seen, upstream: lr.outcome !== "block", block: lr.outcome === "block" } : {};
+    f.querySelectorAll("[data-node],[data-edge]").forEach((g) => {
+      const k = g.dataset.node || g.dataset.edge;
+      g.classList.remove("on", "dim", "ok", "warn", "bad");
+      if (!lr) return;
+      g.classList.add(taken[k] ? "on" : "dim");
+      if (taken[k] && g.dataset.node) g.classList.add(k === "gateway" ? DEC_CLS[lr.decision] || "ok" : k === "block" ? "bad" : "ok");
+    });
+  }
+  function flowLast(lr) {
+    if (!lr) return '<h3>Last request</h3><p class="muted">No request seen yet. Send one through the gateway (Playground) and its path lights up in the diagram.</p>';
+    const step = (n, cls, title, text) => '<li class="' + cls + '"><span class="n">' + n + "</span><div><b>" + esc(title) + "</b><span>" + esc(text) + "</span></div></li>";
+    const blocked = lr.outcome === "block", dc = DEC_CLS[lr.decision] || "ok";
+    return '<h3>Last request <span class="muted">' + esc((lr.ts || "").slice(11, 19)) + "</span></h3>" +
+      '<p class="who"><b>' + esc(lr.principal || "anonymous") + "</b> <span class='muted'>" + esc([lr.tool, lr.client_ip, lr.model].filter(Boolean).join(", ")) + "</span></p><ol>" +
+      step(1, lr.dns_seen ? "on" : "skip", "DNS lookup", lr.dns_seen ? (lr.host || "the host") + " was resolved by AICL DNS to the gateway" : "no AICL lookup seen: the client addressed the gateway directly (base URL or managed gateway)") +
+      step(2, "on", "TLS + request", "reached the gateway" + (lr.protocol ? " as " + protoName(lr.protocol) : "") + (lr.host ? " for " + lr.host : "")) +
+      step(3, dc, "Decide", lr.decision + " at the " + (lr.stage || "prompt") + " stage" + ((lr.controls || []).length ? " (" + lr.controls.join(", ") + ")" : ", no findings")) +
+      step(4, blocked ? "bad" : "on", blocked ? "Blocked" : "Upstream", blocked ? "refused by the gateway, nothing was sent upstream" : lr.destination === "local" ? "forwarded to the local model" : "forwarded to " + (lr.host || "the provider")) + "</ol>";
+  }
+
+  // ---- intercepted domains (T-115, layout T-118)
+  const chips = (xs, cls) => '<div class="chips">' + (xs || []).map((x) => '<span class="tag ' + (cls || "") + '">' + esc(x) + "</span>").join("") + "</div>";
   async function loadInterception() {
     const ps = (await getJSON(API + "/interception")).providers || [];
-    $("#icpt tbody").innerHTML = ps.map((p) => "<tr><td><b>" + esc(p.name) + "</b></td><td>" + (p.hosts || []).map((h) =>
-      '<span class="tag">' + esc(h) + ' <a href="#" class="icpt-rm" data-p="' + esc(p.name) + '" data-h="' + esc(h) + '" title="stop intercepting">x</a></span>').join(" ") +
-      '</td><td><span class="tag p-' + esc(p.protocol) + '">' + esc(p.protocol) + "</span></td><td class='mono'>" + esc(p.upstream || "") + "</td><td class='mono wrap'>" +
-      esc((p.inspect || []).join(" ")) + "</td></tr>").join("") || '<tr><td class="empty" colspan="5">No providers.</td></tr>';
+    $("#icpt tbody").innerHTML = ps.map((p) => '<tr><td data-label="Provider"><b>' + esc(p.name) + '</b></td><td data-label="Hosts"><div class="chips">' + (p.hosts || []).map((h) =>
+      '<span class="tag host">' + esc(h) + ' <a href="#" class="icpt-rm" data-p="' + esc(p.name) + '" data-h="' + esc(h) + '" title="stop intercepting">x</a></span>').join("") +
+      '</div></td><td data-label="API contract"><span class="tag p-' + esc(p.protocol) + '">' + esc(p.protocol) + '</span></td><td data-label="Upstream"><span class="trunc mono" title="' + esc(p.upstream || "") + '">' +
+      esc(p.upstream || "") + '</span></td><td data-label="Inspected">' + chips(p.inspect) + '</td><td data-label="Raw paths">' + (p.raw_paths && p.raw_paths.length ? chips(p.raw_paths) : '<span class="muted">none</span>') +
+      "</td></tr>").join("") || '<tr><td class="empty" colspan="6">No providers.</td></tr>';
     const sel = $("#icpt-prov"), cur = sel.value;
     sel.innerHTML = ps.map((p) => "<option>" + esc(p.name) + "</option>").join("");
     if (cur) sel.value = cur;

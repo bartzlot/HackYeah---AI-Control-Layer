@@ -321,7 +321,36 @@ class ConsoleStore:
                                    "what": (r.get("explain") or [""])[0]} for r in reversed(bypass[-50:])],
                 "passthrough": {"total": len(passthrough),
                                 "paths": _count((r.get("explain") or [""])[0].split(" -> ")[0] for r in passthrough)},
-                "resolver": resolver or {}}
+                "resolver": resolver or {}, "last_request": self.last_request()}
+
+    def last_request(self) -> dict[str, Any] | None:
+        """The path the most recent request took, for the network diagram: was its host looked up through AICL DNS
+        (an intercepted DNS_QUERY of the same client, stored before the request), what the decide() step said
+        (max over the request's records) and where it went on: upstream, or a block answered by the gateway."""
+        recs = list(self._records)
+
+        def is_decision(r: dict[str, Any]) -> bool:
+            return r.get("stage") not in ("lifecycle", "dns") and r.get("event_type") not in NON_DECISION
+        last = next((r for r in reversed(recs) if is_decision(r)), None)
+        if last is None:
+            return None
+        rid = last.get("request_id") or last.get("event_id")
+        idx = [i for i, r in enumerate(recs) if is_decision(r) and (r.get("request_id") or r.get("event_id")) == rid]
+        group = [recs[i] for i in idx]
+        worst = max(group, key=lambda r: dec_rank(r.get("decision")))
+        host = next((r["upstream_host"] for r in group if r.get("upstream_host")), None)
+        client_ip = next((r["client_ip"] for r in group if r.get("client_ip")), None)
+        dns_seen = bool(host or client_ip) and any(r.get("stage") == "dns" and r.get("event_type") == "DNS_QUERY" and r.get("upstream_host")
+                       and (not host or r["upstream_host"] == host) and (not client_ip or r.get("client_ip") == client_ip)
+                       for r in recs[:idx[0]])
+        decision = dec_name(worst.get("decision"))
+        controls = sorted({f.get("control_id") for r in group for f in r.get("findings") or [] if f.get("control_id")})
+        return {"request_id": rid, "ts": group[0].get("ts"), "principal": group[0].get("agent_id"), "client_ip": client_ip,
+                "tool": tool_of(group[0]["user_agent"]) if group[0].get("user_agent") else None, "host": host,
+                "protocol": next((r["protocol"] for r in group if r.get("protocol")), None),
+                "model": next((r["model"] for r in group if r.get("model")), None),
+                "destination": group[0].get("destination"), "decision": decision, "stage": worst.get("stage"),
+                "controls": controls[:6], "dns_seen": dns_seen, "outcome": "block" if decision == "BLOCK" else "upstream"}
 
     def performance(self) -> dict[str, Any]:
         """Decision latency per control (research/13 s.13): p50 / p95 / max in ms over the stored records."""

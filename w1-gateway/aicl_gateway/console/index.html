@@ -75,22 +75,30 @@
 
 <section id="page-network" class="page">
   <div class="card" style="margin-bottom:14px"><h2>How traffic reaches AICL <span class="hint">transparent mode: nothing to configure in the tool</span></h2>
-    <svg class="flow" viewBox="0 0 980 250" role="img" aria-label="Interception path">
-      <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="var(--accent)"/></marker>
-            <marker id="arrx" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="var(--red)"/></marker></defs>
-      <rect class="box" x="10" y="94" width="170" height="78" rx="12"/><text x="24" y="122">Developer laptop</text><text class="s" x="24" y="142">Claude Code, Codex, SDKs</text><text class="s" x="24" y="158">DNS from DHCP, AICL CA trusted</text>
-      <rect class="box aicl" x="300" y="38" width="200" height="60" rx="12"/><text x="316" y="64">AICL DNS :53</text><text class="s" x="316" y="82">AI hosts -&gt; gateway, DoH sinkholed</text>
-      <rect class="box aicl" x="300" y="136" width="200" height="104" rx="12"/><text x="316" y="162">AICL gateway :443</text><text class="s" x="316" y="180">TLS with AICL CA, native API</text><text class="s" x="316" y="196">decide(): DLP, injection, judge,</text><text class="s" x="316" y="212">tool firewall, budgets, audit</text>
-      <rect class="box" x="640" y="146" width="180" height="78" rx="12"/><text x="656" y="174">api.anthropic.com</text><text class="s" x="656" y="192">api.openai.com</text><text class="s" x="656" y="208">with the client's own key</text>
-      <rect class="box fw" x="640" y="38" width="330" height="60" rx="12"/><text x="656" y="64">Egress firewall (organization)</text><text class="s" x="656" y="82">provider IPs only via the gateway, DNS only to AICL</text>
-      <path class="ln" d="M180,118 C240,118 250,68 298,68"/><text class="s" x="214" y="84">1 lookup</text>
-      <path class="ln" d="M180,150 C240,150 250,188 298,188"/><text class="s" x="196" y="196">2 TLS + request</text>
-      <path class="ln" d="M500,186 L638,186"/><text class="s" x="528" y="178">3 allowed, inspected</text>
-      <path class="ln x" d="M95,94 V16 H600 Q636,16 638,60"/><text class="s" x="250" y="11" style="fill:var(--red)">direct egress, other resolvers, DoH: dropped</text>
-    </svg>
+    <!-- Self-contained interception diagram (T-118). Swap contract for a replacement SVG (T-908): keep id="flow", the
+         data-node="laptop|dns|gateway|upstream|block|firewall" and data-edge="dns|tls|upstream|block" hooks on <g> elements;
+         app.js paintFlow() only toggles classes on them. -->
+    <div class="flowbox">
+      <svg id="flow" class="flow" viewBox="0 0 440 650" role="img" aria-label="Interception path: the laptop asks AICL DNS, opens TLS to the AICL gateway, the gateway decides and either forwards to the provider or blocks; the egress firewall drops direct connections">
+        <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="var(--accent)"/></marker>
+              <marker id="arrx" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="var(--red)"/></marker></defs>
+        <g data-node="laptop"><rect class="box" x="36" y="8" width="384" height="76" rx="12"/><text x="54" y="34">Developer laptop</text><text class="s" x="54" y="54">Claude Code, Codex, SDKs</text><text class="s" x="54" y="72">DNS from DHCP, AICL CA trusted</text></g>
+        <g data-node="dns"><rect class="box aicl" x="236" y="116" width="184" height="80" rx="12"/><text x="252" y="142">AICL DNS :53</text><text class="s" x="252" y="162">AI hosts -&gt; gateway</text><text class="s" x="252" y="180">DoH sinkholed</text></g>
+        <g data-node="gateway"><rect class="box aicl" x="36" y="232" width="384" height="112" rx="12"/><text x="54" y="260">AICL gateway :443</text><text class="s" x="54" y="280">TLS with the AICL CA, native API</text><text class="s" x="54" y="298">decide(): DLP, injection, judge,</text><text class="s" x="54" y="316">tool firewall, budgets, audit</text></g>
+        <g data-node="upstream"><rect class="box" x="36" y="408" width="200" height="112" rx="12"/><text x="54" y="436">Provider API</text><text class="s" x="54" y="456">api.anthropic.com</text><text class="s" x="54" y="474">api.openai.com</text><text class="s" x="54" y="492">client's own key</text></g>
+        <g data-node="block"><rect class="box blk" x="260" y="408" width="160" height="112" rx="12"/><text x="276" y="436">Blocked</text><text class="s" x="276" y="456">refusal in the API</text><text class="s" x="276" y="474">format, nothing</text><text class="s" x="276" y="492">sent upstream</text></g>
+        <g data-node="firewall"><rect class="box fw" x="36" y="556" width="384" height="80" rx="12"/><text x="54" y="582">Egress firewall (organization)</text><text class="s" x="54" y="602">provider IPs only via the gateway,</text><text class="s" x="54" y="620">DNS only to AICL, DoH dropped</text></g>
+        <g data-edge="dns"><path class="ln" d="M330,84 V114"/><text class="s" x="304" y="104" text-anchor="end">1 lookup</text></g>
+        <g data-edge="tls"><path class="ln" d="M100,84 V230"/><text class="s" x="116" y="164">2 TLS + request</text></g>
+        <g data-edge="upstream"><path class="ln" d="M136,344 V406"/><text class="s" x="152" y="382">3 allowed</text></g>
+        <g data-edge="block"><path class="ln x" d="M340,344 V406"/><text class="s" x="356" y="382">or block</text></g>
+        <g data-edge="bypass"><path class="ln x dash" d="M36,46 H14 V596 H34"/></g>
+      </svg>
+      <div id="flow-last" class="flowlast"></div>
+    </div>
   </div>
   <div class="card" style="margin-bottom:14px"><h2>Intercepted AI domains <span class="hint">DNS answers these with the gateway; the TLS leaf is reissued on save, no restart</span></h2>
-    <div class="tablewrap"><table id="icpt"><thead><tr><th>Provider</th><th>Hosts</th><th>API contract</th><th>Upstream</th><th>Inspected paths</th></tr></thead><tbody></tbody></table></div>
+    <div class="tablewrap"><table id="icpt"><thead><tr><th>Provider</th><th>Hosts</th><th>API contract</th><th>Upstream</th><th>Inspected paths</th><th>Raw paths</th></tr></thead><tbody></tbody></table></div>
     <div class="toolbar" style="margin-top:12px">
       <select id="icpt-prov"></select><input id="icpt-host" placeholder="api.example-llm.com" size="26"><button id="icpt-add" class="primary">Add host</button>
       <span class="muted">or a new provider:</span>

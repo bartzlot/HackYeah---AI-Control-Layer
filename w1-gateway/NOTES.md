@@ -41,3 +41,7 @@
   copy step in the README quick start or pass `AICL_KEY_DEMO` in the gateway service environment.
 - No new variable names: everything main.py reads is already in .env.example.
 - Demo run: `uv run python -m aicl_gateway.demo_agent` (needs AICL_KEY_DEMO; prints PASS/FAIL per scenario).
+
+## Network page diagram (T-118)
+- `GET /console/api/network` carries `last_request`: the newest request (max decision over its records) with `dns_seen` (an intercepted DNS_QUERY of the same client and host stored before it), `decision`, `outcome` (`upstream` | `block`), host, tool, client. `null` before any request.
+- The diagram is one self-contained `<svg id="flow">` in index.html. `app.js paintFlow()` only toggles classes (`on`, `dim`, `ok`, `warn`, `bad`) on its `data-node` (laptop, dns, gateway, upstream, block, firewall) and `data-edge` (dns, tls, upstream, block) groups. A replacement SVG (T-908) keeps those hooks and nothing else needs to change.

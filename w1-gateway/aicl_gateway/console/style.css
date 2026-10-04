@@ -50,7 +50,7 @@ main{padding:22px 28px 48px;max-width:1440px;width:100%}
 .tile.ok .v{color:var(--ok)}.tile.bad .v{color:var(--red)}.tile.warn .v{color:var(--warn)}
 .tile .s{color:var(--muted);font-size:12px}
 .bar{height:6px;background:var(--line);border-radius:6px;margin-top:8px;overflow:hidden}.bar i{display:block;height:100%;background:var(--accent);border-radius:6px;transition:width .4s}
-.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px;margin-bottom:14px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(380px,100%),1fr));gap:14px;margin-bottom:14px}
 .grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:14px}
 .chartbox{position:relative;height:250px}.fallback{display:none}
 .chartbox.nochart canvas{display:none}.chartbox.nochart .fallback{display:block}
@@ -98,15 +98,44 @@ pre.yaml .c{color:var(--muted)}pre.yaml .k{color:var(--accent)}
 .banner{border-radius:10px;padding:10px 14px;margin-bottom:12px;border:1px solid var(--line);background:var(--panel2)}
 .banner.err{border-color:var(--red);color:var(--red);background:color-mix(in srgb,var(--red) 8%,transparent)}
 .banner.ok{border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
-/* network diagram */
+/* network diagram (T-118): colors only from theme tokens; paintFlow() in app.js toggles .on / .dim / .ok / .warn / .bad on [data-node] / [data-edge] */
+.flowbox{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:20px 28px;align-items:start}
 .flow{width:100%;height:auto;display:block}
-.flow .box{fill:var(--panel2);stroke:var(--line);stroke-width:1.2}
+.flow .box{fill:var(--panel2);stroke:var(--line);stroke-width:1.5}
 .flow .box.aicl{fill:color-mix(in srgb,var(--accent) 12%,var(--panel));stroke:var(--accent)}
 .flow .box.fw{fill:color-mix(in srgb,var(--red) 7%,var(--panel));stroke:var(--red);stroke-dasharray:5 4}
-.flow text{fill:var(--fg);font-size:12px;font-family:inherit}.flow text.s{fill:var(--muted);font-size:10.5px}
-.flow .ln{stroke:var(--accent);stroke-width:1.6;fill:none;marker-end:url(#arr)}
-.flow .ln.x{stroke:var(--red);stroke-dasharray:4 4;marker-end:url(#arrx)}
+.flow .box.blk{fill:color-mix(in srgb,var(--red) 10%,var(--panel));stroke:var(--red)}
+.flow text{fill:var(--fg);font-size:16px;font-weight:600;font-family:inherit}.flow text.s{fill:var(--muted);font-size:13.5px;font-weight:400}
+.flow .ln{stroke:var(--accent);stroke-width:2;fill:none;marker-end:url(#arr)}
+.flow .ln.x{stroke:var(--red);marker-end:url(#arrx)}
+.flow .ln.dash{stroke-dasharray:5 5}
+.flow g{transition:opacity .2s}.flow .dim{opacity:.4}
+.flow g.on .ln{stroke-width:4}
+.flow g.on text.s{fill:var(--fg)}
+.flow g[data-node].on .box{stroke-width:3}
+.flow g[data-node].ok .box{stroke:var(--ok);fill:color-mix(in srgb,var(--ok) 14%,var(--panel))}
+.flow g[data-node].warn .box{stroke:var(--warn);fill:color-mix(in srgb,var(--warn) 14%,var(--panel))}
+.flow g[data-node].bad .box{stroke:var(--red);fill:color-mix(in srgb,var(--red) 16%,var(--panel))}
+.flowlast h3{margin:0 0 4px;font-size:13px;color:var(--muted);font-weight:600}
+.flowlast .who{margin:0 0 12px;overflow-wrap:anywhere}
+.flowlast ol{list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.flowlast li{display:grid;grid-template-columns:28px minmax(0,1fr);gap:10px;align-items:start;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+.flowlast li .n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;background:var(--line);color:var(--muted)}
+.flowlast li.on{border-color:color-mix(in srgb,var(--accent) 55%,var(--line))}.flowlast li.on .n{background:var(--accent);color:#fff}
+.flowlast li.ok .n,.flowlast li.warn .n,.flowlast li.bad .n{color:#fff}.flowlast li.ok{border-color:var(--ok)}.flowlast li.ok .n{background:var(--ok)}
+.flowlast li.warn{border-color:var(--warn)}.flowlast li.warn .n{background:var(--warn)}
+.flowlast li.bad{border-color:var(--red)}.flowlast li.bad .n{background:var(--red)}
+.flowlast li.skip{opacity:.7;border-style:dashed}
+.flowlast li b{display:block;font-size:13px}.flowlast li span{color:var(--muted);font-size:13px;overflow-wrap:anywhere}
+/* intercepted domains (T-118): wrapping chips, truncated upstream, stacked rows on narrow screens */
+#icpt td{white-space:normal;vertical-align:top}
+.chips{display:flex;flex-wrap:wrap;gap:4px;min-width:0}.chips .tag{margin:0;overflow-wrap:anywhere;max-width:100%}#icpt{table-layout:fixed}#icpt th,#icpt td{padding-left:8px;padding-right:8px}#icpt th:nth-child(1){width:10%}#icpt th:nth-child(2){width:20%}#icpt th:nth-child(3){width:14%}#icpt th:nth-child(4){width:19%}#icpt th:nth-child(5){width:17%}#icpt th:nth-child(6){width:20%}
+.trunc{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#net-hosts td,#net-paths td,#bypass td{white-space:normal;overflow-wrap:anywhere}
+@media(max-width:1100px){.flowbox{grid-template-columns:minmax(0,1fr)}.flow{max-width:460px;margin:0 auto}}
 .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px}
 @media(max-width:860px){.app{grid-template-columns:1fr}.side{position:static;height:auto;flex-direction:row;flex-wrap:wrap}.side .foot,.navgroup{display:none}.nav{display:flex;flex-wrap:wrap;gap:4px}.nav button{width:auto}main,.top{padding-left:16px;padding-right:16px}}
 td.wrap{white-space:normal;min-width:140px;max-width:340px;word-break:break-word}
 .card table td,.card table th{font-size:13px}
+@media(max-width:1180px){#icpt{table-layout:auto}#icpt thead{display:none}#icpt,#icpt tbody,#icpt tr,#icpt td{display:block;width:100%}#icpt tr{border:1px solid var(--line);border-radius:10px;padding:6px 10px;margin-bottom:10px}#icpt td{border:0;padding:4px 0;display:grid;grid-template-columns:92px minmax(0,1fr);gap:8px;align-items:start}#icpt td::before{content:attr(data-label);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding-top:2px}#icpt td>.tag,#icpt td>.trunc{justify-self:start;max-width:100%}#icpt td.empty{display:block}#icpt td.empty::before{content:none}}
+@media(max-width:860px){.card h2{flex-wrap:wrap}}

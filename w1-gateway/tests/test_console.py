@@ -304,3 +304,65 @@ async def test_t105_exports_empty_store_and_content_types():
     r = await c.get("/console/api/export.csv")
     assert r.headers["content-type"].startswith("text/csv") and r.text.splitlines()[0].startswith("ts,event_id")
     assert len(r.text.splitlines()) == 1
+
+
+def _dns(host, ip="10.0.0.5"):
+    return {"stage": "dns", "event_type": "DNS_QUERY", "upstream_host": host, "client_ip": ip, "decision": 0, "ts": "2026-10-04T10:00:00Z"}
+
+
+def _req(rid, decision, host="api.anthropic.com", ip="10.0.0.5", stage="prompt", findings=()):
+    return {"request_id": rid, "event_id": rid + stage, "stage": stage, "event_type": "REQUEST_ALLOWED", "decision": decision, "ts": "2026-10-04T10:00:01Z",
+            "agent_id": "dev-1", "client_ip": ip, "upstream_host": host, "protocol": "anthropic_messages", "model": "claude-x",
+            "user_agent": "claude-cli/1.0", "destination": "external", "findings": [{"control_id": c} for c in findings]}
+
+
+def test_t118_last_request_path_for_the_network_diagram():
+    store = ConsoleStore()
+    assert store.network()["last_request"] is None                       # nothing yet: the diagram stays neutral
+    store.append(_dns("api.anthropic.com"))
+    store.append(_req("r1", 0))
+    lr = store.network()["last_request"]
+    assert lr["request_id"] == "r1" and lr["dns_seen"] is True and lr["outcome"] == "upstream"
+    assert (lr["decision"], lr["host"], lr["principal"], lr["tool"], lr["client_ip"]) == ("ALLOW", "api.anthropic.com", "dev-1", "Claude Code", "10.0.0.5")
+    # a later request of the same request_id decides: the max over its records wins, BLOCK = answered by the gateway
+    store.append(_req("r2", 0))
+    store.append(_req("r2", 4, stage="response", findings=("DLP-02", "DLP-01")))
+    store.append({"stage": "dns", "event_type": "DNS_QUERY", "upstream_host": "api.openai.com", "client_ip": "10.0.0.5"})   # newer lookup: not a request
+    lr = store.network()["last_request"]
+    assert (lr["request_id"], lr["decision"], lr["outcome"], lr["stage"], lr["controls"]) == ("r2", "BLOCK", "block", "response", ["DLP-01", "DLP-02"])
+
+
+def test_t118_dns_step_only_counts_a_lookup_of_the_same_client_and_host_before_the_request():
+    store = ConsoleStore()
+    store.append(_dns("api.openai.com"))                                  # other host
+    store.append(_dns("api.anthropic.com", ip="10.0.0.9"))                # other client
+    store.append({"stage": "dns", "event_type": "DNS_QUERY", "client_ip": "10.0.0.5"})   # forwarded lookup: not intercepted
+    store.append(_req("r1", 0))
+    assert store.network()["last_request"]["dns_seen"] is False           # direct / base-URL client: DNS step is skipped
+    store.append({k: v for k, v in _req("r0", 0, host=None, ip=None).items() if k != "user_agent"})   # fixtures-style record: no address, host, tool
+    lr = store.network()["last_request"]
+    assert lr["dns_seen"] is False and lr["host"] is None and lr["tool"] is None
+    late = ConsoleStore()
+    late.append(_req("r1", 0))
+    late.append(_dns("api.anthropic.com"))                                # lookup stored after the request: not its lookup
+    assert late.network()["last_request"]["dns_seen"] is False
+
+
+async def test_t118_network_endpoint_serves_last_request_and_fixtures_stay_neutral_on_dns():
+    store, c = make()
+    lr = (await c.get("/console/api/network")).json()["last_request"]
+    assert lr["request_id"] and lr["dns_seen"] is False and lr["outcome"] in ("upstream", "block")
+    store.append(_dns("api.anthropic.com"))
+    store.append(_req("live-1", 3))
+    lr = (await c.get("/console/api/network")).json()["last_request"]
+    assert (lr["request_id"], lr["decision"], lr["dns_seen"], lr["outcome"]) == ("live-1", "REDACT", True, "upstream")
+
+
+def test_t118_console_assets_carry_the_diagram_hooks():
+    html = (ROOT / "w1-gateway/aicl_gateway/console/index.html").read_text(encoding="utf-8")
+    js = (ROOT / "w1-gateway/aicl_gateway/console/app.js").read_text(encoding="utf-8")
+    for node in ("laptop", "dns", "gateway", "upstream", "block", "firewall"):
+        assert f'data-node="{node}"' in html
+    for edge in ("dns", "tls", "upstream", "block"):
+        assert f'data-edge="{edge}"' in html
+    assert 'id="flow"' in html and "paintFlow" in js and "raw_paths" in js
