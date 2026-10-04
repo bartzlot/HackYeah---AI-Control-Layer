@@ -27,6 +27,7 @@ from .budget import (DEFAULT_PRICES, BudgetLedger, LoopGuard, estimate_split, la
 from .bus import EventBus
 from .config import merge_config, route
 from .console_api import ConsoleStore, make_console_router
+from .explain import add_latency, stage_timing
 from . import openai_adapters  # noqa: F401  (registers the OpenAI Responses / Chat adapters)
 from .passthrough import Passthrough
 
@@ -128,6 +129,8 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
     store = ConsoleStore(budget_usd=ccfg.get("budget_usd"), policy=ccfg.get("policy"), budgets=ledger.snapshot)
     if ccfg.get("fixtures"):
         store.load_file()
+    elif cfg.get("audit_path"):
+        store.load_tail(cfg["audit_path"])      # the dashboard keeps its history across a restart
     bus.listeners.append(store.append)
 
     app = FastAPI(title="aicl-gateway")
@@ -218,6 +221,7 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
             audit.denied(event, "decide() failed: fail closed", "REQUEST_BLOCKED")
             return None, _err(503, "policy_unavailable", "policy engine unavailable, request denied (fail closed)")
         audit.from_decision(event, d)
+        add_latency(ctx.setdefault("stages", {}), d.latency_us)    # Server-Timing per decide() stage (T-119)
         ctx["action"] = max(ctx["action"], d.action)
         if d.action == Action.BLOCK:
             why = "; ".join(d.explain[-2:]) or "blocked by policy"
@@ -251,8 +255,9 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
                 resp.headers["X-AICL-Decision"] = ctx["action"].name
         if ctx.get("budget_warning"):
             resp.headers["X-AICL-Budget-Warning"] = ctx["budget_warning"]
-        resp.headers["Server-Timing"] = (f"aicl;dur={max(total - ctx['up'], 0):.1f}, upstream;dur={ctx['up']:.1f}, "
-                                         f"total;dur={total:.1f}")
+        stages = stage_timing(ctx.get("stages"))
+        resp.headers["Server-Timing"] = (f"aicl;dur={max(total - ctx['up'], 0):.1f}, " + (stages + ", " if stages else "")
+                                         + f"upstream;dur={ctx['up']:.1f}, total;dur={total:.1f}")
         resp.headers["Access-Control-Expose-Headers"] = "X-AICL-Decision, X-AICL-Request-Id, X-AICL-Budget-Warning, Server-Timing, Retry-After"
         return resp
 
