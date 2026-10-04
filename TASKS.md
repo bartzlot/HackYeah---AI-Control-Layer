@@ -239,3 +239,56 @@ T-[0-9]{3}
 head
 -n
 1
+- [ ] T-904 [any] (T1) v4 rehearsal: research/14 s.9 demo end to end (Claude Code live with our own key + offline fallback against the mock upstream, recorded); judge edits of policy.yaml applied live; bypass attempt shown | deps: OK add [lead] (T1) compose transparent demo: internal network (no route out) with dns (static ip) + gateway (static ip, :443, second network with egress) + demo-client container (Node + Claude Code CLI, resolver = AICL DNS, CA via NODE_EXTRA_CA_CERTS + OS store); make ca, make demo-transparent; .env.example documents ANTHROPIC_API_KEY for the live demo only (never in tests); tests/test_transparent_compose.py [14 s.1, s.9] by lead/Przemyslaw_Raczynski@przemek-pc
+1
+/
+tail
+-n
+1
+/
+grep
+-o
+T-[0-9]{3}
+/
+head
+-n
+1, OK add [w1] (T1) Anthropic Messages adapter POST /v1/messages (stream + non-stream): parts from system / text / tool_result (untrusted channel) / tool_use; in-place redaction keeping unknown fields and never touching thinking / redacted_thinking blocks; buffer the upstream SSE, decide() on text + tool_use, re-emit events in the original order; native shapes: hard block = 400 invalid_request_error, budget = 402 billing_error, soft block / blocked tool_use = 200 assistant text [AICL] with stop_reason end_turn; never refusal, 403, 429/5xx or mid-stream error events; recorded Claude Code 2.1.289 request fixture + mock upstream; cases [14 s.3, s.7] by lead/Przemyslaw_Raczynski@przemek-pc
+1
+/
+tail
+-n
+1
+/
+grep
+-o
+T-[0-9]{3}
+/
+head
+-n
+1, OK add [w2] (T1) coding-agent tool firewall: TOOL-01 rules per tool name for Claude Code / Codex (Bash / shell / exec_command: curl|sh, rm -rf /, reads of ~/.aws ~/.ssh .env; Write / Edit / apply_patch paths outside the project; WebFetch to unknown hosts; historical rules on commands and written code); tool_result parts run INJ-03 + INJ-04 as an untrusted channel; Authorization headers never scanned as parts; cases [14 s.7] by lead/Przemyslaw_Raczynski@przemek-pc
+1
+/
+tail
+-n
+1
+/
+grep
+-o
+T-[0-9]{3}
+/
+head
+-n
+1, OK add [any] (T1) docs v4: README quick start for mode A and mode C, CA install per OS, reference egress firewall rules (nftables + Windows Firewall: provider ranges only from the gateway, DNS only to AICL, 853 dropped), PDF criteria -> where we show it table; keep research/14 in sync with what landed [14 s.1, s.9] by lead/Przemyslaw_Raczynski@przemek-pc
+1
+/
+tail
+-n
+1
+/
+grep
+-o
+T-[0-9]{3}
+/
+head
+-n
+1
