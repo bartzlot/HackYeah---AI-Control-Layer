@@ -67,6 +67,10 @@ There are three ways traffic can reach AICL, and all of them share one gateway a
 
 Bypass is stopped by the egress firewall ([reference rules](deploy/firewall/)) and detected by the resolver. Design and measurements: [`research/14-transparent-interception.md`](research/14-transparent-interception.md).
 
+### Transparent mode on a host machine (macOS / Linux / Windows)
+
+The demo runs the corp network in containers. To point a real machine at it, `scripts/demo-transparent.sh` PRINTS the resolver and CA trust commands for macOS, Linux and Windows and never runs them: they need admin rights and change the whole machine, so you copy and run them yourself (each has an undo). Set `AICL_TRANSPARENT_HTTP_PORT` (default 18080) to move the console host port so the stack runs next to the base-URL compose and a local serve. With `AICL_OFFLINE=1` the script ends with a smoke check: a devbox `claude -p` through the mock must answer and add exactly one audit record.
+
 **Native contract** (measured on Claude Code 2.1.289 and Codex CLI 0.160):
 
 | Situation | Answer | What the developer sees |
