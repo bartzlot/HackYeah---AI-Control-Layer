@@ -28,9 +28,10 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
-from aicl_core.policy import PolicyError, load_rule_file
+from aicl_core.policy import PolicyError, load_policy, load_rule_file
 
 FEED_FILE = "feed.yaml"
+MAX_BUNDLE_BYTES = 2 * 1024 * 1024
 
 
 def _message(version: int, rules_yaml: str) -> bytes:
@@ -86,7 +87,8 @@ class FeedPoller:
     def __init__(self, url: str, pubkey_b64: str, policy_path: str | Path, engine=None, interval_s: float = 60.0,
                  fetch: Callable[[str], bytes] | None = None, audit=None):
         self.url, self.pubkey, self.engine, self.interval_s, self.audit = url, pubkey_b64, engine, interval_s, audit
-        self.rules_path = Path(policy_path).resolve().parent / "rules" / FEED_FILE
+        self.policy_path = Path(policy_path).resolve()
+        self.rules_path = self.policy_path.parent / "rules" / FEED_FILE
         self.state_path = self.rules_path.with_suffix(".state.json")
         self._fetch = fetch or self._http_get
         self.status: dict[str, Any] = {"url": url, "version": self._active_version(), "last_check": None,
@@ -101,9 +103,14 @@ class FeedPoller:
 
     @staticmethod
     def _http_get(url: str) -> bytes:
-        r = httpx.get(url, timeout=10.0, follow_redirects=False)
-        r.raise_for_status()
-        return r.content
+        with httpx.stream("GET", url, timeout=10.0, follow_redirects=False) as r:
+            r.raise_for_status()
+            buf = bytearray()
+            for chunk in r.iter_bytes():
+                buf += chunk
+                if len(buf) > MAX_BUNDLE_BYTES:
+                    raise FeedError(f"bundle over {MAX_BUNDLE_BYTES // 1024} KB")
+            return bytes(buf)
 
     def poll_once(self) -> str:
         """-> "applied" | "unchanged" | "rejected: <reason>"."""
@@ -123,22 +130,34 @@ class FeedPoller:
             finally:
                 tmp.unlink(missing_ok=True)
             self.rules_path.parent.mkdir(parents=True, exist_ok=True)
+            previous = self.rules_path.read_bytes() if self.rules_path.exists() else None
             part = self.rules_path.with_suffix(".tmp")
             part.write_text(rules_yaml, encoding="utf-8")
             os.replace(part, self.rules_path)
+            try:            # the WHOLE policy must still load (duplicate rule ids, conflicts): else roll back
+                load_policy(self.policy_path)
+            except Exception:
+                if previous is None:
+                    self.rules_path.unlink(missing_ok=True)
+                else:
+                    self.rules_path.write_bytes(previous)
+                raise
             self.state_path.write_text(json.dumps({"version": version, "sha256": bundle.get("sha256")}), encoding="utf-8")
             self.status.update(version=version, last_error=None, rules=len(rules))
             if self.engine is not None:
                 self.engine.store.refresh(force=True)
             return "applied"
-        except (FeedError, PolicyError, ValueError, httpx.HTTPError, OSError) as e:
+        except Exception as e:  # noqa: BLE001 - nothing a feed sends may stop the poller or the gateway
             self.status["last_error"] = f"{type(e).__name__}: {e}"
             return f"rejected: {e}"
 
     def start(self) -> "FeedPoller":
         def loop():
             while True:
-                self.poll_once()
+                try:
+                    self.poll_once()
+                except Exception as e:  # noqa: BLE001 - belt and braces: the thread must never die
+                    self.status["last_error"] = f"{type(e).__name__}: {e}"
                 if self._stop.wait(self.interval_s):
                     return
         threading.Thread(target=loop, name="aicl-feed", daemon=True).start()

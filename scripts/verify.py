@@ -68,6 +68,9 @@ def main() -> int:
     report_only = "--report" in sys.argv          # rebuild the report from the junit files already in reports/
     REPORTS.mkdir(exist_ok=True)
     junits = [REPORTS / "junit-offline.xml"]
+    if not report_only:              # never report stale results: remove the previous junit files first
+        for old in REPORTS.glob("junit-*.xml"):
+            old.unlink()
     rc = 0 if report_only else run([], junits[0])
     if live or report_only:
         for i, mod in enumerate(LIVE):
@@ -77,6 +80,12 @@ def main() -> int:
                 run(["-m", "live", mod], j)
     live = live or any(j.exists() for j in junits[1:])
     res = results(junits)
+    if not junits[0].exists():
+        print("no offline junit results: run make verify first", file=sys.stderr)
+        return 1
+    failed_any = [k for k, v in res.items() if v == "failed"]     # unmapped tests count too
+    stamps = {j.name: __import__("datetime").datetime.fromtimestamp(j.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+              for j in junits if j.exists()}
     req = yaml.safe_load((ROOT / "tests" / "requirements.yaml").read_text(encoding="utf-8"))
     lines = ["# Requirements report (CRIETRIA PDF -> tests)", "",
              f"Suites: offline{' + live (console UI, Claude Code base URL, Claude Code transparent, Codex CLI)' if live else ''}. "
@@ -103,12 +112,16 @@ def main() -> int:
             return f"{p}/{len(xs)} passed" + (f" ({', '.join(extra)})" if extra else "")
         lines.append(f"| {r['id']} {r['pdf']} | {fmt(cell['pos'])} | {fmt(cell['neg'])} | {fmt(cell['live'])} | **{verdict}** |")
     lines += ["", "Known gaps (stated, not hidden):"] + [f"- {g}" for g in req.get("known_gaps") or []]
-    lines += ["", f"Overall: **{'ALL REQUIREMENTS PASS' if ok_all and rc == 0 else 'ATTENTION NEEDED'}**"]
+    if failed_any:
+        lines += ["", "Failed tests (any, mapped or not):"] + [f"- {m}::{n}" for m, n in failed_any[:50]]
+    lines += ["", "Result files: " + ", ".join(f"{k} ({v})" for k, v in stamps.items())]
+    ok_all = ok_all and rc == 0 and not failed_any
+    lines += ["", f"Overall: **{'ALL REQUIREMENTS PASS' if ok_all else 'ATTENTION NEEDED'}**"]
     out = REPORTS / "requirements_report.md"
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
-    print(f"\nwritten {out.relative_to(ROOT)}")
-    return 0 if ok_all and rc == 0 else 1
+    print(f"\nwritten {out}")
+    return 0 if ok_all else 1
 
 
 if __name__ == "__main__":

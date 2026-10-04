@@ -416,6 +416,8 @@ def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], di
         if denied and request.client:        # the client network (developer laptops) never reaches the console
             try:
                 ip = ipaddress.ip_address(request.client.host)
+                if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+                    ip = ip.ipv4_mapped
             except ValueError:
                 ip = None
             if ip is not None and any(ip in n for n in denied):

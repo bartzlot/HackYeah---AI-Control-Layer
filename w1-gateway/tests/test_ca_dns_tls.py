@@ -33,11 +33,21 @@ HOSTS = ["api.anthropic.com", "api.openai.com"]
 
 
 def free_port() -> int:
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    p = s.getsockname()[1]
-    s.close()
-    return p
+    """A port free for BOTH TCP and UDP, from a high range (Windows reserves dynamic ranges for Hyper-V)."""
+    import random
+    for _ in range(200):
+        p = random.randint(42000, 59000)
+        t, u = socket.socket(), socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            t.bind(("127.0.0.1", p))
+            u.bind(("127.0.0.1", p))
+            return p
+        except OSError:
+            continue
+        finally:
+            t.close()
+            u.close()
+    raise RuntimeError("no free TCP+UDP port")
 
 
 # ---- CA ------------------------------------------------------------------------------------------
@@ -100,19 +110,30 @@ def tls_gateway(tmp_path):
                                            ssl_keyfile=str(key), log_level="warning", lifespan="off"))
     th = threading.Thread(target=server.run, daemon=True)
     th.start()
-    for _ in range(100):
-        if server.started:
-            break
-        time.sleep(0.05)
+    wait_listening(server, port)
     yield port, tmp_path / "ca/aicl-ca.pem", mock
     server.should_exit = True
     th.join(timeout=5)
     eng.REGISTRY.pop("INJ-04", None)
 
 
+def wait_listening(server, port: int, timeout: float = 20.0) -> None:
+    """Started AND accepting connections (a loaded machine can take seconds to schedule the server thread)."""
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        if server.started:
+            try:
+                socket.create_connection(("127.0.0.1", port), timeout=1).close()
+                return
+            except OSError:
+                pass
+        time.sleep(0.05)
+    raise RuntimeError(f"server on {port} did not start")
+
+
 def https_raw(port: int, cafile: Path, sni: str, request: bytes) -> bytes:
     ctx = ssl.create_default_context(cafile=str(cafile))      # trusts ONLY the AICL root
-    with socket.create_connection(("127.0.0.1", port), timeout=10) as sock:
+    with socket.create_connection(("127.0.0.1", port), timeout=15) as sock:
         with ctx.wrap_socket(sock, server_hostname=sni) as tls:
             tls.sendall(request)
             out = b""
@@ -146,7 +167,7 @@ def test_tls_refuses_a_name_outside_the_leaf(tls_gateway):
 def test_a_client_without_the_aicl_ca_fails_closed(tls_gateway):
     port, _, mock = tls_gateway
     ctx = ssl.create_default_context()                        # system roots only
-    with socket.create_connection(("127.0.0.1", port), timeout=5) as sock:
+    with socket.create_connection(("127.0.0.1", port), timeout=15) as sock:
         with pytest.raises(ssl.SSLCertVerificationError):
             ctx.wrap_socket(sock, server_hostname="api.anthropic.com")
     assert not mock.state.seen                                # nothing leaked anywhere
@@ -319,10 +340,7 @@ def test_t115_new_intercepted_host_gets_tls_without_a_restart(tmp_path):
     tls = servers[1]
     th = threading.Thread(target=tls.run, daemon=True)
     th.start()
-    for _ in range(100):
-        if tls.started:
-            break
-        time.sleep(0.05)
+    wait_listening(tls, tls_port)
     cafile = tmp_path / "data" / "ca" / "aicl-ca.pem"
     req = b"GET /healthz HTTP/1.1\r\nHost: x\r\nconnection: close\r\n\r\n"
     try:

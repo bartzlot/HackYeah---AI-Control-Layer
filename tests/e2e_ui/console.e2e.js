@@ -56,7 +56,7 @@ const OUT = process.argv[3] || ".";
   const m4 = await page.$eval("#ctl-msg", (e) => e.textContent);
   const dlp = await page.evaluate(async () => (await (await fetch("/console/api/controls")).json()).controls.find((c) => c.id === "DLP-01").mode);
   const killOpts = await page.$$eval("#ctl select.modesel[data-id='KILL-01'] option", (os) => os.map((o) => o.value));
-  step("control switched off from the UI and live", /live/.test(m4) && dlp === "off" && !killOpts.includes("off"), m4 + " :: KILL-01 " + killOpts.join("/"));
+  step("control switched off from the UI and live", /live/.test(m4) && dlp === "off" && killOpts.join() === "enforce", m4 + " :: KILL-01 " + killOpts.join("/"));
   await page.screenshot({ path: OUT + "/controls-toggled.png" });
 
   // 3c. intercepted AI domains (T-115): add a host from the Network page, wildcard rejected

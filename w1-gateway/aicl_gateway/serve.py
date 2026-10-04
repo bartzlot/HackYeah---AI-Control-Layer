@@ -26,14 +26,18 @@ from .main import create_app_from_env
 log = logging.getLogger("aicl.serve")
 
 
-def refresh_leaf(ssl_ctx, raw: dict, root: Path) -> list[str]:
+def refresh_leaf(ssl_ctx, raw: dict, root: Path, tls: dict | None = None) -> list[str]:
     """A policy change that alters the intercepted hosts reissues the leaf (new SAN) and loads it into the
-    running listener: new handshakes get it at once, no restart (T-115)."""
+    running listener: new handshakes get it at once, no restart (T-115). `tls` = the CA paths fixed at start."""
     cfg = interception_cfg(raw)
     hosts = intercepted_hosts(cfg)
-    cert, key = ca.ensure(cfg["tls"], hosts, [cfg["dns"]["gateway_ip"]], root=root)
-    if ssl_ctx is not None:
-        ssl_ctx.load_cert_chain(str(cert), str(key))
+    try:
+        cert, key = ca.ensure(tls or cfg["tls"], hosts, [cfg["dns"]["gateway_ip"]], root=root)
+        if ssl_ctx is not None:
+            ssl_ctx.load_cert_chain(str(cert), str(key))
+    except Exception:
+        log.exception("TLS leaf refresh failed: TLS keeps the previous certificate (hosts %s)", hosts)
+        raise
     return hosts
 
 
@@ -56,7 +60,8 @@ def build(env: dict | None = None):
                                  log_level="info", lifespan="off")
         tls_cfg.load()                                   # builds the SSLContext now, so a reload can swap its cert
         servers.append(uvicorn.Server(tls_cfg))
-        engine.store.on_change.append(lambda pol: refresh_leaf(tls_cfg.ssl, pol.raw, root))
+        fixed_tls = dict(cfg["tls"])                  # CA paths are fixed at start: a policy edit cannot move the CA
+        engine.store.on_change.append(lambda pol: refresh_leaf(tls_cfg.ssl, pol.raw, root, fixed_tls))
         log.info("TLS :%d for %s", tls_port, ", ".join(intercepted_hosts(cfg)))
     dns = None
     if env.get("AICL_DNS_LISTEN"):

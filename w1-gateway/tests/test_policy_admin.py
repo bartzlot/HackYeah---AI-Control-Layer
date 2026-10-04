@@ -130,9 +130,10 @@ async def test_switching_a_control_off_patches_only_its_mode_and_applies_at_once
 async def test_kill_switch_and_identity_cannot_be_switched_off_from_the_ui(rig):
     app, c, path = rig()
     for cid in ("KILL-01", "ACCESS-01"):
-        r = await c.put(f"/console/api/controls/{cid}", json={"mode": "off"})
-        assert r.status_code == 422 and "cannot be switched off" in r.json()["error"]
-    assert (await c.put("/console/api/controls/ACCESS-01", json={"mode": "shadow"})).status_code == 200
+        for mode in ("off", "shadow"):          # shadow only logs: the kill switch / identity would stop acting
+            r = await c.put(f"/console/api/controls/{cid}", json={"mode": mode})
+            assert r.status_code == 422 and "stays enforced" in r.json()["error"]
+    assert (await c.put("/console/api/controls/ACCESS-01", json={"mode": "enforce"})).status_code == 200
 
 
 async def test_per_profile_mode_changes_only_that_profile(rig):
@@ -239,3 +240,50 @@ async def test_interception_edit_needs_the_admin_token(rig):
     body = {"add_host": {"provider": "anthropic", "host": "api.x.example"}}
     assert (await c.put("/console/api/interception", json=body)).status_code == 401
     assert (await c.put("/console/api/interception", json=body, headers={"authorization": "Bearer t0k"})).status_code == 200
+
+
+# ---- review fixes ---------------------------------------------------------------------------------
+
+@pytest.mark.parametrize("raw", ['{"agents": {"demo-dev": {"usd": NaN}}}', '{"agents": {"demo-dev": {"usd": Infinity}}}',
+                                 '{"agents": {"demo-dev": {"tokens": 1.5}}}'])
+async def test_non_finite_or_fractional_budget_values_are_rejected(rig, raw):
+    app, c, path = rig()
+    before = path.read_text(encoding="utf-8")
+    r = await c.put("/console/api/budgets", content=raw, headers={"content-type": "application/json"})
+    assert r.status_code == 422 and path.read_text(encoding="utf-8") == before
+
+
+async def test_tiny_usd_caps_are_kept_exactly(rig):
+    app, c, path = rig()
+    assert (await c.put("/console/api/budgets", json={"agents": {"demo-dev": {"usd": 1e-07}}})).status_code == 200
+    assert app.state.ledger.limits["demo-dev"]["usd"] == 1e-07
+
+
+async def test_local_d_overrides_never_leak_into_policy_yaml(rig):
+    app, c, path = rig()
+    (path.parent / "local.d").mkdir(exist_ok=True)
+    (path.parent / "local.d" / "zz-o.yaml").write_text(
+        'interception: {providers: {anthropic: {upstream: "http://127.0.0.1:9"}}}\n', encoding="utf-8")
+    app.state.engine.store.refresh(force=True)
+    r = await c.put("/console/api/interception", json={"add_host": {"provider": "anthropic", "host": "api.x.example"}})
+    assert r.status_code == 200
+    assert "127.0.0.1:9" not in path.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("body, msg", [
+    ({"add_provider": {"name": "x3", "host": "api.y.example", "protocol": "openai_chat",
+                       "upstream": "https://x.example.com\n    mode: off #"}}, "plain https URL"),
+    ({"add_provider": {"name": "null", "host": "api.y.example", "protocol": "openai_chat"}}, "YAML word"),
+    ({"add_provider": {"name": "true", "host": "api.y.example", "protocol": "openai_chat"}}, "YAML word"),
+])
+async def test_review_bad_interception_values_are_rejected(rig, body, msg):
+    app, c, path = rig()
+    r = await c.put("/console/api/interception", json=body)
+    assert r.status_code == 422 and msg in r.json()["error"]
+
+
+async def test_deny_cidrs_also_match_ipv4_mapped_clients(tmp_path):
+    from aicl_gateway.app import create_app
+    app = create_app(config={"console": {"remote": True, "deny_cidrs": ["10.77.0.0/24"]}})
+    c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=("::ffff:10.77.0.10", 1)), base_url="http://gw")
+    assert (await c.get("/console/api/summary")).status_code == 403

@@ -82,9 +82,10 @@ def test_gateway_environment_uses_service_names_and_container_paths():
         assert env[k].startswith("/app/data"), k
 
 
-def test_volumes_policy_read_only_and_data_persistent():
+def test_volumes_policy_writable_for_the_console_and_data_persistent():
     vols = SERVICES["gateway"]["volumes"]
-    assert "./policy:/app/policy:ro" in vols
+    assert "./policy:/app/policy" in vols                     # the console editor writes it (T-107, admin token)
+    assert SERVICES["gateway"]["environment"]["AICL_ADMIN_TOKEN"] == "${AICL_ADMIN_TOKEN:-}"
     assert "gateway-data:/app/data" in vols
     assert {"gateway-data", "ollama-models"} <= set(COMPOSE["volumes"])
 

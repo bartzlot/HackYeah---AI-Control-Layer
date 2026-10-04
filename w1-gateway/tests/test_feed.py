@@ -98,3 +98,26 @@ def test_publisher_cli_keygen_and_sign(tmp_path, capsys):
     assert F.main(["sign", str(rules), str(tmp_path / "k.pem"), "3"]) == 0
     bundle = json.loads(capsys.readouterr().out)
     assert F.verify(bundle, pub) == (3, RULES)
+
+
+# ---- review fixes ---------------------------------------------------------------------------------
+
+def test_a_bundle_that_breaks_the_whole_policy_is_rolled_back(rig):
+    key, served, poller, eng, tmp = rig
+    dup = RULES.replace("FEED-2026-001", "HIST-001")              # collides with policy/rules/historical.yaml
+    served["b"] = F.sign(dup, key, 1)
+    assert poller.poll_once().startswith("rejected")
+    assert not (tmp / "policy" / "rules" / "feed.yaml").exists() and poller.status["version"] == 0
+    eng.store.refresh(force=True)
+    assert eng.store.error is None                                   # the live policy still loads
+    served["b"] = F.sign(RULES, key, 1)
+    assert poller.poll_once() == "applied"                           # a fixed bundle with the same version applies
+
+
+@pytest.mark.parametrize("bad", ["rules: [unclosed", "- just\n- a list\n", "version: aicl-rules/1\nrules: 7\n"])
+def test_malformed_signed_rules_are_rejected_without_killing_the_poller(rig, bad):
+    key, served, poller, eng, tmp = rig
+    served["b"] = F.sign(bad, key, 1)
+    assert poller.poll_once().startswith("rejected")
+    served["b"] = F.sign(RULES, key, 2)
+    assert poller.poll_once() == "applied"

@@ -394,8 +394,9 @@ class PolicyStore:
             for cb in self.on_change:
                 try:
                     cb(new)
-                except Exception:
-                    pass
+                except Exception as e:  # noqa: BLE001 - one failing listener must not stop the others
+                    import logging
+                    logging.getLogger("aicl.policy").exception("policy reload listener failed: %s", e)
         return changed
 
     def maybe_refresh(self) -> None:

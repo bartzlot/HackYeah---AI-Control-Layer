@@ -25,11 +25,13 @@ services:
       # demo agent + playground key: .env wins; without a .env the public example key keeps the stack usable
       # (host-only port by default; main.py warns when the example key is used on a non-loopback bind)
       AICL_KEY_DEMO: ${AICL_KEY_DEMO:-aicl_demo_0123456789abcdef}
+      # console edits from the browser (the bridge address is not loopback) need this token; set it in .env
+      AICL_ADMIN_TOKEN: ${AICL_ADMIN_TOKEN:-}
       AICL_DATA_DIR: /app/data
       AICL_AUDIT_PATH: /app/data/audit.jsonl
       AICL_BUDGET_DB: /app/data/budget.db
     volumes:
-      - ./policy:/app/policy:ro     # edit policy.yaml on the host, the gateway polls and reloads
+      - ./policy:/app/policy        # edit on the host or from the console; the gateway polls and reloads
       - gateway-data:/app/data      # audit JSONL + budget SQLite survive restarts
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:18080/healthz', timeout=2)"]

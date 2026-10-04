@@ -259,7 +259,7 @@
   const MODES = ["enforce", "shadow", "off"];
   function modeSelect(id, cur, profile, locked) {
     return '<select class="modesel" data-id="' + esc(id) + '"' + (profile ? ' data-profile="' + profile + '"' : "") + ">" +
-      MODES.filter((m) => !(locked && m === "off")).map((m) => "<option" + (m === cur ? " selected" : "") + ">" + m + "</option>").join("") + "</select>";
+      MODES.filter((m) => !locked || m === "enforce").map((m) => "<option" + (m === cur ? " selected" : "") + ">" + m + "</option>").join("") + "</select>";
   }
   async function loadControls() {
     const c = (await getJSON(API + "/controls")).controls;
@@ -353,8 +353,8 @@
     $("#bud-edit tbody").innerHTML = rows.map(([id, v]) => {
       const u = used[id] || {};
       const per = ["minute", "hour", "day", "month"].map((p) => "<option" + (p === v.period ? " selected" : "") + ">" + p + "</option>").join("");
-      return '<tr data-id="' + esc(id) + '"><td><b>' + esc(id) + '</b></td><td><input data-k="tokens" type="number" min="0" step="1000" value="' + esc(v.tokens ?? "") +
-        '" style="width:140px"></td><td><input data-k="usd" type="number" min="0" step="0.01" value="' + esc(v.usd ?? "") + '" style="width:110px"></td><td><select data-k="period">' + per +
+      return '<tr data-id="' + esc(id) + '"><td><b>' + esc(id) + '</b></td><td><input data-k="tokens" type="number" min="0" step="1000" data-orig="' + esc(v.tokens ?? "") + '" value="' + esc(v.tokens ?? "") +
+        '" style="width:140px"></td><td><input data-k="usd" type="number" min="0" step="0.01" data-orig="' + esc(v.usd ?? "") + '" value="' + esc(v.usd ?? "") + '" style="width:110px"></td><td><select data-k="period" data-orig="' + esc(v.period ?? "") + '">' + per +
         "</select></td><td class='muted'>" + num((u.tokens || 0) + (u.reserved_tokens || 0)) + " tok, " + usd((u.usd || 0) + (u.reserved_usd || 0)) + "</td></tr>";
     }).join("") || '<tr><td class="empty" colspan="5">No budgets in the policy.</td></tr>';
   }
@@ -362,10 +362,13 @@
     const agents = {};
     document.querySelectorAll("#bud-edit tbody tr[data-id]").forEach((tr) => {
       const e = {};
-      tr.querySelectorAll("[data-k]").forEach((i) => { if (i.value !== "") e[i.dataset.k] = i.dataset.k === "period" ? i.value : Number(i.value); });
-      agents[tr.dataset.id] = e;
+      tr.querySelectorAll("[data-k]").forEach((i) => {
+        if (i.value !== "" && i.value !== i.dataset.orig) e[i.dataset.k] = i.dataset.k === "period" ? i.value : Number(i.value);
+      });
+      if (Object.keys(e).length) agents[tr.dataset.id] = e;   // only what the admin changed
     });
     const m = $("#bud-msg");
+    if (!Object.keys(agents).length) { m.style.color = ""; m.textContent = "Nothing changed."; return; }
     try {
       const r = await fetch(API + "/budgets", { method: "PUT", headers: authHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ agents }) });
       const j = await r.json().catch(() => ({}));

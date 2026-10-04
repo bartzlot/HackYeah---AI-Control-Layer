@@ -35,5 +35,6 @@ def test_gateway_serves_dns_and_tls_and_console_is_host_only():
     assert set(g["networks"]) == {"corp", "egress"}
 
 
-def test_policy_is_mounted_read_only_for_live_edits():
-    assert "./policy:/app/policy:ro" in C["services"]["aicl"]["volumes"]
+def test_policy_is_mounted_writable_for_console_edits_with_a_token():
+    assert "./policy:/app/policy" in C["services"]["aicl"]["volumes"]
+    assert C["services"]["aicl"]["environment"]["AICL_ADMIN_TOKEN"] == "${AICL_ADMIN_TOKEN:-}"

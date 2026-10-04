@@ -43,9 +43,10 @@ services:
       AICL_OLLAMA_URL: http://ollama:11434
       AICL_UPSTREAM_ANTHROPIC: ${AICL_UPSTREAM_ANTHROPIC:-}   # set by AICL_OFFLINE=1 to the mock
       AICL_KEY_DEMO: ${AICL_KEY_DEMO:-aicl_transparent_demo_key}
+      AICL_ADMIN_TOKEN: ${AICL_ADMIN_TOKEN:-}   # console edits from the browser; set it in .env
     sysctls: {net.ipv4.ip_unprivileged_port_start: "0"}      # non-root user binds 53 and 443
     volumes:
-      - ./policy:/app/policy:ro          # edit on the host: reload in ~1 s
+      - ./policy:/app/policy             # edit on the host or from the console: reload in ~1 s
       - aicl-data:/app/data              # audit, budgets, CA key (never mounted anywhere else)
       - aicl-ca-public:/app/ca-public    # root certificate for the devbox
     networks:

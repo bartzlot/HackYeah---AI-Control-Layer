@@ -83,3 +83,20 @@ def test_performance_telemetry_is_reproducible():
     bench = (ROOT / "scripts" / "bench.py").read_text(encoding="utf-8")
     assert "server-timing" in bench and "reports" in bench
     assert "bench:" in (ROOT / "Makefile").read_text(encoding="utf-8")
+
+
+def test_verify_report_fails_on_any_failed_test(tmp_path, monkeypatch):
+    """verify.py must never say PASS when a junit file holds a failure, mapped to a requirement or not."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("verify", ROOT / "scripts" / "verify.py")
+    v = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(v)
+    rep = tmp_path / "reports"
+    rep.mkdir()
+    (rep / "junit-offline.xml").write_text(
+        '<testsuites><testsuite><testcase classname="tests.test_x" name="test_unmapped"><failure/></testcase>'
+        '</testsuite></testsuites>', encoding="utf-8")
+    monkeypatch.setattr(v, "REPORTS", rep)
+    monkeypatch.setattr(v.sys, "argv", ["verify.py", "--report"])
+    assert v.main() == 1
+    assert "ATTENTION NEEDED" in (rep / "requirements_report.md").read_text(encoding="utf-8")

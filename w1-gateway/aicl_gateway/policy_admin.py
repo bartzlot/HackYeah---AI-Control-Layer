@@ -10,8 +10,10 @@ first start (Cloud Run, read-only images).
 from __future__ import annotations
 
 import io
+import math
 import os
 import re
+from urllib.parse import urlsplit
 import shutil
 import uuid
 from pathlib import Path
@@ -57,8 +59,10 @@ def write_policy(path: Path, text: str, engine) -> dict[str, Any]:
 
 
 def _num(v: Any, where: str, integer: bool) -> int | float:
-    if isinstance(v, bool) or not isinstance(v, (int, float)) or v < 0:
-        raise PolicyWriteError(422, f"{where} must be a non-negative number")
+    if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0 or v > 1e12:
+        raise PolicyWriteError(422, f"{where} must be a finite non-negative number")
+    if integer and int(v) != v:
+        raise PolicyWriteError(422, f"{where} must be a whole number")
     return int(v) if integer else float(v)
 
 
@@ -129,7 +133,7 @@ def _scalar(v: Any) -> str:
     if isinstance(v, bool):
         return "true" if v else "false"
     if isinstance(v, float):
-        return repr(round(v, 6))
+        return repr(v)            # exact: rounding would turn a tiny cap into 0
     return str(v)
 
 
@@ -225,8 +229,8 @@ def set_control_mode(path: Path, cid: str, body: dict, engine) -> dict[str, Any]
     mode, profile = body["mode"], body.get("profile")
     if profile is not None and profile not in PROFILES:
         raise PolicyWriteError(422, f"profile must be {'|'.join(PROFILES)}")
-    if cid in LOCKED and mode == "off":
-        raise PolicyWriteError(422, f"{cid} cannot be switched off from the console (edit policy.yaml to do it)")
+    if cid in LOCKED and mode != "enforce":    # shadow would only log: the kill switch / identity would stop acting
+        raise PolicyWriteError(422, f"{cid} stays enforced from the console (edit policy.yaml to change it)")
     lines = path.read_text(encoding="utf-8").split("\n")
     i, ind, end = _find(lines, ["controls", cid])
     if i < 0:
@@ -268,6 +272,7 @@ def set_control_mode(path: Path, cid: str, body: dict, engine) -> dict[str, Any]
     return res
 
 
+YAML_WORDS = {"null", "true", "false", "yes", "no", "on", "off", "y", "n"}
 DEFAULT_INSPECT = {"anthropic_messages": ["/v1/messages"], "openai_responses": ["/v1/responses", "/v1/chat/completions"],
                    "openai_chat": ["/v1/chat/completions"]}
 _HOST = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
@@ -304,9 +309,10 @@ def edit_interception(path: Path, body: dict, engine) -> dict[str, Any]:
     op, arg = next(iter(body.items()))
     if not isinstance(arg, dict):
         raise PolicyWriteError(422, f"{op} needs an object")
-    raw = engine.policy.raw
+    raw = engine.policy.raw                          # merged view: hosts already intercepted, DoH list
     cfg = interception_cfg(raw)
-    providers = {n: dict(p) for n, p in (raw.get("interception") or {}).get("providers", {}).items()}
+    own = YAML(typ="safe").load(path.read_text(encoding="utf-8")) or {}   # rebuilt from policy.yaml ONLY: local.d
+    providers = {n: dict(p) for n, p in ((own.get("interception") or {}).get("providers") or {}).items()}  # stays out
     sink = {h.lower().rstrip(".") for h in cfg["dns"].get("doh_sinkhole") or []}
 
     def check_host(h: Any) -> str:
@@ -337,15 +343,17 @@ def edit_interception(path: Path, body: dict, engine) -> dict[str, Any]:
         what = f"interception: - host {h} from {name}"
     elif op == "add_provider":
         name = str(arg.get("name") or "")
-        if not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", name) or name in providers:
-            raise PolicyWriteError(422, "provider name must be new, lower-case, 2-32 of [a-z0-9_-]")
+        if not re.fullmatch(r"[a-z][a-z0-9_-]{1,31}", name) or name in providers or name in YAML_WORDS:
+            raise PolicyWriteError(422, "provider name must be new, lower-case, 2-32 of [a-z0-9_-], not a YAML word")
         proto = arg.get("protocol")
         if proto not in DEFAULT_INSPECT:
             raise PolicyWriteError(422, f"protocol must be {'|'.join(DEFAULT_INSPECT)}")
         host = check_host(arg.get("host"))
         up = str(arg.get("upstream") or f"https://{host}")
-        if not up.startswith("https://"):
-            raise PolicyWriteError(422, "upstream must be an https URL")
+        u = urlsplit(up)
+        if (u.scheme != "https" or not u.hostname or any(c.isspace() or ord(c) < 32 for c in up)
+                or u.query or u.fragment or u.username or u.password):
+            raise PolicyWriteError(422, "upstream must be a plain https URL (no spaces, query, fragment or user)")
         providers[name] = {"hosts": [host], "protocol": proto, "upstream": up,
                            "inspect": list(arg.get("inspect") or DEFAULT_INSPECT[proto])}
         what = f"interception: + provider {name} ({proto}, {host})"
