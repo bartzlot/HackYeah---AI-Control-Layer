@@ -19,4 +19,6 @@ Common live edits:
 - Budgets: `budgets.agents.<id>`; loop limit: `loop_limits.repeat_identical` (4 = the 4th identical call is blocked).
 - Kill switch: `emergency.kill_switch: true`.
 
+Planned (v4, `research/14-transparent-interception.md` section 4): `interception:` (intercepted hosts per provider, DNS, TLS, per-protocol block styles) and `clients:` (identity of passthrough clients by address or key fingerprint). The lead lands the structure; until then these keys are not read.
+
 Notes: use ASCII hyphens only; synthetic secrets and PII only; loaders must read the word off as a string (ruamel.yaml, YAML 1.2).

@@ -1,5 +1,7 @@
 # 13 - Architecture and final recommendation: what exactly do we build, how, in which order, and how do we prove it?
 
+> **Superseded on ingress (2026-10-04, v4):** the main ingress is now transparent DNS + TLS interception of AI API clients with provider-native contracts, see `14-transparent-interception.md`. The engine, policy, controls, budgets, logging and testing sections below still apply; PEP A / B / C stay as secondary modes or backlog.
+
 Decision record, 2026-10-03. Synthesis of research 01-12 (cited as [NN]; every external claim is sourced inside those files). Team draft v2 (`research/draft-v2/`) is kept for facts; section 1 states where this design differs from it. Labels: `[EST]` established technique, `[EXP]` experimental, `[REC]` our recommendation, `[INFERENCE]` reasoning not read anywhere, `[MEASURED]` measured on the M5 laptop today by the research slices.
 
 Contents: 1 Executive recommendation - 2 Architecture - 3 Data flow - 4 Protocols - 5 Deterministic engine - 6 Semantic engine - 7 DLP - 8 MCP security - 9 Identity and authorization - 10 Budgets and resources - 11 Signature feed - 12 Policy (complete YAML) - 13 Logging schema - 14 Dashboard - 15 Testing (45 cases) - 16 Stack - 17 Existing solutions - 18 Control matrix - 19 Priorities - 20 Repository - 21 Implementation plan - 22 Judge demo - 23 Risks - 24 Differentiators - 25 Final MVP architecture.

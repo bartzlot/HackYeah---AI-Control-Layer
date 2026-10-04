@@ -1,6 +1,7 @@
 # BACKLOG - work cut from the 3-4 h MVP
 
 Not a task board. To bring an item back: `scripts/task.sh add "[piece] title | deps: ..."`.
+v4 (2026-10-04, `research/14-transparent-interception.md`): items marked **(v4: in TASKS)** moved into the transparent-interception tasks; the rest stays parked.
 "was T-xxx" = task id in the original plan (commit 0c05475); design in `research/13-architecture.md` [section].
 
 ## Priority 1 - quick add-ons to the MVP
@@ -12,8 +13,8 @@ Not a task board. To bring an item back: `scripts/task.sh add "[piece] title | d
 - Output filters: markdown image / link exfil, canary token, system prompt leak (was T-306) [5]
 - Tool-argument validators: SQL via sqlglot, path jail, URL / SSRF resolved IPs (was T-307) [9]
 - Pickle / artifact scanner `/v1/guard/artifact` (genops allowlist, never load) (was T-311) [11]
-- SSE streaming with hold-back buffer and tool_call assembly (was T-103) [3]
-- Impersonation check (X-AICL-* headers vs key), traceparent correlation (was T-104) [9]
+- SSE streaming with hold-back buffer and tool_call assembly (was T-103) [3] **(v4: in TASKS, provider adapters)**
+- Impersonation check (X-AICL-* headers vs key), traceparent correlation (was T-104) [9] (v4: identity is client address + key fingerprint, see research/14 s.6)
 - More PII: NIP, REGON, PL NRB, ID card, phone, IP ranges (was T-304) [5]
 
 ## Priority 2 - original Tier 1
@@ -36,7 +37,7 @@ Not a task board. To bring an item back: `scripts/task.sh add "[piece] title | d
 - stdio MCP wrapper (was T-108) [8]
 - JWT delegation tokens (was T-109) [9]
 - Memory API with provenance (was T-110) [9.1]
-- Responses / Anthropic adapters (was T-111) [4]
+- Responses / Anthropic adapters (was T-111) [4] **(v4: in TASKS, native contract)**
 - History pack ~30 rules with CVE / ATLAS mapping (was T-310) [11]
 - Package / supply-chain gate (was T-311) [11]
 - A2A agent card pin (was T-312) [9]
@@ -47,3 +48,11 @@ Not a task board. To bring an item back: `scripts/task.sh add "[piece] title | d
 - OTel spans (was T-511) [13]
 - Perf benchmark (was T-902) [3, 15]
 - Judge drills on false positives (was T-903)
+
+## v4 parked (transparent interception extras)
+- Explicit proxy mode B (`HTTPS_PROXY` CONNECT handling) [14 s.1]
+- Per-SNI leaf minting for arbitrary hosts (one SAN leaf covers the list) [14 s.5]
+- Name-constrained CA [14 s.5, s.10]
+- Hold-back streaming instead of full buffering for long answers [14 s.10]
+- ChatGPT-login Codex (`chatgpt.com/backend-api/codex`, Cloudflare) [14 s.3]
+- Other providers (Gemini, Mistral, Groq) as `interception.providers` entries
