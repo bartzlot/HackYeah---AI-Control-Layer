@@ -60,3 +60,17 @@ T-[0-9]{3}
 head
 -n
 1
+- [ ] T-109 [w1] (T1) passthrough router: Host / SNI -> provider + protocol from interception.providers; client Authorization / x-api-key / OAuth bearer forwarded unchanged (credentials: passthrough; managed mode keeps current gateway keys); every non-inspected path (HEAD /api/hello, /v1/messages/count_tokens, /v1/models, unknown) proxied byte-for-byte with streaming and audited; upstream resolved via interception.dns.upstream, never via our DNS; identity = client_ip + sha256(key)[:8] + user agent -> clients: map; real Claude Code works in mode A (ANTHROPIC_BASE_URL) [14 s.2, s.6] | deps: OK add [lead] (T1) v4 contracts + policy: Event gains protocol (anthropic_messages / openai_responses / openai_chat), upstream_host, client_ip, credential_hash, user_agent; policy.yaml interception: block (providers hosts + protocol + inspected paths, proxy_other_paths, max_body_kb 4096, dns, tls, block_style per protocol) and clients: identities; prices for the real Claude / OpenAI models from the pricing pages; policy/README; deps dnslib [14 s.4, s.6] by lead/Przemyslaw_Raczynski@przemek-pc
+- [ ] T-013 [lead] (T1) v4 contracts + policy: Event gains protocol (anthropic_messages / openai_responses / openai_chat), upstream_host, client_ip, credential_hash, user_agent; policy.yaml interception: block (providers hosts + protocol + inspected paths, proxy_other_paths, max_body_kb 4096, dns, tls, block_style per protocol) and clients: identities; prices for the real Claude / OpenAI models from the pricing pages; policy/README; deps dnslib [14 s.4, s.6] | deps: -
+/
+tail
+-n
+1
+/
+grep
+-o
+T-[0-9]{3}
+/
+head
+-n
+1
