@@ -1,0 +1,39 @@
+flowchart LR
+  user(["Developer trying to leave the control"])
+  subgraph attempts["Bypass attempts"]
+    direction TB
+    b1["Base URL or HTTPS_PROXY to another host"]
+    b2["Manual DNS 8.8.8.8 or hosts file with the real IP"]
+    b3["DoH / DoT in browser or OS"]
+    b4["Remove the AICL CA"]
+    b5["IPv6 direct"]
+    b6["VPN, hotspot, personal device"]
+  end
+  subgraph net["Network enforcement"]
+    direction TB
+    f1["Egress firewall: 443 to provider ranges only from the gateway"]
+    f2["Egress firewall: DNS only to the AICL resolver, 853 dropped"]
+    f3["AICL DNS: DoH hosts sinkholed, NXDOMAIN"]
+    f4["TLS fails closed, nothing leaks"]
+    f5["No AAAA from AICL DNS, v6 to provider ranges dropped"]
+  end
+  subgraph det["What AICL shows"]
+    direction TB
+    n1["NET-01 BYPASS_SUSPECTED (WARN)<br/>name resolved, no gateway request within 30 s"]
+    n2["NET-01 finding for the DoH lookup<br/>every query audited with client IP"]
+    n3["TLS handshake errors in gateway logs"]
+    n4["Connection refused for the user"]
+  end
+  lim["Out of scope: endpoint and HR policy, stated in Limits"]
+  user --> b1 & b2 & b3 & b4 & b5 & b6
+  b1 --> f1 --> n4
+  b1 -.-> n1
+  b2 --> f2
+  b2 --> f1
+  f2 -.-> n1
+  b3 --> f3 --> n2
+  b3 --> f2
+  b4 --> f4 --> n3
+  b5 --> f5
+  b6 --> lim
+  det -. "dashboard alert" .-> cons["Console: DNS and bypass alerts"]
