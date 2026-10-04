@@ -25,7 +25,7 @@ COPY policy /app/policy
 ENV PATH=/app/.venv/bin:$PATH PYTHONUNBUFFERED=1 \
     AICL_POLICY=/app/policy/policy.yaml AICL_DATA_DIR=/app/data \
     AICL_AUDIT_PATH=/app/data/audit.jsonl AICL_BUDGET_DB=/app/data/budget.db \
-    AICL_CLOUDSIM_HOST=0.0.0.0
+    AICL_CLOUDSIM_HOST=0.0.0.0 AICL_MODELS_DIR=/app/models
 WORKDIR /app
 USER aicl
 EXPOSE 18080 18200 443 53/udp 53/tcp
