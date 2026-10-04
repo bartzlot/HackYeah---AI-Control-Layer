@@ -296,14 +296,16 @@
     }).join("\n");
   }
   async function loadPolicy() {
-    const p = await getJSON(API + "/policy");
+    const [p, st] = await Promise.all([getJSON(API + "/policy"), getJSON(API + "/status").catch(() => ({}))]);
     const b = $("#pol-banner");
     if (p.error) { b.className = "banner err"; b.textContent = "Last edit rejected, the previous policy stays live: " + p.error; }
     else { b.className = "banner ok"; b.innerHTML = "Live policy <code>" + esc((p.version || "").slice(0, 16)) + "</code>, profile <b>" + esc(p.profile || "-") + "</b>, " + num(p.rules) + " signature rules with inline tests, files: " + (p.files || []).map((f) => "<code>" + esc(f) + "</code>").join(" "); }
     const ic = p.interception || {};
     const styles = Object.entries(ic.block_style || {}).map(([k, v]) => "<tr><td>" + esc(protoName(k)) + "</td><td class='mono'>" + esc(v.hard) + "</td><td class='mono'>" + esc(v.soft) + "</td><td class='mono'>" + esc(v.budget) + "</td></tr>").join("");
     $("#pol-cards").innerHTML =
-      '<div class="card"><h2>Interception</h2><div class="kv"><b>Mode</b><span>' + esc(ic.mode || "-") + "</span><b>Credentials</b><span>" + esc(ic.credentials || "-") + "</span><b>Hosts</b><span>" + (ic.hosts || []).map((h) => "<code>" + esc(h) + "</code>").join(" ") + "</span></div></div>" +
+      '<div class="card"><h2>Interception</h2><div class="kv"><b>Runtime mode</b><span>' + esc(MODE_NAME[st.mode] || st.mode || "-") + "</span><b>Listeners</b><span class=\"prose\">" + esc(listenerText(st)) +
+        "</span>" + (st.warnings || []).map((x) => '<b>Warning</b><span class="prose" style="color:var(--warn)">' + esc(x) + "</span>").join("") +
+        (st.notes || []).map((x) => '<b>Note</b><span class="prose">' + esc(x) + "</span>").join("") + "<b>Policy mode</b><span>" + esc(ic.mode || "-") + "</span><b>Credentials</b><span>" + esc(ic.credentials || "-") + "</span><b>Hosts</b><span>" + (ic.hosts || []).map((h) => "<code>" + esc(h) + "</code>").join(" ") + "</span></div></div>" +
       '<div class="card"><h2>Native block contract</h2><div class="tablewrap"><table><thead><tr><th>API</th><th>Hard</th><th>Soft</th><th>Budget</th></tr></thead><tbody>' + styles + "</tbody></table></div></div>" +
       '<div class="card"><h2>Clients (identity)</h2><table><thead><tr><th>Match</th><th>Principal</th><th>Profile</th></tr></thead><tbody>' +
       (p.clients || []).map((c) => "<tr><td class='mono'>" + esc(JSON.stringify(c.match)) + "</td><td>" + esc(c.principal) + "</td><td>" + esc(c.profile || "-") + "</td></tr>").join("") + "</tbody></table></div>" +
@@ -401,11 +403,26 @@
   }
 
   // ---- header chips
+  const MODE_NAME = { transparent: "transparent", base_url: "base-URL", proxy: "proxy", off: "off" };
+  // T-116: the chip shows the listeners this process really runs, not the policy's interception.mode
+  function listenerText(s) {
+    const l = s.listeners || {}, on = (x) => x && x.on;
+    return ["HTTP " + (on(l.http) ? ":" + l.http.port : "off"), "TLS " + (on(l.tls) ? ":" + l.tls.port : "off"),
+      "DNS " + (on(l.dns) ? ":" + l.dns.port : "off"), "CA " + (s.ca && s.ca.present ? "present" : "missing")].join(", ");
+  }
+  async function loadMode() {
+    const s = await getJSON(API + "/status");
+    const w = s.warnings || [], n = s.notes || [];
+    const c = $("#chip-mode");
+    c.textContent = "mode: " + (MODE_NAME[s.mode] || s.mode || "-") + (w.length ? " (" + w.length + " warning" + (w.length > 1 ? "s" : "") + ")" : "");
+    c.className = "chip mode" + (w.length ? " warn" : "");
+    c.title = ["Runtime: " + listenerText(s), "Policy interception.mode: " + (s.policy_mode || "-")].concat(w.map((x) => "Warning: " + x), n.map((x) => "Note: " + x)).join("\n");
+    return s;
+  }
   async function loadHeader() {
     try {
+      await loadMode().catch(() => {});
       const p = await getJSON(API + "/policy");
-      const ic = p.interception || {};
-      $("#chip-mode").textContent = "interception: " + (ic.mode || "off");
       const c = $("#chip-policy");
       c.textContent = (p.error ? "policy error, last good " : "policy ") + (p.version || "").slice(0, 10);
       c.className = "chip" + (p.error ? " err" : "");

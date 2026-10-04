@@ -49,6 +49,8 @@ def build(env: dict | None = None):
     bind = env.get("AICL_BIND", "127.0.0.1")
     servers = [uvicorn.Server(uvicorn.Config(app, host=bind, port=int(env.get("AICL_HTTP_PORT", "18080")),
                                              log_level="info", lifespan="on"))]
+    rt = app.state.runtime                       # console status: the listeners this process really runs (T-116)
+    rt.http = servers[0]
     tls_port = int(env.get("AICL_TLS_PORT", "0") or 0)
     if tls_port:
         cfg = interception_cfg(engine.policy.raw)
@@ -60,6 +62,7 @@ def build(env: dict | None = None):
                                  log_level="info", lifespan="off")
         tls_cfg.load()                                   # builds the SSLContext now, so a reload can swap its cert
         servers.append(uvicorn.Server(tls_cfg))
+        rt.tls = servers[-1]
         fixed_tls = dict(cfg["tls"])                  # CA paths are fixed at start: a policy edit cannot move the CA
         engine.store.on_change.append(lambda pol: refresh_leaf(tls_cfg.ssl, pol.raw, root, fixed_tls))
         log.info("TLS :%d for %s", tls_port, ", ".join(intercepted_hosts(cfg)))
@@ -69,6 +72,7 @@ def build(env: dict | None = None):
         dns = Dns(AiclResolver(policy, audit=app.state.audit, watch=watch), env["AICL_DNS_LISTEN"])
         app.state.dns = dns.resolver
         app.state.passthrough.watch = watch          # requests through the gateway clear the pending lookup
+        rt.dns = dns
     return app, servers, dns
 
 
