@@ -640,6 +640,27 @@
     }, now ? 0 : 800);
   }
 
+  // ---- live event toasts (T-132): every AI decision pops a short panel; DNS / passthrough noise stays in Activity
+  const TOAST_MAX = 4, TOAST_MS = 7000;
+  function toastable(r) { return r.stage !== "dns" && r.event_type !== "PASSTHROUGH" && r.event_type !== "DNS_QUERY"; }
+  function toast(r) {
+    const box = $("#toasts");
+    if (!box || !toastable(r)) return;
+    const d = dn(r.decision);
+    const el = document.createElement("div");
+    el.className = "toast t-" + d;
+    el.innerHTML = '<div class="th"><span class="badge b-' + d + '">' + d + "</span><b>" + esc(evName(r)) + '</b><span class="when">' + esc((r.ts || "").slice(11, 19)) + "</span></div><p>" + esc(story(r)) + "</p>";
+    let timer = null;
+    const close = () => { clearTimeout(timer); el.remove(); };
+    const arm = () => { clearTimeout(timer); timer = setTimeout(close, TOAST_MS); };
+    el.onmouseenter = () => clearTimeout(timer);
+    el.onmouseleave = arm;
+    el.onclick = () => { close(); go("security"); select(r); };
+    box.prepend(el);
+    while (box.children.length > TOAST_MAX) box.lastElementChild.remove();
+    arm();
+  }
+
   // live stream
   function live() {
     if (!window.EventSource || /[?&]nolive=1/.test(location.search)) return;   // nolive: static snapshots
@@ -649,6 +670,7 @@
     es.addEventListener("audit", (e) => {
       const r = JSON.parse(e.data);
       events.unshift(r);
+      toast(r);
       if (["BLOCK", "REDACT"].includes(dn(r.decision))) renderRecent();
       if (events.length > 800) events.pop();
       if (page === "security") {
