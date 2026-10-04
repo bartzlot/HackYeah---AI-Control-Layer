@@ -199,3 +199,25 @@ def test_current_opus_models_are_priced():
 def test_null_block_in_the_main_file_is_a_validation_error_not_a_crash():
     with pytest.raises(ValueError, match="block_style"):
         I.validate({"interception": {"block_style": None}})
+
+
+# ---- T-206: coding-agent rules are tool-argument rules, not text signatures ---------------------
+
+def test_tool_args_scope_keeps_command_rules_out_of_the_text_scan():
+    from aicl_contracts import Part, ToolCall
+    eng = Engine(POLICY)
+    readme = Event(stage=Stage.PROMPT, agent_id="claude-code", model="qwen3.5:2b-q4_K_M", parts=[
+        Part(role="tool", trusted=False, text="Setup: cp .env.example .env, keys live in ~/.aws/credentials")])
+    assert eng.decide(readme).action.name in ("ALLOW", "LOG", "WARN")
+    run = Event(stage=Stage.TOOL_ARGS, agent_id="claude-code",
+                tool_calls=[ToolCall(name="Bash", arguments={"command": "cat ~/.aws/credentials"})])
+    d = eng.decide(run)
+    assert d.action.name == "BLOCK" and any(f.rule_id == "CODE-AG-001" for f in d.findings)
+
+
+def test_bad_rule_scope_fails_the_load(pdir):
+    (pdir / "rules" / "zz.yaml").write_text(
+        "version: aicl-rules/1\nrules:\n  - {id: X-1, category: tool_abuse, scope: everywhere, pattern: 'x'}\n",
+        encoding="utf-8")
+    with pytest.raises(PolicyError, match="scope"):
+        load_policy(pdir / "policy.yaml")

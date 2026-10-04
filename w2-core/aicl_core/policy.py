@@ -184,6 +184,13 @@ class Rule:
     match: list[str] = field(default_factory=list)
     no_match: list[str] = field(default_factory=list)
     tools: list[str] = field(default_factory=list)      # TOOL-01 scope (tool-name globs); empty = every tool
+    scope: str = "all"                                  # all | tool_args (TOOL-01 only, never INJ-03 text)
+
+
+def _scope(v: Any) -> str:
+    if v not in ("all", "tool_args"):
+        raise ValueError(f"scope must be all|tool_args, not {v!r}")
+    return v
 
 
 def load_rule_file(path: Path, source: str = "policy") -> list[Rule]:
@@ -200,7 +207,7 @@ def load_rule_file(path: Path, source: str = "policy") -> list[Rule]:
                 action_untrusted=to_action(r.get("action_untrusted", "BLOCK"))[0],
                 severity=r.get("severity", "medium"), name=r.get("name", ""), source=source,
                 match=list(r.get("match", [])), no_match=list(r.get("no_match", [])),
-                tools=[str(t) for t in (r.get("tools") or [])]))
+                tools=[str(t) for t in (r.get("tools") or [])], scope=_scope(r.get("scope", "all"))))
         except (KeyError, re.error, ValueError, TypeError) as e:
             raise PolicyError(f"{path}: rule {r.get('id', '?') if isinstance(r, dict) else '?'}: {e}") from e
     for rule in out:  # inline tests: a rule that fails its own examples never goes live

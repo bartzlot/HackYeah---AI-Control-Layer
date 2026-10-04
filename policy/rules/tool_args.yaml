@@ -10,11 +10,14 @@ rules:
     name: recursive forced delete
     category: tool_abuse
     severity: critical
-    pattern: '\brm\b(?=[^\n|;&]*\s(-[a-z]*r[a-z]*|--recursive)(\s|$))(?=[^\n|;&]*\s(-[a-z]*f[a-z]*|--force)(\s|$))'
+    # v4: only absolute, home or wildcard targets (rm -rf node_modules / ./build is routine for coding agents)
+    pattern: '\brm\b(?=[^\n|;&]*\s(-[a-z]*r[a-z]*|--recursive)(\s|$))(?=[^\n|;&]*\s(-[a-z]*f[a-z]*|--force)(\s|$))(?=[^\n|;&]*\s(/|~|\$HOME|\*))'
     action_untrusted: BLOCK
     action_user: LOG
-    match: ['command=rm -rf /', 'cmd=sudo rm -fr ~/projects', 'rm -r -f /var/data', 'rm -r --force /', 'rm --recursive --force /srv']
-    no_match: ['command=rm notes.txt', 'remove the -rf flag from the docs', 'command=ls -rf', 'rm -r old_dir', 'rm -f x.tmp']
+    match: ['command=rm -rf /', 'cmd=sudo rm -fr ~/projects', 'rm -r -f /var/data', 'rm -r --force /', 'rm --recursive --force /srv',
+            'command=rm -rf *']
+    no_match: ['command=rm notes.txt', 'remove the -rf flag from the docs', 'command=ls -rf', 'rm -r old_dir', 'rm -f x.tmp',
+               'command=rm -rf node_modules', 'command=rm -rf ./build dist']
   - id: TOOL-ARG-002
     name: pickle-format model file fetched by a model tool
     category: model_supply_chain

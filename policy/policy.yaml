@@ -60,6 +60,12 @@ agents:
     models: ["qwen3.5:2b-q4_K_M"]
     tools: [corp.send_email]
     max_data_level: internal
+  claude-code:                                     # a coding agent in managed mode (gateway key); passthrough
+    key_sha256: "sha256:PLACEHOLDER-demo-key-claude-code"   # clients use clients[].tools instead
+    profile: balanced
+    models: ["qwen3.5:2b-q4_K_M", "gpt-4o-mini"]
+    tools: [Bash, Read, Write, Edit, MultiEdit, Glob, Grep, WebFetch, WebSearch, TodoWrite, Task]
+    max_data_level: confidential
 unknown_agent: {action: BLOCK}                     # requests with an unknown key are denied
 
 # ---------- 4. destinations and data classification (where) ----------
@@ -152,7 +158,7 @@ controls:
     matrix: destination_matrix
   INJ-03:                    # signature rules: policy/rules/historical.yaml + feed rules, EN + PL
     mode: enforce
-    rule_files: [policy/rules/historical.yaml, policy/rules/injection.yaml]   # every rules/*.yaml is loaded
+    rule_files: [policy/rules/historical.yaml, policy/rules/injection.yaml]   # every rules/*.yaml is loaded (coding_agent, tool_args too)
     action: {user: WARN, untrusted: BLOCK}   # default when a rule has no action_user / action_untrusted; untrusted = tool result / RAG / MCP / memory
     # user turns: injection-family rules (injection, prompt_extraction, jailbreak) BLOCK when their severity score
     # (low .40, medium .65, high .80, critical .95) >= profiles.<p>.injection.block; quoted educational mentions only LOG

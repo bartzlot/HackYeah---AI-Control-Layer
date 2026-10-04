@@ -58,6 +58,8 @@ class Injection:
                 continue                                  # the operator's own system prompt
             view, omap = normalized_view(part.text)
             for rule in pol.rules:
+                if rule.scope == "tool_args":      # command / path rules: documentation that MENTIONS them is fine
+                    continue
                 m = rule.pattern.search(view)
                 if not m:
                     continue
