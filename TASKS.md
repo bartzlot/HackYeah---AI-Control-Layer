@@ -170,3 +170,17 @@ T-[0-9]{3}
 head
 -n
 1
+- [ ] T-112 [w1] (T2) OpenAI Responses adapter POST /v1/responses for Codex (stream + non-stream): input items, function_call / local_shell_call / custom tool items, never touch reasoning encrypted_content; native block shapes; start with the mock spike (real Codex CLI against a mock, record its block-rendering table in research/14 s.3, pick the budget status) [14 s.3] | deps: OK add [w1] (T1) Anthropic Messages adapter POST /v1/messages (stream + non-stream): parts from system / text / tool_result (untrusted channel) / tool_use; in-place redaction keeping unknown fields and never touching thinking / redacted_thinking blocks; buffer the upstream SSE, decide() on text + tool_use, re-emit events in the original order; native shapes: hard block = 400 invalid_request_error, budget = 402 billing_error, soft block / blocked tool_use = 200 assistant text [AICL] with stop_reason end_turn; never refusal, 403, 429/5xx or mid-stream error events; recorded Claude Code 2.1.289 request fixture + mock upstream; cases [14 s.3, s.7] by lead/Przemyslaw_Raczynski@przemek-pc
+1
+/
+tail
+-n
+1
+/
+grep
+-o
+T-[0-9]{3}
+/
+head
+-n
+1
