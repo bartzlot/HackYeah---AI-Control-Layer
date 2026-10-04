@@ -173,7 +173,7 @@
   function renderRecent() {
     const hits = events.filter((r) => ["BLOCK", "REDACT"].includes(dn(r.decision)) && r.stage !== "dns").slice(0, 6);
     $("#recent").innerHTML = hits.length ? hits.map((r, i) => '<div class="recent-row" data-i="' + i + '"><span class="when">' + esc((r.ts || "").slice(11, 16)) +
-      '</span><span class="badge b-' + dn(r.decision) + '">' + dn(r.decision) + "</span><span>" + esc(story(r)) + "</span></div>").join("")
+      '</span><span class="badge b-' + esc(dn(r.decision)) + '">' + esc(dn(r.decision)) + "</span><span>" + esc(story(r)) + "</span></div>").join("")
       : '<div class="empty-state">Nothing stopped yet. <br><button onclick="document.querySelector(\'#nav [data-page=playground]\').click()">Try a risky prompt</button></div>';
     document.querySelectorAll("#recent .recent-row").forEach((el) => (el.onclick = () => { go("security"); select(hits[+el.dataset.i]); }));
   }
@@ -182,7 +182,7 @@
     let msg = box.querySelector(".empty-state");
     if (empty && !msg) { msg = document.createElement("div"); msg.className = "empty-state"; msg.textContent = "No data yet. Send a prompt from Try it, or run Claude Code / Codex through AICL."; box.appendChild(msg); }
     if (msg) msg.style.display = empty ? "block" : "none";
-    $(canvasSel).style.display = empty ? "none" : "block";
+    $(canvasSel).style.display = empty ? "none" : "";
   }
   function row(r, isNew) {
     const tr = document.createElement("tr");
@@ -301,7 +301,7 @@
   // ---- controls
   const MODES = ["enforce", "shadow", "off"];
   const MODE_LABEL = { enforce: "On", shadow: "Watch only", off: "Off" };
-  const WHAT = { "KILL-01": "Emergency stop: when switched on in the policy, every AI request is refused.",
+  const WHAT = { "KILL-01": "Emergency stop, armed: refuses every AI request only if emergency.kill_switch is set in the policy.",
     "ACCESS-01": "Only known people / tools and allowed models get through.",
     "DLP-01": "Secrets (API keys, private keys, tokens) never reach a model.",
     "DLP-02": "Personal data (PESEL, IBAN, cards, e-mail, phone) is redacted.",
@@ -373,7 +373,6 @@
   // ---- policy + budget editor (T-107)
   let editing = false, polText = "";
   try { $("#admin-token").value = sessionStorage.getItem("aicl-admin") || ""; } catch (e) {}
-  $("#admin-token").oninput = () => { try { sessionStorage.setItem("aicl-admin", $("#admin-token").value); } catch (e) {} };
   function authHeaders(extra) {
     const t = $("#admin-token").value.trim();
     return Object.assign(t ? { Authorization: "Bearer " + t } : {}, extra || {});
@@ -558,10 +557,9 @@
   }
   $("#unlock").onclick = () => { const b = $("#unlock-box"); b.style.display = b.style.display === "none" ? "inline-flex" : "none"; $("#admin-token").focus(); };
   $("#unlock-ok").onclick = async () => {
-    try { sessionStorage.setItem("aicl-admin", $("#admin-token").value); } catch (e) {}
-    const w = await checkEdit();
-    if (w.can_edit) $("#unlock-box").style.display = "none";
-    else { $("#admin-token").value = ""; $("#admin-token").placeholder = "wrong token, try again"; }
+    const w = await checkEdit();                     // authHeaders() sends the typed token
+    if (w.can_edit) { try { sessionStorage.setItem("aicl-admin", $("#admin-token").value); } catch (e) {} $("#unlock-box").style.display = "none"; }
+    else { try { sessionStorage.removeItem("aicl-admin"); } catch (e) {} $("#admin-token").value = ""; $("#admin-token").placeholder = "wrong token, try again"; }
   };
   $("#admin-token").onkeydown = (e) => { if (e.key === "Enter") $("#unlock-ok").click(); };
 
