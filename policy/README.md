@@ -19,6 +19,16 @@ Common live edits:
 - Budgets: `budgets.agents.<id>`; loop limit: `loop_limits.repeat_identical` (4 = the 4th identical call is blocked).
 - Kill switch: `emergency.kill_switch: true`.
 
-Planned (v4, `research/14-transparent-interception.md` section 4): `interception:` (intercepted hosts per provider, DNS, TLS, per-protocol block styles) and `clients:` (identity of passthrough clients by address or key fingerprint). The lead lands the structure; until then these keys are not read.
+Interception (v4, sections 9 and 10, design in `research/14-transparent-interception.md`):
+- `interception.mode`: off | base_url | transparent. `credentials: passthrough` forwards the client's own key.
+- `interception.providers.<name>`: `hosts` (Host / SNI names answered by the AICL DNS), `protocol`
+  (anthropic_messages | openai_responses | openai_chat), `upstream`, `inspect` (paths parsed and decided; every
+  other path is proxied unless `proxy_other_paths: false`).
+- `interception.block_style.<protocol>`: how a hard block, a soft block and a budget stop look to the client.
+- `interception.dns`: gateway_ip, upstream resolvers, `doh_sinkhole` (DoH names answered NXDOMAIN + alert).
+- `clients`: first match wins on `cidr`, `key_sha256_prefix`, `user_agent` glob or `any`; `principal` is the id
+  for `budgets.agents.<principal>`, audit and the dashboard; `models` globs restrict what the client may call.
+- Real provider models are listed in `destinations.models` with prices; a model matching only a glob is unpriced
+  and `budgets.unpriced_model` decides.
 
 Notes: use ASCII hyphens only; synthetic secrets and PII only; loaders must read the word off as a string (ruamel.yaml, YAML 1.2).

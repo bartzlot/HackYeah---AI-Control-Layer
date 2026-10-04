@@ -16,6 +16,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 SCHEMA_EVENT = "aicl-event/1"
 SCHEMA_CASE = "aicl-case/1"
+PROTOCOLS = ("openai_chat", "openai_responses", "anthropic_messages")   # provider API contracts a PEP speaks
+ApiProtocol = Literal["openai_chat", "openai_responses", "anthropic_messages"]
 
 
 class Action(IntEnum):
@@ -43,6 +45,7 @@ class Stage(StrEnum):
     TOOL_ARGS = "tool_args"    # a tool call the model wants to make
     TOOL_RESULT = "tool_result"
     LIFECYCLE = "lifecycle"    # policy reload, kill switch
+    DNS = "dns"                # a DNS query seen by the AICL resolver (bypass detection, NET-01)
 
 
 class DestKind(StrEnum):
@@ -77,7 +80,7 @@ class Usage(_Model):
 
 class Event(_Model):
     stage: Stage = Stage.PROMPT
-    channel: Literal["llm", "tool", "mcp", "memory"] = "llm"
+    channel: Literal["llm", "tool", "mcp", "memory", "dns"] = "llm"
     parts: list[Part] = Field(default_factory=list)
     tool_calls: list[ToolCall] = Field(default_factory=list)
     agent_id: str = "anonymous"
@@ -87,6 +90,12 @@ class Event(_Model):
     destination: DestKind = DestKind.UNKNOWN
     profile: str | None = None               # strict | balanced | permissive, None = agent default
     usage: Usage | None = None
+    # v4 transparent interception (research/14 s.6): who and what is behind a passthrough request
+    protocol: ApiProtocol | None = None        # provider API contract of the request
+    upstream_host: str | None = None         # real provider host (api.anthropic.com), from Host / SNI
+    client_ip: str | None = None
+    credential_hash: str | None = None       # sha256(client key)[:8], never the key
+    user_agent: str | None = None            # claude-cli/2.x, codex_cli_rs/..., SDK
 
 
 class Span(_Model):
@@ -154,6 +163,7 @@ class Control(Protocol):
 AUDIT_EVENT_TYPES = (
     "REQUEST_ALLOWED", "PII_REDACTED", "SECRET_DETECTED", "INJECTION_BLOCKED", "TOOL_CALL_ALLOWED",
     "TOOL_CALL_BLOCKED", "BUDGET_EXCEEDED", "AGENT_LOOP_TERMINATED", "MODEL_DENIED", "REQUEST_BLOCKED", "POLICY_CHANGED",
+    "PASSTHROUGH", "DNS_QUERY", "BYPASS_SUSPECTED",
 )
 
 
@@ -180,3 +190,8 @@ class AuditRecord(_Model):
     latency_us: dict[str, int] = Field(default_factory=dict)
     degraded: bool = False
     explain: list[str] = Field(default_factory=list)
+    protocol: ApiProtocol | None = None
+    upstream_host: str | None = None
+    client_ip: str | None = None
+    credential_hash: str | None = None
+    user_agent: str | None = None

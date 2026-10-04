@@ -79,10 +79,11 @@ interception:
   mode: transparent            # off | base_url | transparent; base_url = mode A only
   credentials: passthrough     # passthrough = client's own key goes upstream; managed = gateway keys (current behaviour)
   providers:
-    anthropic: {hosts: [api.anthropic.com], protocol: anthropic_messages, inspect: ["/v1/messages"]}
-    openai:    {hosts: [api.openai.com], protocol: openai_responses, inspect: ["/v1/responses", "/v1/chat/completions"]}
+    anthropic: {hosts: [api.anthropic.com], protocol: anthropic_messages, upstream: "https://api.anthropic.com", inspect: ["/v1/messages"]}
+    openai:    {hosts: [api.openai.com], protocol: openai_responses, upstream: "https://api.openai.com", inspect: ["/v1/responses", "/v1/chat/completions"]}
   proxy_other_paths: true      # false = 404 for anything not inspected
   max_body_kb: 4096
+  unknown_client: {action: ALLOW, principal: unknown-client, profile: strict}
   dns:
     listen: "0.0.0.0:53"
     gateway_ip: 10.77.0.2
@@ -92,14 +93,14 @@ interception:
   tls: {ca_cert: data/ca/aicl-ca.pem, ca_key: data/ca/aicl-ca.key, leaf_days: 30}
   block_style:
     anthropic_messages: {hard: http_400, soft: assistant_text, budget: http_402}
-    openai_responses:   {hard: http_400, soft: assistant_text, budget: verify}
+    openai_responses:   {hard: http_400, soft: assistant_text, budget: http_429}   # verify in the Codex spike
     openai_chat:        {hard: http_400, soft: refusal, budget: http_429}
 clients:                       # identity in passthrough mode: who is behind an IP / key
-  - {match: {cidr: 10.77.0.0/24}, principal: demo-dev, team: platform, profile: balanced}
+  - {match: {cidr: 10.77.0.0/24}, principal: demo-dev, team: platform, profile: balanced, models: ["claude-*", "gpt-[0-9]*"]}
   - {match: {key_sha256_prefix: "3f2a9c1b"}, principal: alice, team: data}
 ```
 
-Budgets then apply per principal / team / org; prices for the real Claude and OpenAI models go into `destinations.models` from the providers' pricing pages at build time (not from memory).
+Landed in T-013 (`policy/policy.yaml` sections 9 and 10, `w2-core/aicl_core/interception.py`). Note `gpt-[0-9]*`, not `gpt-*`: Ollama cloud tags such as `gpt-oss:120b-cloud` must stay `unknown`. Budgets then apply per principal / team / org; prices for the real Claude and OpenAI models go into `destinations.models` from the providers' pricing pages at build time (not from memory).
 
 ## 5. DNS and CA
 

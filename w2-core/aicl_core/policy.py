@@ -17,6 +17,8 @@ from ruamel.yaml import YAML
 
 from aicl_contracts import Action
 
+from . import interception
+
 PROFILES = ("strict", "balanced", "permissive")
 MODES = ("enforce", "shadow", "off")
 FAILS = ("closed", "open", "degrade")
@@ -165,6 +167,7 @@ class PolicyDoc(BaseModel):
                         if op not in WHEN_OPS:   # a typo must not silently disable a deny rule
                             raise ValueError(f"controls.{cid}.rules[{i}].when.{path}: unknown operator {op!r}, "
                                              f"use one of {', '.join(WHEN_OPS)}")
+        interception.validate(self.model_dump())   # v4 interception: + clients: (research/14 s.4)
         return self
 
 
@@ -254,6 +257,10 @@ class Policy:
 
     def agent(self, agent_id: str) -> dict | None:
         return self.raw.get("agents", {}).get(agent_id)
+
+    def interception(self) -> dict:
+        """The interception: block with defaults (mode off when the policy has none)."""
+        return interception.interception_cfg(self.raw)
 
     def derive(self, overrides: dict) -> "Policy":
         """A new validated policy = this one deep-merged with overrides (simulation, tests, what-if)."""

@@ -37,6 +37,7 @@ log = logging.getLogger("aicl.gateway")
 EXAMPLE_DEMO_KEY = "aicl_demo_0123456789abcdef"   # the public .env.example value
 DEMO_AGENT = "analyst-agent"          # the demo key's agent: may use the local and the external model
 KEY_PREFIX = "AICL_KEY_"
+MANAGED_PROVIDERS = (None, "ollama", "cloud-sim")   # destinations.models routed to the managed upstreams
 _HEX64 = re.compile(r"^(sha256:)?([0-9a-f]{64})$")
 
 
@@ -74,15 +75,16 @@ def agents_from_policy(raw: dict, env: dict) -> tuple[dict[str, dict], dict[str,
 
 
 def models_from_policy(raw: dict, env: dict) -> dict[str, dict]:
-    """Concrete model tags of destinations.models with class local / external (globs stay unknown)."""
+    """Concrete model tags of destinations.models with class local / external served by the managed upstreams
+    (Ollama, cloud-sim); globs stay unknown, passthrough providers are routed by Host (research/14)."""
     out: dict[str, dict] = {}
     ollama_tag = env.get("AICL_OLLAMA_MODEL")
     for tag, m in (((raw.get("destinations") or {}).get("models")) or {}).items():
         if not isinstance(m, dict) or any(ch in str(tag) for ch in "*?["):
             continue
         cls = m.get("class")
-        if cls not in ("local", "external"):
-            continue
+        if cls not in ("local", "external") or m.get("provider") not in MANAGED_PROVIDERS:
+            continue      # passthrough providers (anthropic, openai) are reached by Host, never via these upstreams
         entry: dict[str, Any] = {"kind": cls}
         if cls == "local" and ollama_tag and ollama_tag != tag:
             entry["upstream_model"] = ollama_tag

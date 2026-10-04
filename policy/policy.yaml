@@ -78,7 +78,31 @@ destinations:
   models:                    # key = model tag as the client sends it; trust by tag, not host
     "qwen3.5:2b-q4_K_M": {class: local, provider: ollama, max_data_level: restricted, local: {usd_per_gpu_s: 1.6e-4}}
     "gpt-4o-mini":       {class: external, provider: cloud-sim, max_data_level: internal, price: {in_usd_per_mtok: 0.15, out_usd_per_mtok: 0.60}}
+    # v4 passthrough providers (section 9). Prices: platform.claude.com/docs/en/about-claude/pricing and
+    # developers.openai.com/api/docs/pricing, base input / output USD per MTok, read 2026-10-04. A model that
+    # matches only a glob has no price: budgets.unpriced_model decides (BLOCK = add its price here first).
+    "claude-fable-5-1":          {class: external, provider: anthropic, max_data_level: internal, price: {in_usd_per_mtok: 10.0, out_usd_per_mtok: 50.0}}
+    "claude-fable-5":            {class: external, provider: anthropic, max_data_level: internal, price: {in_usd_per_mtok: 10.0, out_usd_per_mtok: 50.0}}
+    "claude-opus-5-5":           {class: external, provider: anthropic, max_data_level: internal, price: {in_usd_per_mtok: 4.0, out_usd_per_mtok: 20.0}}
+    "claude-opus-5":             {class: external, provider: anthropic, max_data_level: internal, price: {in_usd_per_mtok: 5.0, out_usd_per_mtok: 25.0}}
+    "claude-opus-4-8":           {class: external, provider: anthropic, max_data_level: internal, price: {in_usd_per_mtok: 5.0, out_usd_per_mtok: 25.0}}
+    "claude-sonnet-5-5":         {class: external, provider: anthropic, max_data_level: internal, price: {in_usd_per_mtok: 2.0, out_usd_per_mtok: 10.0}}
+    "claude-sonnet-5":           {class: external, provider: anthropic, max_data_level: internal, price: {in_usd_per_mtok: 2.0, out_usd_per_mtok: 10.0}}
+    "claude-sonnet-4-6":         {class: external, provider: anthropic, max_data_level: internal, price: {in_usd_per_mtok: 3.0, out_usd_per_mtok: 15.0}}
+    "claude-sonnet-4-5":         {class: external, provider: anthropic, max_data_level: internal, price: {in_usd_per_mtok: 3.0, out_usd_per_mtok: 15.0}}
+    "claude-haiku-4-5":          {class: external, provider: anthropic, max_data_level: internal, price: {in_usd_per_mtok: 1.0, out_usd_per_mtok: 5.0}}
+    "claude-haiku-4-5-20251001": {class: external, provider: anthropic, max_data_level: internal, price: {in_usd_per_mtok: 1.0, out_usd_per_mtok: 5.0}}
+    "gpt-6-astra":               {class: external, provider: openai, max_data_level: internal, price: {in_usd_per_mtok: 10.0, out_usd_per_mtok: 50.0}}
+    "gpt-6.1-sol":               {class: external, provider: openai, max_data_level: internal, price: {in_usd_per_mtok: 2.0, out_usd_per_mtok: 10.0}}
+    "gpt-6-sol":                 {class: external, provider: openai, max_data_level: internal, price: {in_usd_per_mtok: 2.0, out_usd_per_mtok: 10.0}}
+    "gpt-5.5":                   {class: external, provider: openai, max_data_level: internal, price: {in_usd_per_mtok: 5.0, out_usd_per_mtok: 30.0}}
+    "gpt-5.4":                   {class: external, provider: openai, max_data_level: internal, price: {in_usd_per_mtok: 2.5, out_usd_per_mtok: 15.0}}
+    "gpt-5.4-mini":              {class: external, provider: openai, max_data_level: internal, price: {in_usd_per_mtok: 0.75, out_usd_per_mtok: 4.5}}
+    "gpt-5.3-codex":             {class: external, provider: openai, max_data_level: internal, price: {in_usd_per_mtok: 1.75, out_usd_per_mtok: 14.0}}
+    "gpt-5":                     {class: external, provider: openai, max_data_level: internal, price: {in_usd_per_mtok: 1.25, out_usd_per_mtok: 10.0}}
     "*-cloud":           {class: unknown}   # any Ollama cloud tag leaves the box
+    "claude-*":          {class: external, provider: anthropic, max_data_level: internal}   # unpriced: budgets.unpriced_model decides
+    "gpt-[0-9]*":        {class: external, provider: openai, max_data_level: internal}      # not gpt-oss (an Ollama tag)
     "*":                 {class: unknown}   # unknown model -> unknown destination
   model_allowlist: {default: ["qwen3.5:2b-q4_K_M"], unknown_model: BLOCK}
   mcp_servers:
@@ -163,6 +187,8 @@ budgets:
     support-bot:   {tokens: 200000, usd: 0.00, period: day}   # local model only: USD 0
     analyst-agent: {tokens: 500000, usd: 0.50, period: day}
     mailer-agent:  {tokens: 50000,  usd: 0.05, period: day}
+    demo-dev:      {tokens: 3000000, usd: 2.00, period: day}   # v4 passthrough principal (section 10)
+    unknown-client: {tokens: 200000, usd: 0.20, period: day}
   org: {usd: 5.00, tokens: 2000000, period: month}
   rates:
     - {on: "agent:*",              metric: requests, limit: 60, per: minute, burst: 10}
@@ -179,3 +205,38 @@ loop_limits:                 # per session; trip -> BLOCK + session killed (AGEN
 
 # ---------- 8. exceptions (time-boxed, owned) ----------
 exceptions: []               # {id, control, match, effect, owner, reason, expires}
+
+# ---------- 9. interception (v4: research/14-transparent-interception.md) ----------
+# How traffic of AI API clients (Claude Code, Codex, SDKs) reaches AICL and how blocks look to them.
+#   mode: off | base_url (client sets ANTHROPIC_BASE_URL / OPENAI_BASE_URL) | transparent (AICL DNS + AICL CA)
+#   credentials: passthrough = the client's own key goes to the provider | managed = gateway keys (agents above)
+interception:
+  mode: transparent
+  credentials: passthrough
+  providers:                 # Host / SNI -> provider; only `inspect` paths are parsed and decided, others proxied
+    anthropic: {hosts: [api.anthropic.com], protocol: anthropic_messages, upstream: "https://api.anthropic.com", inspect: ["/v1/messages"]}
+    openai:    {hosts: [api.openai.com], protocol: openai_responses, upstream: "https://api.openai.com", inspect: ["/v1/responses", "/v1/chat/completions"]}
+  proxy_other_paths: true    # false = 404 for every path not in `inspect` (e.g. block /v1/files uploads)
+  max_body_kb: 4096          # coding agents send ~275 tool definitions per request
+  unknown_client: {action: ALLOW, principal: unknown-client, profile: strict}   # no clients: entry matched
+  dns:
+    listen: "0.0.0.0:53"
+    gateway_ip: 10.77.0.2    # A answer for every intercepted host (AAAA stays empty: no IPv6 bypass)
+    upstream: ["1.1.1.1", "9.9.9.9"]   # everything else, and the gateway's own lookups (never our DNS: no loop)
+    doh_sinkhole: [dns.google, cloudflare-dns.com, mozilla.cloudflare-dns.com, dns.quad9.net, doh.opendns.com]
+    log_queries: true
+  tls: {ca_cert: data/ca/aicl-ca.pem, ca_key: data/ca/aicl-ca.key, leaf_days: 30}
+  # How a block is answered, per API contract (measured on Claude Code 2.1.289, research/14 s.3):
+  #   http_400 = native invalid_request_error (hard block) | http_402 = billing_error (budget)
+  #   assistant_text = normal 200 reply "[AICL] ..." (soft block, blocked tool call) | refusal = finish_reason content_filter
+  block_style:
+    anthropic_messages: {hard: http_400, soft: assistant_text, budget: http_402}
+    openai_responses:   {hard: http_400, soft: assistant_text, budget: http_429}
+    openai_chat:        {hard: http_400, soft: refusal, budget: http_429}
+
+# ---------- 10. clients (v4: who is behind a passthrough request) ----------
+# First match wins; match keys: cidr | key_sha256_prefix (sha256 hex of the client key) | user_agent (glob) | any.
+# principal = the id used for budgets.agents.<principal>, audit and the dashboard; profile may only be stricter.
+clients:
+  - {match: {cidr: 10.77.0.0/24}, principal: demo-dev, team: platform, profile: balanced, models: ["claude-*", "gpt-[0-9]*"]}
+  - {match: {cidr: 127.0.0.0/8}, principal: demo-dev, team: platform, profile: balanced, models: ["claude-*", "gpt-[0-9]*"]}
