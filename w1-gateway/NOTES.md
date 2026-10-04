@@ -41,3 +41,9 @@
   copy step in the README quick start or pass `AICL_KEY_DEMO` in the gateway service environment.
 - No new variable names: everything main.py reads is already in .env.example.
 - Demo run: `uv run python -m aicl_gateway.demo_agent` (needs AICL_KEY_DEMO; prints PASS/FAIL per scenario).
+
+## Console overview (T-117)
+- The overview judge tile reads `GET /console/api/judge` = `Judge.state(live policy)`: status idle (not called yet) / warm (last
+  model call answered) / degraded (last call failed or the unreachable breaker is open) / off (disabled in policy), model (the
+  tag Ollama really runs), p50 / p95 of the model-call wall time, verdict-cache hits. Counters are per process and reset on restart.
+- `summary.top_rules` lists the rules whose BLOCK finding decided a blocked record (shadow-mode findings do not count).

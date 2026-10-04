@@ -238,6 +238,7 @@ def create_app_from_env(env: dict | None = None, *, upstreams: dict | None = Non
     cfg["console"]["interception"] = lambda: policy_admin.interception_providers(engine.policy.raw)
     rt = runtime.Runtime(env)                 # serve.build() records the TLS / DNS listeners it starts (T-116)
     cfg["console"]["status"] = lambda served=None: runtime.status(rt, engine.policy.raw, served)
+    cfg["console"]["judge"] = lambda: judge.state(engine.policy.raw)
     cfg["before_auth"] = sync_policy
     # the reload thread applies a new version at once (budgets on the console follow an edit with no traffic)
     engine.store.on_change.append(lambda _pol: sync_policy() if "app" in holder else None)

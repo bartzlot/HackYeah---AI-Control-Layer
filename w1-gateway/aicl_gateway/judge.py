@@ -28,7 +28,7 @@ import json
 import re
 import threading
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from typing import Any, Callable
 
 import httpx
@@ -113,6 +113,58 @@ class Judge:
         self.calls = 0                              # model calls actually made (tests, metrics)
         self.down_s = 15.0                          # breaker: after "unreachable", fail fast this long
         self._down_until = 0.0
+        # console tile (T-117): rolling model-call latency and outcome counters, all under _cache_lock
+        self._lat_ms: deque[float] = deque(maxlen=256)
+        self.cache_hits = self.cache_misses = self.errors = 0
+        self.last_model: str | None = None
+        self._last_ok = self._last_err = 0.0          # wall-clock time of the last good / failed model call
+        self._last_err_text = ""
+        self._last_failed = False
+
+    def _note(self, ok: bool, model: str, ms: float | None = None, err: str = "") -> None:
+        with self._cache_lock:
+            self.last_model = model
+            if ok:
+                self._lat_ms.append(ms or 0.0)
+                self._last_ok, self._last_failed = time.time(), False
+            else:
+                self.errors += 1
+                self._last_err, self._last_err_text, self._last_failed = time.time(), err, True
+
+    def state(self, policy: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Console view of INJ-04: status idle (no call yet) / warm (last model call answered) / degraded (last call
+        failed, or the unreachable breaker is open) / off (disabled in policy); p50 / p95 of the model-call wall time
+        in ms; verdict cache counters. Never contains request text."""
+        from .console_api import controls_from_policy      # lazy: console_api does not import the judge
+        ctl = ((policy or {}).get("controls") or {}).get(CONTROL_ID)
+        jcfg = (ctl.get("judge") if isinstance(ctl, dict) else None) or {}
+        mode = next((c["mode"] for c in controls_from_policy(policy) if c["id"] == CONTROL_ID), "enforce") if policy else "enforce"
+        configured = str(jcfg.get("model") or DEFAULT_MODEL)
+        with self._cache_lock:
+            lat = sorted(self._lat_ms)
+            hits, misses, errors, entries = self.cache_hits, self.cache_misses, self.errors, len(self._cache)
+            model = self.last_model or self.model_map.get(configured, configured)
+            failed, last_err_text = self._last_failed, self._last_err_text
+            last_ok, last = self._last_ok, max(self._last_ok, self._last_err)
+        breaker = time.monotonic() < self._down_until
+        if jcfg.get("enabled") is False or mode == "off":
+            status, reason = "off", "disabled in policy"
+        elif breaker or failed:
+            status, reason = "degraded", last_err_text or "ollama unreachable (breaker open)"
+        elif last_ok:
+            status, reason = "warm", None
+        else:
+            status, reason = "idle", "no gray-band text judged yet"
+
+        def pick(q: float) -> float | None:
+            return round(lat[min(len(lat) - 1, int(round(q * (len(lat) - 1))))], 1) if lat else None
+
+        looked = hits + misses
+        return {"control": CONTROL_ID, "status": status, "reason": reason, "model": model, "policy_model": configured,
+                "timeout_ms": int(jcfg.get("timeout_ms") or DEFAULT_TIMEOUT_MS), "calls": self.calls, "errors": errors,
+                "samples": len(lat), "p50_ms": pick(0.5), "p95_ms": pick(0.95), "cache_hits": hits, "cache_misses": misses,
+                "cache_hit_pct": round(100.0 * hits / looked) if looked else None, "cache_entries": entries,
+                "last_call_ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(last)) if last else None}
 
     # -- transport ------------------------------------------------------------------------------
     def _ollama_chat(self, body: dict, timeout: float) -> dict:
@@ -146,7 +198,9 @@ class Judge:
             hit = self._cache.get(key)
             if hit and now - hit[0] <= self.cache_ttl_s:
                 self._cache.move_to_end(key)
+                self.cache_hits += 1
                 return {**hit[1], "cached": True}
+            self.cache_misses += 1
         t0 = time.monotonic()
         if t0 < self._down_until:       # Ollama was unreachable a moment ago: degrade now, do not wait again
             raise JudgeError(f"ollama unreachable (breaker open {self._down_until - t0:.0f} s)")
@@ -178,6 +232,7 @@ class Judge:
         p = max(ps)
         if out["verdict"] == "benign":   # a small model can say "benign" and still mark a level high: a block needs
             p = min(p, VERDICT_P["suspicious"])   # the judge to commit to a non-benign verdict (benign = WARN at most)
+        self._note(True, model, (time.monotonic() - t0) * 1000.0)
         res = {"p": p, "verdict": out["verdict"], **levels,
                "eval_ms": round(((resp.get("total_duration") or 0) / 1e6), 1)}
         with self._cache_lock:
@@ -266,6 +321,7 @@ class Judge:
                     raise TimeoutError("event judge deadline passed")
                 res = self.classify(window(view, focus), channel, model, left)
             except (TimeoutError, JudgeError) as e:
+                self._note(False, model, err=f"{type(e).__name__}: {e}"[:160])
                 word = str(on_to.get("untrusted" if untrusted else "user", "BLOCK" if untrusted else "WARN"))
                 try:
                     act = Action.parse("BLOCK" if word.strip().upper() == "REQUIRE_APPROVAL" else word.strip())

@@ -4,8 +4,10 @@
 #   test_cloud_sim.py  T-102 priced mock upstream
 #   test_gateway.py    T-103 chat completions, router, audit, bus
 #   test_console.py    T-105 console: tiles, controls, SSE + explain, playground destinations, exports
+#                      + T-117 summary.top_rules (rule, control, count, last seen) and the judge endpoint
 #   test_budget.py     T-104 budget ledger + loop guard
 #   test_judge.py      T-106 INJ-04 local judge (fake Ollama): gray band, enum schema, timeout -> WARN + degraded
+#                      + T-117 Judge.state() / GET /console/api/judge (idle, warm, degraded, off, p50, cache counters)
 #   test_skeleton.py   T-901 walking skeleton: demo agent -> main.py entrypoint (policy.yaml, w2 engine) -> fakes
 #   test_cases.py      cases/*.yaml through the gateway (+ meta: each negative case fails with its control off)
 #   test_runtime_status.py  T-116 console runtime mode: live listeners, CA, overrides, transparent warnings

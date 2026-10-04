@@ -72,8 +72,31 @@
   }
 
   // ---- overview
+  // T-117: INJ-04 judge tile. status: warm (last model call answered) / degraded (last call failed or breaker open) /
+  // idle (not called yet) / off (disabled in policy); unknown = the API did not answer
+  const JUDGE_LOOK = { warm: ["Warm", "ok"], degraded: ["Degraded", "warn"], idle: ["Idle", "violet"], off: ["Off", ""], unknown: ["Unknown", ""] };
+  function judgeTile(j) {
+    j = j || { status: "unknown", reason: "judge state unavailable" };
+    const look = JUDGE_LOOK[j.status] || JUDGE_LOOK.unknown;
+    const looked = (j.cache_hits || 0) + (j.cache_misses || 0);
+    const sub = j.status === "unknown" ? esc(j.reason || "") :
+      '<span class="mono" title="' + esc(j.policy_model && j.policy_model !== j.model ? "policy model " + j.policy_model : "model Ollama runs") + '">' + esc(j.model || "-") + "</span><br>" +
+      (j.status !== "warm" && j.reason ? esc(j.reason) + "<br>" : "") +
+      "p50 " + (j.p50_ms != null ? esc(Math.round(j.p50_ms)) + " ms" : "-") + ", cache hits " + num(j.cache_hits) + (looked ? " (" + esc(j.cache_hit_pct) + "%)" : "");
+    return tile("Local AI judge (INJ-04)", look[0], look[1], sub);
+  }
+  function topRules(rows) {
+    $("#top-rules tbody").innerHTML = rows.map((r) => "<tr><td class='wrap'><code>" + esc(r.rule_id).replace(/([._])/g, "$1<wbr>") + "</code></td><td class='wrap'><b>" + esc(r.control_id) + "</b>" +
+      (r.control_name ? '<span class="sub2">' + esc(r.control_name) + "</span>" : "") + '</td><td class="num">' + num(r.count) + "</td><td class='muted'>" +
+      esc(String(r.last_seen || "").slice(5, 10) + " " + String(r.last_seen || "").slice(11, 16)) + "</td></tr>").join("") ||
+      '<tr><td class="empty" colspan="4">No blocked requests yet. <a href="#playground" data-go="playground">Send the example AWS key from the Playground</a> to see a rule fire.</td></tr>';
+  }
+  document.addEventListener("click", (e) => {
+    const a = e.target.closest && e.target.closest("[data-go]");
+    if (a) { e.preventDefault(); go(a.dataset.go); }
+  });
   async function loadSummary() {
-    const s = await getJSON(API + "/summary");
+    const [s, j] = await Promise.all([getJSON(API + "/summary"), getJSON(API + "/judge").catch(() => null)]);
     const oh = s.overhead_ms || {};
     $("#tiles").innerHTML =
       tile("AI requests", num(s.requests), "", num(s.events_total) + " decisions") +
@@ -83,11 +106,16 @@
       tile("API spend", usd(s.cost_usd), s.budget_used_pct >= 80 ? "bad" : "", num(s.tokens) + " tokens, " + s.budget_used_pct + "% of " + usd(s.budget_usd), s.budget_used_pct) +
       tile("Security posture", s.posture_pct + "%", s.posture_pct >= 80 ? "ok" : "warn", s.controls_enforced + "/" + s.controls_total + " controls enforced", s.posture_pct, true) +
       tile("AICL overhead", (oh.p50 || 0) + " ms", "ok", "p50, p95 " + (oh.p95 || 0) + " ms") +
-      tile("Bypass attempts", num(s.bypass_alerts), s.bypass_alerts ? "bad" : "ok", s.bypass_alerts ? "see Network" : "none detected");
+      tile("Bypass attempts", num(s.bypass_alerts), s.bypass_alerts ? "bad" : "ok", s.bypass_alerts ? "see Network" : "none detected") +
+      judgeTile(j);
     setCount("#nav-blocks", s.blocked);
     setCount("#nav-bypass", s.bypass_alerts);
     renderBudgets(s.agent_budgets || []);
+    topRules(s.top_rules || []);
     const tl = s.timeline || [];
+    $("#ch-time").parentElement.classList.toggle("empty", !tl.length);
+    $("#ch-cat").parentElement.classList.toggle("empty", !Object.keys(s.categories || {}).length);
+    $("#ch-proto").parentElement.classList.toggle("empty", !Object.keys(s.protocols || {}).length);
     const tlabels = tl.map((x) => x.t.slice(11));
     drawChart("time", "#ch-time", "#fb-time", {
       type: "bar",

@@ -45,14 +45,20 @@
 <section id="page-overview" class="page active">
   <div class="tiles" id="tiles"></div>
   <div class="grid2">
-    <div class="card"><h2>Requests over time <span class="hint">final decision per request</span></h2><div class="chartbox"><canvas id="ch-time"></canvas><div class="fallback" id="fb-time"></div></div></div>
-    <div class="card"><h2>Findings by category</h2><div class="chartbox"><canvas id="ch-cat"></canvas><div class="fallback" id="fb-cat"></div></div></div>
+    <div class="card"><h2>Requests over time <span class="hint">final decision per request</span></h2><div class="chartbox"><canvas id="ch-time"></canvas><div class="fallback" id="fb-time"></div>
+      <div class="chart-empty"><b>No requests yet</b><span>Every request through the gateway is counted here, split into allowed, redacted and blocked.</span><a class="btn" href="#playground" data-go="playground">Send one from the Playground</a></div></div></div>
+    <div class="card"><h2>Findings by category</h2><div class="chartbox"><canvas id="ch-cat"></canvas><div class="fallback" id="fb-cat"></div>
+      <div class="chart-empty"><b>No findings yet</b><span>A control adds a finding when it flags a secret, PII, an injection or a risky tool call.</span><a class="btn" href="#playground" data-go="playground">Try the example AWS key in the Playground</a></div></div></div>
   </div>
   <div class="grid2">
-    <div class="card"><h2>Budgets per principal <span class="hint">BUD-01, current period</span></h2>
-      <div class="tablewrap"><table id="budgets"><thead><tr><th>Principal</th><th>Tokens</th><th>USD</th><th class="num">Requests</th><th class="num">Denied</th><th class="num">Resets in</th></tr></thead><tbody><tr><td class="empty" colspan="6">No budget data yet.</td></tr></tbody></table></div>
+    <div class="card"><h2>Top blocked rules <span class="hint">rules behind blocked requests</span></h2>
+      <div class="tablewrap"><table id="top-rules"><thead><tr><th>Rule</th><th>Control</th><th class="num">Blocks</th><th>Last seen</th></tr></thead><tbody><tr><td class="empty" colspan="4">No blocked requests yet.</td></tr></tbody></table></div>
     </div>
-    <div class="card"><h2>Traffic by API contract</h2><div class="chartbox" style="height:210px"><canvas id="ch-proto"></canvas><div class="fallback" id="fb-proto"></div></div></div>
+    <div class="card"><h2>Traffic by API contract</h2><div class="chartbox" style="height:210px"><canvas id="ch-proto"></canvas><div class="fallback" id="fb-proto"></div>
+      <div class="chart-empty"><b>No traffic yet</b><span>Anthropic Messages, OpenAI Responses and OpenAI Chat calls show up here once a client connects.</span><a class="btn" href="#playground" data-go="playground">Open the Playground</a></div></div></div>
+  </div>
+  <div class="card"><h2>Budgets per principal <span class="hint">BUD-01, current period</span></h2>
+    <div class="tablewrap"><table id="budgets"><thead><tr><th>Principal</th><th>Tokens</th><th>USD</th><th class="num">Requests</th><th class="num">Denied</th><th class="num">Resets in</th></tr></thead><tbody><tr><td class="empty" colspan="6">No budget data yet.</td></tr></tbody></table></div>
   </div>
 </section>
 
