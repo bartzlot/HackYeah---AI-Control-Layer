@@ -1,4 +1,4 @@
-"""AICL DNS resolver (research/14 s.5): the name server DHCP hands to clients.
+"""AICL DNS resolver (research/14 s.5): the name server DHCP hands to clients, and NET-01 bypass detection.
 
   intercepted provider host (interception.providers.*.hosts)  -> A interception.dns.gateway_ip, AAAA empty
   interception.dns.doh_sinkhole names (DNS-over-HTTPS)         -> NXDOMAIN + BYPASS_SUSPECTED audit record
@@ -29,9 +29,40 @@ def _split(hostport: str, default_port: int = 53) -> tuple[str, int]:
     return hostport, default_port
 
 
+class BypassWatch:
+    """NET-01 (research/14 s.1): a client that resolved an intercepted host but never sent a request through
+    the gateway within `window_s` may be talking to a hard-coded provider address. The resolver notes lookups,
+    the passthrough PEP notes requests (same client address + host), sweep() returns the stale lookups."""
+
+    def __init__(self, window_s: float = 30.0, clock: Callable[[], float] = time.monotonic):
+        self.window_s, self._clock = window_s, clock
+        self._pending: dict[tuple[str, str], float] = {}
+        self._lock = threading.Lock()
+
+    def note_lookup(self, client: str | None, host: str) -> None:
+        if client:
+            with self._lock:
+                self._pending.setdefault((client, host), self._clock())
+
+    def note_request(self, client: str | None, host: str | None) -> None:
+        if client and host:
+            with self._lock:
+                self._pending.pop((client, host), None)
+
+    def sweep(self) -> list[tuple[str, str, float]]:
+        now = self._clock()
+        with self._lock:
+            stale = [(c, h, now - t) for (c, h), t in self._pending.items() if now - t >= self.window_s]
+            for c, h, _ in stale:
+                self._pending.pop((c, h), None)
+        return stale
+
+
 class AiclResolver(BaseResolver):
-    def __init__(self, policy: Callable[[], dict | None], audit=None, ttl: int = 30, timeout: float = 3.0):
+    def __init__(self, policy: Callable[[], dict | None], audit=None, ttl: int = 30, timeout: float = 3.0,
+                 watch: BypassWatch | None = None):
         self.policy, self.audit, self.ttl, self.timeout = policy, audit, ttl, timeout
+        self.watch = watch
         self.stats = {"queries": 0, "intercepted": 0, "sinkholed": 0, "forwarded": 0, "failed": 0}
         self._lock = threading.Lock()
 
@@ -55,6 +86,8 @@ class AiclResolver(BaseResolver):
                 reply.add_answer(RR(request.q.qname, QTYPE.A, rdata=A(cfg["dns"]["gateway_ip"]), ttl=self.ttl))
             # AAAA and others: NOERROR with no answer, so IPv6 cannot route around the gateway
             self._log(raw, client, qname, qtype, f"intercepted -> {cfg['dns']['gateway_ip']}", "DNS_QUERY", qname)
+            if self.watch is not None and qtype in ("A", "ANY"):
+                self.watch.note_lookup(client, qname)
             return reply
         if qname in sink or any(qname.endswith("." + s) for s in sink):
             self._count("sinkholed")
@@ -92,6 +125,20 @@ class AiclResolver(BaseResolver):
             pass
 
 
+def report_stale(resolver: "AiclResolver") -> int:
+    """Emit one BYPASS_SUSPECTED record per stale lookup (NET-01); returns how many."""
+    if resolver.watch is None:
+        return 0
+    raw = resolver.policy() or {}
+    n = 0
+    for client, host, age in resolver.watch.sweep():
+        resolver._log(raw, client, host, "A", f"resolved {host} but sent nothing through AICL for {age:.0f} s: "
+                      "possible direct connection to a hard-coded provider address (NET-01)", "BYPASS_SUSPECTED",
+                      host, Action.WARN)
+        n += 1
+    return n
+
+
 class Dns:
     """UDP + TCP servers on interception.dns.listen (or an explicit address for tests)."""
 
@@ -102,9 +149,16 @@ class Dns:
         self.tcp = DNSServer(resolver, address=host, port=port, tcp=True, logger=quiet)
         self.resolver = resolver
 
-    def start(self) -> "Dns":
+    def start(self, sweep_s: float = 5.0) -> "Dns":
         self.udp.start_thread()
         self.tcp.start_thread()
+        if self.resolver.watch is not None:
+            self._stop = threading.Event()
+
+            def loop():
+                while not self._stop.wait(sweep_s):
+                    report_stale(self.resolver)
+            threading.Thread(target=loop, name="net01-sweep", daemon=True).start()
         return self
 
     @property
@@ -112,6 +166,8 @@ class Dns:
         return self.udp.server.server_address[1]
 
     def stop(self) -> None:
+        if getattr(self, "_stop", None) is not None:
+            self._stop.set()
         for s in (self.udp, self.tcp):
             try:
                 s.stop()

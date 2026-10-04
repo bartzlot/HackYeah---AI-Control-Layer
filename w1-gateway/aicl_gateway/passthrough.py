@@ -382,6 +382,7 @@ class Passthrough:
         self.timeout = timeout
         self.clients: dict[str, httpx.AsyncClient] = dict(clients or {})
         self._owned: list[httpx.AsyncClient] = []
+        self.watch = None            # dns.BypassWatch when the AICL resolver runs in this process (NET-01)
 
     async def aclose(self) -> None:
         for c in self._owned:
@@ -421,6 +422,8 @@ class Passthrough:
     async def handle(self, request: Request, name: str, prov: dict, upath: str, cfg: dict) -> Response:
         t0 = time.perf_counter()
         ctx = {"up": 0.0, "action": Action.ALLOW, "rid": "req_" + uuid.uuid4().hex[:12]}
+        if self.watch is not None and request.client:
+            self.watch.note_request(request.client.host, icpt.normalize_host(request.headers.get("host")))
         try:
             resp = await self._dispatch(request, name, prov, upath, cfg, ctx)
         except Exception as e:  # noqa: BLE001 - nothing unexpected may ever forward a request: fail closed

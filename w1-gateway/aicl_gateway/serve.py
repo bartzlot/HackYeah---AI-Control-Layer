@@ -20,7 +20,7 @@ import uvicorn
 from aicl_core.interception import interception_cfg, intercepted_hosts
 
 from . import ca
-from .dns import AiclResolver, Dns
+from .dns import AiclResolver, BypassWatch, Dns
 from .main import create_app_from_env
 
 log = logging.getLogger("aicl.serve")
@@ -46,8 +46,10 @@ def build(env: dict | None = None):
         log.info("TLS :%d for %s", tls_port, ", ".join(intercepted_hosts(cfg)))
     dns = None
     if env.get("AICL_DNS_LISTEN"):
-        dns = Dns(AiclResolver(policy, audit=app.state.audit), env["AICL_DNS_LISTEN"])
+        watch = BypassWatch(float(env.get("AICL_NET01_WINDOW_S", "30")))
+        dns = Dns(AiclResolver(policy, audit=app.state.audit, watch=watch), env["AICL_DNS_LISTEN"])
         app.state.dns = dns.resolver
+        app.state.passthrough.watch = watch          # requests through the gateway clear the pending lookup
     return app, servers, dns
 
 

@@ -164,8 +164,14 @@ class FakeUpstream(BaseResolver):
 
 @pytest.fixture
 def dns_rig(tmp_path):
-    up_port = free_port()
-    upstream = DNSServer(FakeUpstream(), address="127.0.0.1", port=up_port)
+    upstream, up_port = None, 0
+    for _ in range(20):                 # Windows reserves port ranges (Hyper-V): retry on WinError 10013
+        try:
+            up_port = free_port()
+            upstream = DNSServer(FakeUpstream(), address="127.0.0.1", port=up_port)
+            break
+        except OSError:
+            continue
     upstream.start_thread()
     raw = {"interception": {"mode": "transparent",
                             "providers": {"anthropic": {"hosts": ["api.anthropic.com"], "protocol": "anthropic_messages",
@@ -179,7 +185,13 @@ def dns_rig(tmp_path):
     class Sink:
         def emit(self, rec):
             records.append(rec)
-    dns = Dns(AiclResolver(lambda: holder["raw"], audit=Sink()), f"127.0.0.1:{free_port()}").start()
+    dns = None
+    for _ in range(20):
+        try:
+            dns = Dns(AiclResolver(lambda: holder["raw"], audit=Sink()), f"127.0.0.1:{free_port()}").start()
+            break
+        except OSError:
+            continue
     wait_ready(dns.port)
     yield dns, holder, records
     dns.stop()
@@ -230,3 +242,53 @@ def test_live_policy_edit_changes_the_host_list(dns_rig):
     raw2["interception"]["mode"] = "off"            # interception off: names resolve normally again
     holder["raw"] = raw2
     assert [str(a.rdata) for a in ask(dns.port, "api.anthropic.com").rr] == ["93.184.216.34"]
+
+
+# ---- T-208: NET-01 lookup without traffic through AICL -------------------------------------------
+
+def test_net01_lookup_without_a_gateway_request_raises_a_bypass_alert():
+    from aicl_gateway.dns import AiclResolver, BypassWatch, report_stale
+    now = [0.0]
+    watch = BypassWatch(window_s=30, clock=lambda: now[0])
+    recs = []
+
+    class Sink:
+        def emit(self, r):
+            recs.append(r)
+    raw = {"interception": {"mode": "transparent", "providers": {"anthropic": {
+        "hosts": ["api.anthropic.com"], "protocol": "anthropic_messages", "inspect": ["/v1/messages"]}},
+        "dns": {"gateway_ip": "10.77.0.2", "upstream": ["127.0.0.1:9"], "doh_sinkhole": [], "log_queries": False}}}
+    res = AiclResolver(lambda: raw, audit=Sink(), watch=watch)
+
+    class H:
+        client_address = ("10.77.0.10", 5353)
+    res.resolve(DNSRecord.question("api.anthropic.com"), H())       # laptop A: looks up, never connects
+    H.client_address = ("10.77.0.11", 5353)
+    res.resolve(DNSRecord.question("api.anthropic.com"), H())       # laptop B: looks up and connects
+    watch.note_request("10.77.0.11", "api.anthropic.com")
+    now[0] = 10
+    assert report_stale(res) == 0                                    # still inside the window
+    now[0] = 31
+    assert report_stale(res) == 1
+    alert = [r for r in recs if r.event_type == "BYPASS_SUSPECTED"]
+    assert len(alert) == 1 and alert[0].client_ip == "10.77.0.10" and "NET-01" in alert[0].explain[0]
+    assert report_stale(res) == 0                                    # reported once
+
+
+async def test_net01_passthrough_requests_clear_the_pending_lookup(tmp_path):
+    from aicl_gateway.dns import BypassWatch
+    from aicl_core import engine as eng
+    shutil.copytree(ROOT / "policy", tmp_path / "policy")
+    env = {"AICL_POLICY": str(tmp_path / "policy" / "policy.yaml"), "AICL_DATA_DIR": str(tmp_path / "d"),
+           "AICL_AUDIT_PATH": str(tmp_path / "d" / "a.jsonl"), "AICL_BUDGET_DB": str(tmp_path / "d" / "b.db")}
+    mock = anthropic_app()
+    app = create_app_from_env(env, upstreams={"anthropic": httpx.AsyncClient(transport=httpx.ASGITransport(app=mock),
+                                                                           base_url="https://api.anthropic.com")},
+                              judge_chat=lambda b, t: {}, reload_interval=0.0, start_reload=False)
+    w = BypassWatch(window_s=0, clock=lambda: 100.0)
+    app.state.passthrough.watch = w
+    w.note_lookup("127.0.0.1", "api.anthropic.com")
+    c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="https://api.anthropic.com")
+    await c.head("/api/hello", headers={"x-api-key": "sk-ant-synthetic"})
+    assert w.sweep() == []
+    eng.REGISTRY.pop("INJ-04", None)
