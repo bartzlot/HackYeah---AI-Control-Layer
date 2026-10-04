@@ -1,0 +1,12 @@
+# Local demo mode (T-010): the gateway uses the Ollama already running on the host (shared with other
+# projects, model pulled once), the bundled ollama service is not started.
+#   make demo-local     (or: docker compose -f docker-compose.yml -f docker-compose.local.yml up -d)
+services:
+  gateway:
+    environment:
+      AICL_OLLAMA_URL: ${AICL_HOST_OLLAMA_URL:-http://host.docker.internal:11434}
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on: !override
+      cloud-sim: {condition: service_healthy}
+  ollama:
+    profiles: [bundled-ollama]     # off unless explicitly requested: the host Ollama serves the model

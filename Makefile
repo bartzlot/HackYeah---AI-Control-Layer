@@ -6,7 +6,7 @@ GCP_ZONE ?= europe-central2-a
 -include .env
 MODEL ?= $(or $(AICL_OLLAMA_MODEL),qwen3.5:2b-q4_K_M)
 
-.PHONY: demo up down logs models warm test deploy sync verify verify-live demo-transparent demo-transparent-offline transparent-down live live-transparent bench
+.PHONY: demo demo-local up down logs models warm test deploy sync verify verify-live demo-transparent demo-transparent-offline transparent-down live live-transparent bench
 
 # whole demo stack from zero: build + start, pull the model, load it so the first judge call is warm
 demo: up models warm
@@ -60,3 +60,6 @@ verify:
 	uv run python scripts/verify.py
 verify-live:
 	uv run python scripts/verify.py --live
+# local demo: gateway + cloud-sim in docker, the model from the Ollama already running on the host (T-010)
+demo-local:
+	bash scripts/demo-local.sh
