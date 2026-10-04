@@ -175,6 +175,6 @@ def test_drawer_renders_the_timeline_and_links_rules_to_the_policy_page():
     js = (CONSOLE / "app.js").read_text(encoding="utf-8")
     assert 'API + "/explain/" + encodeURIComponent(r.event_id)' in js
     assert 'class="rulelink"' in js and "pendingRule = { rule: a.dataset.rule" in js and "markPolicy();" in js
-    assert "Stage timing, whole request: " in js and "shadow, not enforced" in js
+    assert "Stage timing, whole request: " not in js and "shadow, not enforced" in js
     css = (CONSOLE / "style.css").read_text(encoding="utf-8")
     assert ".tl-step.a-BLOCK .tl-dot" in css and "mark.hit" in css

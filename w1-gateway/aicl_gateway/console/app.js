@@ -8,14 +8,13 @@
   const usd = (v) => "$" + Number(v || 0).toFixed(Number(v || 0) >= 1 ? 2 : 4);
   const num = (v) => Number(v || 0).toLocaleString("en-US");
   const PAGES = {
-    overview: ["Overview", "Is AI use safe right now: what was stopped, what it costs, how well protected"],
-    clients: ["People & spend", "Who uses which AI tool and model, what it costs, how often AICL stepped in"],
-    playground: ["Try it", "Send a prompt through AICL and see what it does with it"],
-    security: ["Activity", "Every decision, newest first. Click one to see exactly why"],
-    network: ["Network & bypass", "Which AI domains are intercepted, and any attempt to go around AICL"],
-    controls: ["Protections", "What AICL checks, switched on or off live"],
-    policy: ["Policy & budgets", "The one config file behind everything, live"],
-    performance: ["Performance", "How much time AICL adds, per check"],
+    overview: ["Overview", ""],
+    clients: ["Clients", ""],
+    playground: ["Playground", ""],
+    security: ["Activity", ""],
+    network: ["Network", ""],
+    controls: ["Protections", ""],
+    policy: ["Policy", ""],
   };
   let events = [];
   const charts = {};
@@ -38,9 +37,10 @@
   async function loadNames() { try { NAMES = await getJSON(API + "/catalog"); } catch (e) {} }
 
   // theme
-  try { const t = localStorage.getItem("aicl-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+  document.documentElement.dataset.theme = "light";
+  try { const t = localStorage.getItem("aicl-theme"); if (t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
   $("#theme").onclick = () => {
-    const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    const cur = document.documentElement.dataset.theme || "light";
     const nx = cur === "dark" ? "light" : "dark";
     document.documentElement.dataset.theme = nx;
     try { localStorage.setItem("aicl-theme", nx); } catch (e) {}
@@ -50,6 +50,7 @@
   };
   // navigation
   function go(p) {
+    if (!Object.hasOwn(PAGES, p)) p = "overview";
     page = p;
     if (p !== "policy") pendingRule = null;
     document.querySelectorAll("#nav button").forEach((x) => x.classList.toggle("active", x.dataset.page === p));
@@ -87,47 +88,26 @@
   }
 
   // ---- overview
-  // T-117: INJ-04 judge tile. status: warm (last model call answered) / degraded (last call failed or breaker open) /
-  // idle (not called yet) / off (disabled in policy); unknown = the API did not answer
-  const JUDGE_LOOK = { warm: ["Warm", "ok"], degraded: ["Degraded", "warn"], idle: ["Idle", "violet"], off: ["Off", ""], unknown: ["Unknown", ""] };
-  function judgeTile(j) {
-    j = j || { status: "unknown", reason: "judge state unavailable" };
-    const look = JUDGE_LOOK[j.status] || JUDGE_LOOK.unknown;
-    const looked = (j.cache_hits || 0) + (j.cache_misses || 0);
-    const sub = j.status === "unknown" ? esc(j.reason || "") :
-      '<span class="mono" title="' + esc(j.policy_model && j.policy_model !== j.model ? "policy model " + j.policy_model : "model Ollama runs") + '">' + esc(j.model || "-") + "</span><br>" +
-      (j.status !== "warm" && j.reason ? esc(j.reason) + "<br>" : "") +
-      "p50 " + (j.p50_ms != null ? esc(Math.round(j.p50_ms)) + " ms" : "-") + ", cache hits " + num(j.cache_hits) + (looked ? " (" + esc(j.cache_hit_pct) + "%)" : "");
-    return tile("Local AI judge (INJ-04)", look[0], look[1], sub);
-  }
   function topRules(rows) {
     $("#top-rules tbody").innerHTML = rows.map((r) => "<tr><td class='wrap'><code>" + esc(r.rule_id).replace(/([._])/g, "$1<wbr>") + "</code>" + (r.rule_name ? '<span class="sub2">' + esc(r.rule_name) + "</span>" : "") + "</td><td class='wrap'><b>" + esc(r.control_id) + "</b>" +
       (r.control_name ? '<span class="sub2">' + esc(r.control_name) + "</span>" : "") + (r.layer ? '<span class="sub2">' + layerBadge(r.layer) + "</span>" : "") + '</td><td class="num">' + num(r.count) + "</td><td class='muted'>" +
       esc(String(r.last_seen || "").slice(5, 10) + " " + String(r.last_seen || "").slice(11, 16)) + "</td></tr>").join("") ||
-      '<tr><td class="empty" colspan="4">No blocked requests yet. <a href="#playground" data-go="playground">Send the example AWS key from Try it</a> to see a rule fire.</td></tr>';
+      '<tr><td class="empty" colspan="4">No blocked requests.</td></tr>';
   }
   document.addEventListener("click", (e) => {
     const a = e.target.closest && e.target.closest("[data-go]");
     if (a) { e.preventDefault(); go(a.dataset.go); }
   });
   async function loadSummary() {
-    const [s, j] = await Promise.all([getJSON(API + "/summary"), getJSON(API + "/judge").catch(() => null)]);
-    const oh = s.overhead_ms || {};
+    const s = await getJSON(API + "/summary");
     $("#tiles").innerHTML =
-      tile("AI requests checked", num(s.requests), "", s.requests ? num(s.events_total) + " decisions" : "none yet: try a prompt") +
-      tile("Blocked", num(s.blocked), "bad", "threats stopped before execution") +
-      tile("Redacted", num(s.redacted), "warn", "data removed in flight") +
-      tile("People & tools", num(s.clients), "violet", "using Claude / OpenAI through AICL") +
-      tile("API spend", usd(s.cost_usd), s.budget_used_pct >= 80 ? "bad" : "", num(s.tokens) + " tokens, " + s.budget_used_pct + "% of " + usd(s.budget_usd), s.budget_used_pct) +
-      tile("Protections on", s.posture_pct + "%", s.posture_pct >= 80 ? "ok" : "warn", s.controls_enforced + " of " + s.controls_total + " protections enforced", s.posture_pct, true) +
-      tile("Time AICL adds", s.requests ? (oh.p50 || 0) + " ms" : "-", "ok", s.requests ? "typical; slowest 5%: " + (oh.p95 || 0) + " ms" : "no traffic yet") +
-      tile("Bypass attempts", num(s.bypass_alerts), s.bypass_alerts ? "bad" : "ok", s.bypass_alerts ? "see Network" : "none detected") +
-      judgeTile(j);
+      tile("Requests", num(s.requests)) +
+      tile("Blocked", num(s.blocked), "bad") +
+      tile("Redacted", num(s.redacted), "warn") +
+      tile("Spend", usd(s.cost_usd));
     setCount("#nav-blocks", s.blocked);
     renderRecent();
     emptyChart("#ch-time", !s.requests);
-    emptyChart("#ch-cat", !Object.keys(s.categories || {}).length);
-    emptyChart("#ch-proto", !Object.keys(s.protocols || {}).length);
     setCount("#nav-bypass", s.bypass_alerts);
     renderBudgets(s.agent_budgets || []);
     topRules(s.top_rules || []);
@@ -136,24 +116,13 @@
     drawChart("time", "#ch-time", "#fb-time", {
       type: "bar",
       data: { labels: tlabels, datasets: [
-        { label: "allowed", data: tl.map((x) => x.allow), backgroundColor: col("--ok", "#16a34a"), borderRadius: 4 },
-        { label: "redacted", data: tl.map((x) => x.redact), backgroundColor: col("--warn", "#d97706"), borderRadius: 4 },
-        { label: "blocked", data: tl.map((x) => x.block), backgroundColor: col("--red", "#dc2626"), borderRadius: 4 } ] },
+        { label: "allowed", data: tl.map((x) => x.allow), backgroundColor: col("--chart-allow", "#b8b8b8"), borderRadius: 0 },
+        { label: "redacted", data: tl.map((x) => x.redact), backgroundColor: col("--chart-redact", "#737373"), borderRadius: 0 },
+        { label: "blocked", data: tl.map((x) => x.block), backgroundColor: col("--chart-block", "#171717"), borderRadius: 0 } ] },
       options: { maintainAspectRatio: false, plugins: { legend: { position: "bottom" } }, scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } } },
     }, tlabels, tl.map((x) => x.allow + x.redact + x.block));
-    const cl = Object.keys(s.categories || {}), cv = cl.map((k) => s.categories[k]);
-    drawChart("cat", "#ch-cat", "#fb-cat", {
-      type: "doughnut",
-      data: { labels: cl, datasets: [{ data: cv, borderWidth: 0, backgroundColor: ["#4f46e5", "#d97706", "#dc2626", "#16a34a", "#7c3aed", "#0ea5e9", "#db2777", "#65a30d"] }] },
-      options: { maintainAspectRatio: false, cutout: "62%", plugins: { legend: { position: "right" } } },
-    }, cl, cv);
-    const pl = Object.keys(s.protocols || {}), pv = pl.map((k) => s.protocols[k]);
-    drawChart("proto", "#ch-proto", "#fb-proto", {
-      type: "bar",
-      data: { labels: pl.map(protoName), datasets: [{ data: pv, backgroundColor: col("--accent", "#4f46e5"), borderRadius: 6 }] },
-      options: { indexAxis: "y", maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { grid: { display: false } } } },
-    }, pl.map(protoName), pv);
   }
+
   function plural(n, w) { return n + " " + w + (n === 1 ? "" : "s"); }
   function setCount(sel, n) { const el = $(sel); el.textContent = n; el.classList.toggle("show", n > 0); }
   function protoName(p) { return { anthropic_messages: "Anthropic Messages", openai_responses: "OpenAI Responses", openai_chat: "OpenAI Chat", managed: "Managed gateway" }[p] || p; }
@@ -218,10 +187,10 @@
     return who + ": " + where + (what.length ? " contained " + what.join(", ") + ". " + verb + "." : why + ". " + verb + ".");
   }
   function renderRecent() {
-    const hits = events.filter((r) => ["BLOCK", "REDACT"].includes(dn(r.decision)) && r.stage !== "dns").slice(0, 6);
+    const hits = events.filter((r) => ["BLOCK", "REDACT"].includes(dn(r.decision)) && r.stage !== "dns").slice(0, 4);
     $("#recent").innerHTML = hits.length ? hits.map((r, i) => '<div class="recent-row" data-i="' + i + '"><span class="when">' + esc((r.ts || "").slice(11, 16)) +
-      '</span><span class="badge b-' + esc(dn(r.decision)) + '">' + esc(dn(r.decision)) + "</span><span>" + esc(story(r)) + "</span></div>").join("")
-      : '<div class="empty-state">Nothing stopped yet. <br><button onclick="document.querySelector(\'#nav [data-page=playground]\').click()">Try a risky prompt</button></div>';
+      '</span><span class="badge b-' + esc(dn(r.decision)) + '">' + esc(dn(r.decision)) + "</span><span>" + esc([r.agent_id, evName(r), r.tool || r.model].filter(Boolean).join(" / ")) + "</span></div>").join("")
+      : '<div class="empty-state">No blocked or redacted requests. <br><button onclick="document.querySelector(\'#nav [data-page=playground]\').click()">Open playground</button></div>';
     document.querySelectorAll("#recent .recent-row").forEach((el) => (el.onclick = () => { go("security"); select(hits[+el.dataset.i]); }));
   }
   // T-117: an empty chart shows its hint + a link to Try it (the Playground page) (markup in index.html, .chart-empty) instead of a blank canvas
@@ -233,10 +202,9 @@
     if (isNew) tr.className = "new";
     if (r.event_id === selected) tr.classList.add("sel");
     tr.dataset.id = r.event_id;
-    const lat = (r.latency_us || {}).total;
     tr.innerHTML = "<td class='muted'>" + esc((r.ts || "").slice(11, 19)) + '</td><td><span class="badge b-' + dn(r.decision) + '">' + dn(r.decision) + "</span></td><td>" +
       esc(evName(r)) + (r.protocol ? '<span class="sub2"><span class="tag p-' + esc(r.protocol) + '">' + esc(SHORT[r.protocol] || r.protocol) + "</span></span>" : "") + "</td><td>" + client(r) + "</td><td class='mono'>" +
-      esc(r.tool || r.model || r.upstream_host || "") + "</td><td class='mono wrap'>" + ctrlCell(r) + '</td><td class="num">' + (lat != null ? (lat / 1000).toFixed(1) : "") + "</td>";
+      esc(r.tool || r.model || r.upstream_host || "") + "</td><td class='mono wrap'>" + ctrlCell(r) + "</td>";
     tr.onclick = () => select(r);
     return tr;
   }
@@ -257,7 +225,7 @@
     tb.innerHTML = "";
     const shown = events.filter(matches);
     shown.slice(0, 400).forEach((r) => tb.appendChild(row(r)));
-    if (!shown.length) tb.innerHTML = '<tr><td class="empty" colspan="7">No events match.</td></tr>';
+    if (!shown.length) tb.innerHTML = '<tr><td class="empty" colspan="6">No events match.</td></tr>';
     $("#count").textContent = shown.length + " of " + events.length + " events";
   }
   function select(r) {
@@ -268,7 +236,6 @@
       (f.score != null ? " <span class='muted'>score " + f.score + " vs " + f.threshold + "</span>" : "") +
       ((f.spans || []).length ? "<br><span class='muted'>spans " + f.spans.map((s) => esc(s.type) + "[" + s.start + "-" + s.end + "]" + (s.sha256_8 ? " #" + esc(s.sha256_8) : "")).join(", ") + "</span>" : "") +
       (f.reason_code ? "<br><span class='muted'>" + esc(f.reason_code) + "</span>" : "") + "</li>").join("");
-    const lat = r.latency_us || {};
     const u = r.usage || {};
     $("#explain").innerHTML = "<h2>Why</h2>" +
       '<span class="badge b-' + dn(r.decision) + '">' + dn(r.decision) + "</span> " + layerBadge(r.detection_layer) + " <b>" + esc(evName(r)) + "</b>" +
@@ -280,9 +247,9 @@
       (r.tool ? "<b>Tool call</b><span>" + esc(r.tool) + "</span>" : "") +
       (r.would_decision != null && dn(r.would_decision) !== dn(r.decision) ? "<b>Would be</b><span>" + dn(r.would_decision) + " (shadow mode)</span>" : "") +
       (u.usd != null ? "<b>Usage</b><span>" + num((u.input_tokens || 0) + (u.output_tokens || 0)) + " tokens, " + usd(u.usd) + "</span>" : "") +
-      "<b>Latency</b><span>" + esc(lat.total != null ? (lat.total / 1000).toFixed(2) + " ms" : "-") + "</span><b>Policy</b><span class='mono'>" + esc((r.policy_version || "").slice(0, 16)) + "</span></div>" +
-      '<h2>decide() timeline <span class="hint">whole request</span></h2><div id="tl"><p class="muted">Loading...</p></div>' +
-      "<h2>Which checks fired</h2><ul>" + (fs || "<li class='muted'>none</li>") + "</ul><details><summary class='muted'>Full decision trace</summary><div class='trace'>" + (r.explain || []).map(esc).join("\n") + "</div></details>";
+      "<b>Policy</b><span class='mono'>" + esc((r.policy_version || "").slice(0, 16)) + "</span></div>" +
+      '<h2>Checks</h2><div id="tl"><p class="muted">Loading...</p></div>' +
+      "<details><summary>Finding details</summary><ul>" + (fs || "<li class='muted'>None</li>") + "</ul></details>";
     loadTimeline(r);
   }
   // ---- explain drawer: per-request decide() timeline (T-119); spans arrive as hashes / tokens only
@@ -294,7 +261,7 @@
     return '<div class="tl-f' + (f.shadow ? " shadow" : "") + '"><span class="badge b-' + esc(f.action) + '">' + esc(f.action) + "</span>" + (f.shadow ? ' <span class="badge b-WARN">shadow, not enforced</span>' : "") + ' <a href="#policy" class="rulelink" data-rule="' + esc(f.rule_id) + '" data-control="' + esc(f.control_id) + '" title="Show in the policy">' +
       esc(f.control_id) + " / " + esc(f.rule_id) + "</a> " + layerBadge(f.detection_layer || layerOf(f.control_id)) + '<div class="muted">' + esc(cname(f.control_id)) + ": " + esc(rname(f.rule_id)) + "</div>" + (f.record_stage ? ' <span class="muted">on ' + esc(f.record_stage) + "</span>" : "") +
       (f.score != null ? ' <span class="muted">score ' + esc(f.score) + " vs " + esc(f.threshold) + "</span>" : "") +
-      (j ? '<div class="muted">judge ' + esc(j.model || "-") + ": " + esc(j.verdict) + (j.cached ? ", cached" : "") + (j.eval_ms != null ? ", " + esc(j.eval_ms) + " ms" : "") + (j.degraded ? ', <span style="color:var(--warn)">degraded</span>' : "") + "</div>" : "") +
+      (j ? '<div class="muted">judge ' + esc(j.model || "-") + ": " + esc(j.verdict) + (j.cached ? ", cached" : "") + (j.degraded ? ', <span style="color:var(--warn)">degraded</span>' : "") + "</div>" : "") +
       (f.reason_code ? '<div class="muted">' + esc(f.reason_code) + "</div>" : "") +
       ((f.spans || []).length ? '<div class="muted">spans ' + f.spans.map(spanText).join(", ") + "</div>" : "") + "</div>";
   }
@@ -309,14 +276,13 @@
       body += ran ? (s.ran.length ? "<div>ran " + s.ran.map(esc).join(", ") + "</div>" : "") : "<div>not run for this request (" + s.controls.map(esc).join(", ") + ")</div>";
       body += (s.findings || []).map(tlFinding).join("");
       return '<li class="tl-step a-' + esc(s.action) + (ran ? "" : " skip") + '"><span class="tl-dot"></span><div class="tl-head"><b>' + esc(s.label) + '</b> <span class="badge b-' + esc(s.action) + '">' + esc(s.action) +
-        '</span><span class="ms">' + (ran ? esc(Number(s.latency_ms).toFixed(2)) + " ms" : "-") + '</span></div><div class="tl-body">' + body + "</div></li>";
+        '</span></div><div class="tl-body">' + body + "</div></li>";
     });
     const lattice = (fin.lattice || []).map((a) => '<span class="lat' + (a === fin.action ? " on b-" + esc(a) : "") + '">' + esc(a) + "</span>").join(' <span class="muted">&lt;</span> ');
-    steps.push('<li class="tl-step a-' + esc(fin.action) + '"><span class="tl-dot"></span><div class="tl-head"><b>Final action</b><span class="ms">' + esc(Number((t.latency_ms || {}).decide_total || 0).toFixed(2)) + ' ms</span></div><div class="tl-body"><div class="lattice">' + lattice + "</div>" +
+    steps.push('<li class="tl-step a-' + esc(fin.action) + '"><span class="tl-dot"></span><div class="tl-head"><b>Final action</b></div><div class="tl-body"><div class="lattice">' + lattice + "</div>" +
       (fin.by ? "<div>by " + esc(fin.by.control_id) + " / " + esc(fin.by.rule_id) + "</div>" : "") + (fin.would && fin.would !== fin.action ? "<div>would be " + esc(fin.would) + " without shadow mode</div>" : "") +
       (fin.degraded ? '<div style="color:var(--warn)">degraded: a control failed or timed out, its fail mode applied</div>' : "") + "</div></li>");
-    return '<ol class="tl">' + steps.join("") + "</ol>" + (t.records > 1 ? '<p class="muted">' + esc(t.records) + " decisions in this request: " + (t.record_stages || []).map(esc).join(", ") + "</p>" : "") +
-      '<div class="trace" title="Server-Timing syntax; the response header itself covers the decisions made before the answer started">Stage timing, whole request: ' + esc(t.server_timing || "-") + "</div>";
+    return '<ol class="tl">' + steps.join("") + "</ol>" + (t.records > 1 ? '<p class="muted">' + esc(t.records) + " decisions in this request: " + (t.record_stages || []).map(esc).join(", ") + "</p>" : "");
   }
   async function loadTimeline(r) {
     try {
@@ -488,20 +454,20 @@
     const [p, st] = await Promise.all([getJSON(API + "/policy"), getJSON(API + "/status").catch(() => ({}))]);
     const b = $("#pol-banner");
     if (p.error) { b.className = "banner err"; b.textContent = "Last edit rejected, the previous policy stays live: " + p.error; }
-    else { b.className = "banner ok"; b.innerHTML = "Live policy <code>" + esc((p.version || "").slice(0, 16)) + "</code>, profile <b>" + esc(p.profile || "-") + "</b>, " + num(p.rules) + " signature rules with inline tests, files: " + (p.files || []).map((f) => "<code>" + esc(f) + "</code>").join(" "); }
+    else { b.className = "banner ok"; b.innerHTML = "Active profile <b>" + esc(p.profile || "-") + "</b> &middot; " + num(p.rules) + " rules"; }
     const ic = p.interception || {};
-    const styles = Object.entries(ic.block_style || {}).map(([k, v]) => "<tr><td>" + esc(protoName(k)) + "</td><td class='mono'>" + esc(v.hard) + "</td><td class='mono'>" + esc(v.soft) + "</td><td class='mono'>" + esc(v.budget) + "</td></tr>").join("");
+    const matchLabel = (match) => Object.entries(match || {}).map(([key, value]) =>
+      (key === "cidr" ? "" : key + ": ") + (typeof value === "object" ? JSON.stringify(value) : value)).join(", ");
     $("#pol-cards").innerHTML =
-      '<div class="card"><h2>Interception</h2><div class="kv"><b>Runtime mode</b><span>' + esc(MODE_NAME[st.mode] || st.mode || "-") + "</span><b>Listeners</b><span class=\"prose\">" + esc(listenerText(st)) +
-        "</span>" + (st.warnings || []).map((x) => '<b>Warning</b><span class="prose" style="color:var(--warn)">' + esc(x) + "</span>").join("") +
-        (st.notes || []).map((x) => '<b>Note</b><span class="prose">' + esc(x) + "</span>").join("") + "<b>Policy mode</b><span>" + esc(ic.mode || "-") + "</span><b>Credentials</b><span>" + esc(ic.credentials || "-") + "</span><b>Hosts</b><span>" + (ic.hosts || []).map((h) => "<code>" + esc(h) + "</code>").join(" ") + "</span></div></div>" +
-      '<div class="card"><h2>Native block contract</h2><div class="tablewrap"><table><thead><tr><th>API</th><th>Hard</th><th>Soft</th><th>Budget</th></tr></thead><tbody>' + styles + "</tbody></table></div></div>" +
-      '<div class="card"><h2>Clients (identity)</h2><table><thead><tr><th>Match</th><th>Principal</th><th>Profile</th></tr></thead><tbody>' +
-      (p.clients || []).map((c) => "<tr><td class='mono'>" + esc(JSON.stringify(c.match)) + "</td><td>" + esc(c.principal) + "</td><td>" + esc(c.profile || "-") + "</td></tr>").join("") + "</tbody></table></div>" +
-      '<div class="card"><h2>Signed signature feed</h2>' + (p.feed ? '<div class="kv"><b>Source</b><span class="mono">' + esc(p.feed.url) + "</span><b>Version</b><span>" + esc(p.feed.version) +
-        (p.feed.rules != null ? " (" + esc(p.feed.rules) + " rules)" : "") + "</span><b>Last check</b><span>" + esc(p.feed.last_check || "-") + "</span><b>Status</b><span" +
-        (p.feed.last_error ? ' style="color:var(--red)">rejected: ' + esc(p.feed.last_error) : ' style="color:var(--ok)">verified (Ed25519), no rollback, inline tests passed') + "</span></div>"
-        : '<p class="muted">Not configured. Set AICL_FEED_URL and AICL_FEED_PUBKEY: bundles are Ed25519-signed, rollback is refused, and every rule must pass its inline tests before it goes live.</p>') + "</div>";
+      '<div class="card"><h2>Connection</h2><div class="kv"><b>Mode</b><span>' + esc(MODE_NAME[st.mode] || st.mode || "-") +
+      '</span><b>Hosts</b><span>' + (ic.hosts || []).map(esc).join(", ") + '</span></div>' +
+      (st.warnings || []).map((x) => '<p class="muted">' + esc(x) + '</p>').join("") + '</div>' +
+      '<div class="card"><h2>Clients</h2><div class="tablewrap"><table class="policy-table"><thead><tr><th>Match</th><th>Principal</th><th>Profile</th></tr></thead><tbody>' +
+      ((p.clients || []).map((c) => "<tr><td class='mono'>" + esc(matchLabel(c.match)) + "</td><td>" + esc(c.principal) + "</td><td>" + esc(c.profile || "-") + "</td></tr>").join("") ||
+      '<tr><td colspan="3" class="empty">No clients configured.</td></tr>') + "</tbody></table></div></div>" +
+      '<div class="card"><h2>Signature feed</h2>' + (p.feed ? '<div class="kv"><b>Status</b><span>' +
+      (p.feed.last_error ? 'Rejected: ' + esc(p.feed.last_error) : 'Verified') + '</span><b>Version</b><span>' + esc(p.feed.version || "-") +
+      '</span></div><details><summary>Source</summary><p class="mono">' + esc(p.feed.url) + '</p></details>' : '<p class="muted">Not configured.</p>') + '</div>';
     renderNames();
     if (!editing) { $("#pol-yaml").innerHTML = yamlHtml(p.yaml || ""); polText = p.yaml || ""; markPolicy(); }
     $("#foot-policy").textContent = "policy " + (p.version || "").slice(0, 12);
@@ -511,10 +477,10 @@
   // T-123: the ids in the policy and in the audit, in words
   function renderNames() {
     const ctl = Object.values(NAMES.controls || {}), rules = Object.values(NAMES.rules || {});
-    $("#pol-names").innerHTML = '<h2>What the ids mean <span class="hint">names are display only, ids and the audit are unchanged</span></h2>' +
+    $("#pol-names").innerHTML = '<h2>Controls</h2>' +
       '<div class="tablewrap"><table><thead><tr><th>Control</th><th>Name</th><th>What it does</th><th>Layer</th></tr></thead><tbody>' +
       ctl.map((c) => "<tr><td class='mono'>" + esc(c.id) + "</td><td><b>" + esc(c.name) + "</b></td><td class='wrap'>" + esc(c.description) + "</td><td>" + layerBadge(c.layer) + "</td></tr>").join("") + "</tbody></table></div>" +
-      "<details><summary class='muted'>" + rules.length + ' rules (tool rules, signature files, secrets, personal data, budgets)</summary><div class="tablewrap"><table><thead><tr><th>Rule</th><th>Name</th><th>What it matches</th></tr></thead><tbody>' +
+      "<details><summary class='muted'>" + rules.length + ' rules</summary><div class="tablewrap"><table><thead><tr><th>Rule</th><th>Name</th><th>What it matches</th></tr></thead><tbody>' +
       rules.map((r) => "<tr><td class='mono wrap'>" + esc(r.id) + "</td><td class='wrap'><b>" + esc(r.name) + "</b></td><td class='wrap'>" + esc(r.description) + "</td></tr>").join("") + "</tbody></table></div></details>";
   }
 
@@ -579,28 +545,6 @@
     } catch (e) { m.style.color = "var(--red)"; m.textContent = "Not saved: " + e.message; }
   };
 
-  // ---- performance
-  async function loadPerformance() {
-    const rows = (await getJSON(API + "/performance")).controls;
-    const tot = rows.find((r) => r.control === "total") || { p50: 0, p95: 0, max: 0, count: 0 };
-    const det = rows.filter((r) => r.control !== "total" && r.control !== "INJ-04");
-    const detP95 = det.reduce((a, r) => a + r.p95, 0);
-    const judge = rows.find((r) => r.control === "INJ-04");
-    $("#perf-tiles").innerHTML =
-      tile("Decision p50", tot.p50 + " ms", "ok", num(tot.count) + " decisions") +
-      tile("Decision p95", tot.p95 + " ms", tot.p95 > 500 ? "warn" : "ok", "max " + tot.max + " ms") +
-      tile("Deterministic controls", detP95.toFixed(1) + " ms", "ok", "sum of p95 over " + det.length + " controls") +
-      tile("Local AI judge", judge ? judge.p50 + " ms" : "-", "violet", judge ? "p50, cached verdicts are free" : "not invoked yet");
-    $("#perf tbody").innerHTML = rows.map((r) => "<tr><td><code>" + esc(r.control) + '</code></td><td class="num">' + num(r.count) + '</td><td class="num">' + r.p50 + '</td><td class="num">' + r.p95 + '</td><td class="num">' + r.max + "</td></tr>").join("") ||
-      '<tr><td class="empty" colspan="5">No decisions yet.</td></tr>';
-    const pr = rows.filter((r) => r.control !== "total");
-    drawChart("perf", "#ch-perf", "#fb-perf", {
-      type: "bar",
-      data: { labels: pr.map((r) => r.control), datasets: [{ label: "p95 ms", data: pr.map((r) => r.p95), backgroundColor: pr.map((r) => r.control === "INJ-04" ? col("--violet", "#7c3aed") : col("--accent", "#4f46e5")), borderRadius: 6 }] },
-      options: { indexAxis: "y", maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { type: "logarithmic" }, y: { grid: { display: false } } } },
-    }, pr.map((r) => r.control), pr.map((r) => r.p95));
-  }
-
   // ---- header chips
   const MODE_NAME = { transparent: "transparent", base_url: "base-URL", proxy: "proxy", off: "off" };
   // T-116: the chip shows the listeners this process really runs, not the policy's interception.mode
@@ -629,7 +573,7 @@
   }
 
   const LOADERS = { overview: loadSummary, clients: loadClients, security: loadEvents, network: loadNetwork, controls: loadControls,
-    policy: loadPolicy, performance: loadPerformance, playground: async () => {} };
+    policy: loadPolicy, playground: async () => {} };
   let pending = null;
   function refresh(now) {
     if (pending && !now) return;
@@ -683,23 +627,17 @@
 
   // ---- demo batch (T-123): preset prompts, each caught by a different control, one results table
   const OUT_BADGE = { allowed: "ALLOW", warned: "WARN", redacted: "REDACT", blocked: "BLOCK", error: "BLOCK" };
-  const ms = (v, d) => (v == null ? "-" : Number(v).toFixed(d == null ? 2 : d));
-  function judgeCell(r) {
-    const j = r.judge;
-    return j ? '<span class="sub2">' + esc(j.model || "-") + ": " + esc(j.verdict) + (j.confidence != null ? " (confidence " + esc(Math.round(j.confidence * 100)) + "%)" : "") + (j.cached ? ", cached" : "") + (j.degraded ? ", degraded" : "") + "</span>" : "";
-  }
   function batchRow(r) {
-    return '<tr class="batch-row" data-rid="' + esc(r.request_id || "") + '" title="Open this request in Activity"><td class="mono">' + esc(r.id) + "</td><td class='wrap'><b>" + esc(r.title) + "</b>" + (r.notes ? '<span class="sub2">' + esc(r.notes) + "</span>" : "") + "</td>" +
+    return '<tr class="batch-row" data-rid="' + esc(r.request_id || "") + '" title="Open this request in Activity"><td class="mono">' + esc(r.id) + "</td><td class='wrap'><b>" + esc(r.title) + "</b>" + "</td>" +
       '<td><span class="badge b-' + esc(OUT_BADGE[r.outcome] || "ALLOW") + '">' + esc(r.decision || r.outcome) + "</span>" + (r.ok ? "" : ' <span class="badge b-WARN" title="Not the outcome this preset is meant to show">unexpected</span>') + "</td>" +
       "<td class='wrap'>" + (r.control ? "<b>" + esc(r.control) + "</b> / <code>" + esc(r.rule || "-") + '</code><span class="sub2">' + esc(r.control_name || "") + (r.rule_name ? ": " + esc(r.rule_name) : "") + "</span>" : '<span class="muted">nothing flagged</span>') + "</td>" +
-      "<td>" + (r.layer ? layerBadge(r.layer) + judgeCell(r) : '<span class="muted">-</span>') + '</td><td class="num">' + ms(r.decide_ms) + '</td><td class="num">' + (r.judge_ms == null ? "-" : ms(r.judge_ms, 0)) + "</td></tr>";
+      "<td>" + (r.layer ? layerBadge(r.layer) : '<span class="muted">-</span>') + "</td></tr>";
   }
   function renderBatch(res) {
     const s = res.summary, rows = res.rows;
-    $("#batch-tiles").innerHTML = tile("As expected", s.passed + " / " + s.prompts, s.passed === s.prompts ? "ok" : "warn", s.requests + " requests") +
-      tile("decide() latency", ms(s.decide_ms.p50) + " ms", "", "p50, p95 " + ms(s.decide_ms.p95) + " ms") +
-      tile("Throughput", s.throughput_rps + " req/s", "", s.requests + " requests in " + s.wall_s + " s") +
-      tile("Who caught it", s.by_layer.deterministic + " deterministic, " + s.by_layer.ai + " AI", "violet", s.judge_ms.count ? "judge p50 " + ms(s.judge_ms.p50, 0) + " ms over " + s.judge_ms.count + " call(s)" : "the local judge was not called");
+    $("#batch-tiles").innerHTML = tile("Passed", s.passed + " / " + s.prompts, s.passed === s.prompts ? "ok" : "warn") +
+      tile("Blocked", rows.filter((r) => r.outcome === "blocked").length) +
+      tile("Redacted", rows.filter((r) => r.outcome === "redacted").length);
     $("#batch-table tbody").innerHTML = rows.map(batchRow).join("");
     document.querySelectorAll("#batch-table .batch-row").forEach((tr) => (tr.onclick = async () => {
       if (!tr.dataset.rid) return;
@@ -714,13 +652,13 @@
   }
   $("#batch-run").onclick = async () => {
     const b = $("#batch-run"), m = $("#batch-msg");
-    b.disabled = true; m.style.color = ""; m.textContent = "Running " + $("#batch-count").textContent + " prompts through the gateway (the judge prompt waits for the local model)...";
+    b.disabled = true; m.style.color = ""; m.textContent = "Running " + $("#batch-count").textContent + " examples...";
     try {
       const r = await fetch(API + "/demo/batch", { method: "POST" });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.detail || "HTTP " + r.status);
       renderBatch(j);
-      m.textContent = "Done in " + j.summary.wall_s + " s. Click a row to open it in Activity.";
+      m.textContent = "Done. Select a result for details.";
       loadSummary().catch(() => {});
     } catch (e) { m.style.color = "var(--red)"; m.textContent = "Batch failed: " + e.message; }
     b.disabled = false;
@@ -731,7 +669,6 @@
   $("#pg-run").onclick = async () => {
     const out = $("#pg-out");
     out.className = "result"; out.textContent = "Sending...";
-    const t0 = performance.now();
     try {
       const dest = $("#pg-dest").value;
       let pc = { api_key: null, models: { local: [], external: [] } };
@@ -744,19 +681,18 @@
       const r = await fetch($("#pg-url").value, { method: "POST", headers, body: JSON.stringify({ model, messages: [{ role: "user", content: $("#pg-text").value }] }) });
       const txt = await r.text();
       let body = txt; try { body = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) {}
-      const dec = ["x-aicl-decision", "server-timing", "x-aicl-request-id"].map((h) => r.headers.get(h) ? h + ": " + r.headers.get(h) : "").filter(Boolean).join("\n");
+      const dec = ["x-aicl-decision", "x-aicl-request-id"].map((h) => r.headers.get(h) ? h + ": " + r.headers.get(h) : "").filter(Boolean).join("\n");
       let trace = "";
       const rid = r.headers.get("x-aicl-request-id");
       if (rid) {
         try {
           const evs = (await getJSON(API + "/events?limit=20&request_id=" + encodeURIComponent(rid))).events.slice().reverse();
           trace = "\n\nPolicy decisions:\n" + evs.map((e) => "- " + e.stage + ": " + dn(e.decision) + " (" + e.event_type + ")" +
-            (e.findings || []).map((f) => "\n    " + f.control_id + " / " + f.rule_id + " [" + f.category + "]").join("") +
-            (e.explain || []).map((x) => "\n    > " + x).join("")).join("\n");
+            (e.findings || []).map((f) => "\n    " + f.control_id + " / " + f.rule_id + " [" + f.category + "]").join("")).join("\n");
         } catch (e) {}
       }
       const verdict = r.headers.get("x-aicl-decision") || (r.status >= 400 ? "error" : "no decision");
-      out.textContent = "HTTP " + r.status + " - decision " + verdict + " in " + Math.round(performance.now() - t0) + " ms\n" + dec + trace + "\n\nResponse:\n" + body;
+      out.textContent = "HTTP " + r.status + " - decision " + verdict + "\n" + dec + trace + "\n\nResponse:\n" + body;
     } catch (e) {
       out.textContent = "Gateway not reachable at " + $("#pg-url").value + ": " + e.message;
     }

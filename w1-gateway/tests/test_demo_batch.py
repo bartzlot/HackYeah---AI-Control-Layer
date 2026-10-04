@@ -285,7 +285,7 @@ def test_console_page_has_the_batch_button_the_names_card_and_the_layer_badge():
     for hook in ('id="batch-run"', 'id="batch-table"', 'id="batch-tiles"', 'id="pol-names"'):
         assert hook in html
     # one source for the names (the catalog endpoint), shown in the feed, the explain drawer, the timeline and the Policy page
-    for needle in ('API + "/catalog"', "layerBadge(", "ctrlCell(r)", "rname(f.rule_id)", "renderNames()", 'API + "/demo/batch"', "judgeCell(r)"):
+    for needle in ('API + "/catalog"', "layerBadge(", "ctrlCell(r)", "rname(f.rule_id)", "renderNames()", 'API + "/demo/batch"'):
         assert needle in js, needle
     assert ".badge.lay-ai" in css and ".badge.lay-deterministic" in css
     assert "\u2014" not in js + html + css and "\u2013" not in js + html + css      # AGENTS.md: plain hyphens only
