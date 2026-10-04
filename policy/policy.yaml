@@ -239,13 +239,13 @@ interception:
     doh_sinkhole: [dns.google, cloudflare-dns.com, mozilla.cloudflare-dns.com, dns.quad9.net, doh.opendns.com]
     log_queries: true
   tls: {ca_cert: data/ca/aicl-ca.pem, ca_key: data/ca/aicl-ca.key, leaf_days: 30}
-  # How a block is answered, per API contract (measured on Claude Code 2.1.289, research/14 s.3):
+  # How a block is answered, per API contract (measured on Claude Code 2.1.289 and Codex CLI 0.160, research/14 s.3):
   #   http_400 = native invalid_request_error (hard block) | http_402 = billing_error (budget)
   #   assistant_text = normal 200 reply "[AICL] ..." (soft block, blocked tool call) | refusal = finish_reason content_filter
   block_style:
     anthropic_messages: {hard: http_400, soft: assistant_text, budget: http_402}
-    openai_responses:   {hard: http_400, soft: assistant_text, budget: http_429}
-    openai_chat:        {hard: http_400, soft: refusal, budget: http_429}
+    openai_responses:   {hard: http_400, soft: assistant_text, budget: http_402}   # Codex 0.160: 429 hides our text
+    openai_chat:        {hard: http_400, soft: assistant_text, budget: http_402}
 
 # ---------- 10. clients (v4: who is behind a passthrough request) ----------
 # First match wins; match keys: cidr | key_sha256_prefix (sha256 hex of the client key) | user_agent (glob) | any.

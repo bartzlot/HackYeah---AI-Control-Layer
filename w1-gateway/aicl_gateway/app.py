@@ -27,6 +27,7 @@ from .budget import (DEFAULT_PRICES, BudgetLedger, LoopGuard, estimate_split, la
 from .bus import EventBus
 from .config import merge_config, route
 from .console_api import ConsoleStore, make_console_router
+from . import openai_adapters  # noqa: F401  (registers the OpenAI Responses / Chat adapters)
 from .passthrough import Passthrough
 
 

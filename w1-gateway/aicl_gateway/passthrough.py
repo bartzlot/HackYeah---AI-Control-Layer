@@ -361,6 +361,16 @@ def register_adapter(protocol: str, adapter: Any) -> None:
     ADAPTERS[protocol] = adapter
 
 
+PATH_PROTOCOL = {"/v1/messages": "anthropic_messages", "/v1/responses": "openai_responses",
+                 "/v1/chat/completions": "openai_chat"}
+
+
+def adapter_for(prov: dict, path: str):
+    """The endpoint decides the contract (api.openai.com serves Responses AND Chat); else the provider's."""
+    proto = PATH_PROTOCOL.get(icpt.canonical_path(path), prov.get("protocol"))
+    return ADAPTERS.get(proto)
+
+
 # ------------------------------------------------------------------------------------------------ the PEP
 
 class Passthrough:
@@ -431,7 +441,7 @@ class Passthrough:
                             status_code=status)
 
     async def _dispatch(self, request: Request, name: str, prov: dict, upath: str, cfg: dict, ctx: dict) -> Response:
-        adapter = ADAPTERS.get(prov.get("protocol"))
+        adapter = adapter_for(prov, upath)
         if not icpt.is_canonical(upath):    # /v1//messages, /V1/messages, /v1/%6Dessages: refuse every spelling trick
             return self._refuse(ctx, 400, f"non-canonical request path {upath.split('?')[0]!r}")
         if icpt.is_inspected(prov, upath):
@@ -450,14 +460,15 @@ class Passthrough:
         who.update(ip=ip, credential_hash=ch, user_agent=(ua or "")[:200] or None)
         return who
 
-    def _base(self, who: dict, prov: dict, name: str, model: str | None, session: str | None, rid: str) -> dict:
+    def _base(self, who: dict, prov: dict, name: str, model: str | None, session: str | None, rid: str,
+              protocol: str | None = None) -> dict:
         dest = DestKind.EXTERNAL
         if model:   # by model tag like decide() (destinations.models): an Ollama cloud tag stays unknown
             dest = resolve_destination(SimpleNamespace(raw=self.policy() or {}),
                                        Event(model=model, destination=DestKind.LOCAL))
         return dict(agent_id=who["principal"], session_id=session, request_id=rid, model=model,
                     destination=dest,
-                    profile=who.get("profile"), protocol=prov.get("protocol"),
+                    profile=who.get("profile"), protocol=protocol or prov.get("protocol"),
                     upstream_host=(prov.get("hosts") or [name])[0], client_ip=who["ip"],
                     credential_hash=who["credential_hash"], user_agent=who["user_agent"])
 
@@ -503,7 +514,7 @@ class Passthrough:
         except (ValueError, TypeError) as e:
             return adapter.error(400, "invalid_request_error", f"[AICL] request is not valid JSON: {e}", rid)
         who = self._who(request, raw_policy)
-        base = self._base(who, prov, name, parsed.model, parsed.session, rid)
+        base = self._base(who, prov, name, parsed.model, parsed.session, rid, adapter.protocol)
 
         # ---- identity and model
         if not who["matched"] and who.get("action") == "BLOCK":
@@ -645,7 +656,7 @@ class Passthrough:
                     return self._refuse(ctx, 400, f"{request.method} {path_only} carries a body AICL cannot inspect "
                                         f"(add it to providers.{name}.inspect or raw_paths)")
                 parsed = adapter.parse(obj)
-                base = self._base(who, prov, name, parsed.model, parsed.session, ctx["rid"])
+                base = self._base(who, prov, name, parsed.model, parsed.session, ctx["rid"], adapter.protocol)
                 d = await self._decide(Event(stage=Stage.PROMPT, parts=[s.part for s in parsed.slots], **base), ctx)
                 if d.action == Action.BLOCK:
                     return self._refuse(ctx, 400, f"request blocked by policy: {_why(d)} (decision {d.decision_id})")

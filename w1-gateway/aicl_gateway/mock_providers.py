@@ -133,12 +133,122 @@ def anthropic_app() -> FastAPI:
     return app
 
 
-def main() -> None:     # python -m aicl_gateway.mock_providers [port]: offline upstream for demos
+
+
+# ---------------------------------------------------------------------------------------- OpenAI mock
+
+def _oa_last_user(body: dict) -> str:
+    inp = body.get("input")
+    if isinstance(inp, str):
+        return inp
+    for it in reversed(inp if isinstance(inp, list) else []):
+        if isinstance(it, dict) and it.get("type", "message") == "message" and it.get("role") == "user":
+            c = it.get("content")
+            if isinstance(c, str):
+                return c
+            texts = [b.get("text", "") for b in c or [] if isinstance(b, dict) and not
+                     str(b.get("text", "")).lstrip().startswith("<")]
+            if texts:
+                return texts[-1]
+        if isinstance(it, dict) and it.get("type") == "function_call_output":
+            return "tool result received"
+    for m in reversed(body.get("messages") or []):
+        if m.get("role") == "user":
+            return m["content"] if isinstance(m.get("content"), str) else ""
+    return ""
+
+
+def _oa_output(prompt: str) -> list[dict]:
+    if prompt.startswith("TOOL:"):
+        cmd = ALIASES.get(prompt[5:].strip(), prompt[5:].strip())
+        return [{"id": "fc_mock01", "type": "function_call", "status": "completed", "call_id": "call_mock01",
+                 "name": "exec_command", "arguments": json.dumps({"cmd": cmd})}]      # Codex CLI 0.160 tool name
+    text = (f"Sure, the deploy key is {AWS_EXAMPLE}." if "LEAK" in prompt else "mock answer: " + prompt[:60])
+    return [{"id": "msg_mock", "type": "message", "role": "assistant", "status": "completed",
+             "content": [{"type": "output_text", "text": text, "annotations": []}]}]
+
+
+def _oa_sse(resp: dict) -> bytes:
+    seq = iter(range(10000))
+    start = dict(resp, status="in_progress", output=[])
+    ev = [("response.created", {"type": "response.created", "response": start})]
+    for oi, item in enumerate(resp["output"]):
+        ev.append(("response.output_item.added", {"type": "response.output_item.added", "output_index": oi,
+                                                  "item": dict(item, status="in_progress")}))
+        if item["type"] == "message":
+            t = item["content"][0]["text"]
+            for j in range(0, len(t), 16):
+                ev.append(("response.output_text.delta", {"type": "response.output_text.delta", "item_id": item["id"],
+                                                          "output_index": oi, "content_index": 0, "delta": t[j:j + 16]}))
+        else:
+            ev.append(("response.function_call_arguments.delta", {"type": "response.function_call_arguments.delta",
+                                                                  "item_id": item["id"], "output_index": oi,
+                                                                  "delta": item["arguments"]}))
+        ev.append(("response.output_item.done", {"type": "response.output_item.done", "output_index": oi, "item": item}))
+    ev.append(("response.completed", {"type": "response.completed", "response": resp}))
+    return "".join(f"event: {n}\ndata: {json.dumps({**d, 'sequence_number': next(seq)})}\n\n" for n, d in ev).encode()
+
+
+def openai_app() -> FastAPI:
+    app = FastAPI(title="mock-openai")
+    app.state.seen = []
+
+    @app.get("/v1/models")
+    async def models():
+        return {"object": "list", "data": [{"id": "gpt-5.5", "object": "model"}]}
+
+    @app.post("/v1/responses")
+    async def responses(request: Request):
+        raw = await request.body()
+        body = json.loads(raw)
+        app.state.seen.append({"headers": dict(request.headers), "body": body, "raw": raw})
+        if not request.headers.get("authorization"):
+            return JSONResponse({"error": {"message": "missing key", "type": "invalid_request_error"}}, status_code=401)
+        resp = {"id": "resp_mock", "object": "response", "created_at": 1, "model": body.get("model", "gpt-5.5"),
+                "status": "completed", "output": _oa_output(_oa_last_user(body)),
+                "usage": {"input_tokens": max(1, len(raw) // 4), "output_tokens": 20, "total_tokens": 20 + len(raw) // 4,
+                          "input_tokens_details": {"cached_tokens": 0}}}
+        if body.get("stream"):
+            return Response(_oa_sse(resp), media_type="text/event-stream")
+        return JSONResponse(resp)
+
+    @app.post("/v1/chat/completions")
+    async def chat(request: Request):
+        raw = await request.body()
+        body = json.loads(raw)
+        app.state.seen.append({"headers": dict(request.headers), "body": body, "raw": raw})
+        prompt = _oa_last_user(body)
+        out = _oa_output(prompt)[0]
+        if out["type"] == "function_call":
+            msg = {"role": "assistant", "content": None, "tool_calls": [{"id": "call_1", "type": "function", "function": {
+                "name": out["name"], "arguments": out["arguments"]}}]}
+            fin = "tool_calls"
+        else:
+            msg, fin = {"role": "assistant", "content": out["content"][0]["text"]}, "stop"
+        resp = {"id": "chatcmpl-mock", "object": "chat.completion", "created": 1, "model": body.get("model"),
+                "choices": [{"index": 0, "message": msg, "finish_reason": fin}],
+                "usage": {"prompt_tokens": max(1, len(raw) // 4), "completion_tokens": 20, "total_tokens": 20}}
+        if body.get("stream"):
+            chunks = [{"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1, "model": body.get("model"),
+                       "choices": [{"index": 0, "delta": {"role": "assistant", **({"content": msg["content"]} if msg.get("content") else {}),
+                                                          **({"tool_calls": [dict(t, index=0) for t in msg["tool_calls"]]} if msg.get("tool_calls") else {})},
+                                    "finish_reason": None}]},
+                      {"id": "chatcmpl-mock", "object": "chat.completion.chunk", "created": 1, "model": body.get("model"),
+                       "choices": [{"index": 0, "delta": {}, "finish_reason": fin}], "usage": resp["usage"]}]
+            data = "".join(f"data: {json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
+            return Response(data.encode(), media_type="text/event-stream")
+        return JSONResponse(resp)
+
+    return app
+
+
+def main() -> None:     # python -m aicl_gateway.mock_providers [port] [host] [anthropic|openai]
     import sys
 
     import uvicorn
-    uvicorn.run(anthropic_app(), host=sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1",
-                port=int(sys.argv[1]) if len(sys.argv) > 1 else 18210)
+    which = sys.argv[3] if len(sys.argv) > 3 else "anthropic"
+    uvicorn.run(openai_app() if which == "openai" else anthropic_app(), host=sys.argv[2] if len(sys.argv) > 2
+                else "127.0.0.1", port=int(sys.argv[1]) if len(sys.argv) > 1 else 18210)
 
 
 if __name__ == "__main__":

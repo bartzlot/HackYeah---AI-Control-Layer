@@ -64,13 +64,25 @@ Other spike facts: before the first message Claude Code sends `HEAD /api/hello` 
 
 Rules for every adapter:
 - Hard block of a request: provider-native 400 with the provider error envelope, message starts with `[AICL]`, includes control id and decision id. Never 403 (auth), never 429 / 5xx / 529 (clients retry them automatically).
-- Budget: Anthropic 402 `billing_error`; OpenAI: verify in the Codex spike (429 `insufficient_quota` is the native code but clients may retry 429).
+- Budget: 402 for every protocol (Anthropic `billing_error`; OpenAI: Codex shows our reason on 402, while 429 `insufficient_quota` is replaced by a generic quota message).
 - Soft block, blocked tool call, redacted output: HTTP 200 with a valid message in the requested mode (SSE when `stream: true`, JSON otherwise); a blocked `tool_use` / `function_call` is replaced by a text block `[AICL] tool call blocked: ...` and `stop_reason: end_turn`, so the agent does not execute it.
 - Redaction of a request: rewrite text spans in place; never touch `thinking` / `redacted_thinking` blocks or their signatures, OpenAI `reasoning` items or `encrypted_content` (the provider rejects modified ones) [DOC, verify]; keep JSON key order and unknown fields.
 - Paths not inspected (`/api/hello`, `/v1/messages/count_tokens`, `/v1/models`, OAuth, anything unknown): streamed byte-for-byte both ways, still audited (method, path, status, bytes).
 - The `policy.yaml` key `defaults.block_response: refusal` (finish_reason `content_filter`) stays valid for OpenAI Chat Completions only; per-protocol shapes go into `interception.block_style` (section 4).
 
-Codex: not measured yet (the `codex` on the spike machine is npm package 0.2.3, not verified to be OpenAI Codex CLI). With an API key it calls `/v1/responses` on `api.openai.com` with SSE; with a ChatGPT login it calls `chatgpt.com/backend-api/codex/...`, which sits behind Cloudflare [DOC, verify]. The Codex task starts with the same mock spike and records its table here.
+Codex [SPIKE, 2026-10-04]: OpenAI Codex CLI 0.160.0, `codex exec` with a custom Responses provider at a local mock (retries 0). Request: POST /v1/responses, stream, keys instructions / input / tools (exec_command, write_stdin, apply_patch, view_image, web_search, ...) / include reasoning.encrypted_content / store false / prompt_cache_key; user turns carry an <environment_context> scaffold item.
+
+| Reply shape | Codex shows | Exit | Verdict |
+|---|---|---|---|
+| 200 SSE, assistant message `[AICL] ...` | our text as the answer | 0 | **soft block / tool block / redaction** |
+| 400 `invalid_request_error` | `ERROR: [AICL] ...` | 1 | **hard block** |
+| SSE `response.failed` with error | `ERROR: [AICL] ...` | 1 | acceptable alternative |
+| 402 | `unexpected status 402 Payment Required: [AICL] ...` | 1 | **budget** |
+| 403 | `unexpected status 403 Forbidden: [AICL] ...` | 1 | misleading (auth) |
+| 429 `insufficient_quota` | `Quota exceeded. Check your plan and billing details.` (our text hidden) | 1 | **never use** |
+| 200 with a `refusal` content part | nothing at all | 0 | **never use** |
+
+Live (tests/live/test_live_codex.py): the real Codex CLI through AICL to the OpenAI mock (no OpenAI subscription is provided): native answer, secret redacted before the provider, exec_command reading credentials replaced by `[AICL] tool call blocked (exec_command)` and never run, injection in a command output -> `ERROR: [AICL]`, budget -> 402 with our reason. 5/5. A ChatGPT-login Codex goes to chatgpt.com/backend-api/codex (Cloudflare) [DOC, verify]: out of scope.
 
 ## 4. Policy additions (structure owned by the lead)
 
@@ -93,8 +105,8 @@ interception:
   tls: {ca_cert: data/ca/aicl-ca.pem, ca_key: data/ca/aicl-ca.key, leaf_days: 30}
   block_style:
     anthropic_messages: {hard: http_400, soft: assistant_text, budget: http_402}
-    openai_responses:   {hard: http_400, soft: assistant_text, budget: http_429}   # verify in the Codex spike
-    openai_chat:        {hard: http_400, soft: refusal, budget: http_429}
+    openai_responses:   {hard: http_400, soft: assistant_text, budget: http_402}   # measured on Codex 0.160
+    openai_chat:        {hard: http_400, soft: assistant_text, budget: http_402}
 clients:                       # identity in passthrough mode: who is behind an IP / key
   - {match: {cidr: 10.77.0.0/24}, principal: demo-dev, team: platform, profile: balanced, models: ["claude-*", "gpt-[0-9]*"]}
   - {match: {key_sha256_prefix: "3f2a9c1b"}, principal: alice, team: data}

@@ -59,9 +59,12 @@ rules:
     severity: high
     scope: tool_args
     tools: ["Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch", "write_file", "*.write_file"]
-    pattern: 'file_path=((/etc|/usr|/bin|/sbin|/boot|/root|/var/spool/cron)/|\S*/\.(ssh/|bashrc|zshrc|profile|bash_profile)\b|\S*/\.git/hooks/)'
+    # file_path=... (Claude Code Write / Edit) or a Codex apply_patch header "*** Add|Update File: <path>"
+    pattern: '(file_path=|\*\*\* (Add|Update) File: )((/etc|/usr|/bin|/sbin|/boot|/root|/var/spool/cron)/|(\S*/)?\.(ssh/|bashrc|zshrc|profile|bash_profile)\b|(\S*/)?\.git/hooks/)'
     action_untrusted: BLOCK
     action_user: LOG
     match: ['file_path=/etc/cron.d/x', 'file_path=/home/dev/.bashrc', 'file_path=/work/repo/.git/hooks/pre-commit',
-            'file_path=/home/dev/.ssh/authorized_keys']
-    no_match: ['file_path=/work/repo/src/main.py', 'file_path=/work/repo/.github/workflows/ci.yml']
+            'file_path=/home/dev/.ssh/authorized_keys', 'input=*** Begin Patch *** Add File: .git/hooks/pre-commit',
+            '*** Update File: /etc/hosts']
+    no_match: ['file_path=/work/repo/src/main.py', 'file_path=/work/repo/.github/workflows/ci.yml',
+               'input=*** Begin Patch *** Update File: src/app.py']
