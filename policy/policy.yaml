@@ -120,7 +120,9 @@ destination_matrix:
   public:       {local: ALLOW, external: ALLOW, unknown: BLOCK}
   internal:     {local: ALLOW, external: REDACT, unknown: BLOCK}
   confidential: {local: ALLOW, external: {strict: BLOCK, balanced: REDACT, permissive: REDACT}, unknown: BLOCK}
-  restricted:   {local: ALLOW, external: BLOCK, unknown: BLOCK}
+  restricted:   {local: ALLOW, external: {strict: BLOCK, balanced: REDACT, permissive: REDACT}, unknown: BLOCK}
+  # restricted -> external REDACT (balanced): the value never leaves, and a coding-agent session whose history
+  # holds a pasted secret keeps working (BLOCK would refuse every later turn of that session)
 
 # ---------- 5. controls (what) ----------
 # Every enabled control needs test cases in <piece>/cases/<control>.yaml (one allowed, one blocked/redacted).

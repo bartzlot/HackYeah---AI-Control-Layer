@@ -35,9 +35,17 @@ cases:
 - id: D03
   kind: negative
   path: llm
+  profile: strict
   setup: {destination: "gpt-4o-mini"}
   input: {messages: [{role: user, content: "debug this: AKIAIOSFODNN7EXAMPLE"}]}
   expect: {decision: BLOCK, rule_ids: [matrix.restricted.external]}
+- id: D03b
+  kind: negative
+  path: llm
+  setup: {destination: "gpt-4o-mini"}
+  # balanced: restricted -> external is REDACT (v4: a coding-agent session with a pasted secret keeps working)
+  input: {messages: [{role: user, content: "debug this: AKIAIOSFODNN7EXAMPLE"}]}
+  expect: {decision: REDACT, rule_ids: [matrix.restricted.external]}
 - id: D04
   kind: positive
   path: llm

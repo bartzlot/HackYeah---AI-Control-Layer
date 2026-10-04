@@ -100,7 +100,7 @@ class Judge:
     stages = (Stage.PROMPT, Stage.TOOL_RESULT)
 
     def __init__(self, ollama_url: str = "http://localhost:11434", chat_fn: ChatFn | None = None,
-                 cache_ttl_s: float = 300.0, cache_size: int = 512, clock: Callable[[], float] = time.monotonic,
+                 cache_ttl_s: float = 3600.0, cache_size: int = 2048, clock: Callable[[], float] = time.monotonic,
                  model_map: dict[str, str] | None = None):
         self.ollama_url = ollama_url.rstrip("/")
         self.model_map = dict(model_map or {})      # policy tag -> Ollama tag actually pulled (AICL_OLLAMA_MODEL)
@@ -111,6 +111,8 @@ class Judge:
         self._cache_lock = threading.Lock()
         self.cache_ttl_s, self.cache_size, self._clock = cache_ttl_s, cache_size, clock
         self.calls = 0                              # model calls actually made (tests, metrics)
+        self.down_s = 15.0                          # breaker: after "unreachable", fail fast this long
+        self._down_until = 0.0
 
     # -- transport ------------------------------------------------------------------------------
     def _ollama_chat(self, body: dict, timeout: float) -> dict:
@@ -146,12 +148,18 @@ class Judge:
                 self._cache.move_to_end(key)
                 return {**hit[1], "cached": True}
         t0 = time.monotonic()
+        if t0 < self._down_until:       # Ollama was unreachable a moment ago: degrade now, do not wait again
+            raise JudgeError(f"ollama unreachable (breaker open {self._down_until - t0:.0f} s)")
         if not self._sem.acquire(timeout=timeout_s):
             raise TimeoutError("judge busy (one concurrent call)")
         try:
             left = max(0.05, timeout_s - (time.monotonic() - t0))
             self.calls += 1
             resp = self._chat(self.request_body(model, channel, text), left)
+        except JudgeError as e:
+            if "unreachable" in str(e):
+                self._down_until = time.monotonic() + self.down_s
+            raise
         finally:
             self._sem.release()
         if time.monotonic() - t0 > timeout_s:
@@ -211,11 +219,16 @@ class Judge:
                     v = view(sp.part)
                     focus = bisect_left(views[sp.part][1], sp.start)   # original offset -> view offset
                     out[sp.part] = (f"{f.control_id}/{f.rule_id} {f.action.name} below BLOCK", v, focus)
+        # a conversation re-sends its whole history every turn: trusted text before the last model turn was
+        # judged on its own turn already (and is cached), so cue words only send the NEW trusted input
+        last_model = max((i for i, p in enumerate(event.parts) if p.role == "assistant"), default=-1)
         for i, part in enumerate(event.parts):
             if i in out or (part.role == "system" and part.trusted):
                 continue
             if part.role == "assistant" and event.stage == Stage.PROMPT:
                 continue                      # earlier model turns: not attacker input on this hop
+            if part.trusted and part.role != "tool" and i < last_model:
+                continue
             starts = [m.start() for m in CUES.finditer(view(i))]
             if starts:   # centre on the densest cluster of cues, not on the first (decoy) word
                 focus = max(starts, key=lambda a: sum(1 for b in starts if abs(b - a) <= MAX_CHARS // 2))

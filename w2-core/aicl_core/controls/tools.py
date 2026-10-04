@@ -24,6 +24,7 @@ from urllib.parse import urlsplit
 
 from aicl_contracts import Action, Ctx, Event, Finding, Stage
 
+from .. import interception
 from ..engine import register
 from ..policy import WHEN_OPS, to_action
 from ..util import normalized_view
@@ -185,8 +186,12 @@ class ToolFirewall:
 
     def evaluate(self, event: Event, ctx: Ctx) -> list[Finding]:
         pol, p = ctx.params["_policy"], ctx.params
-        agent = pol.agent(event.agent_id) or {}
-        allowed = list(agent.get("tools") or [])
+        if event.upstream_host:     # v4 passthrough client: clients[].tools (globs), none listed = every tool
+            who = interception.client_for(pol.raw, event.client_ip, event.credential_hash, event.user_agent)
+            allowed, where = list(who.get("tools") or ["*"]), f"clients[{event.agent_id}].tools"
+        else:
+            agent = pol.agent(event.agent_id) or {}
+            allowed, where = list(agent.get("tools") or []), f"agents.{event.agent_id}.tools"
         rules = list(p.get("rules") or [])
         default = to_action(p.get("default", "BLOCK"))
         exploit = [r for r in pol.rules if r.category in EXPLOIT_CATEGORIES]
@@ -202,7 +207,7 @@ class ToolFirewall:
                                            "event_type": "TOOL_CALL_BLOCKED" if act == Action.BLOCK else "TOOL_CALL_ALLOWED"}))
 
             if not _glob(name, allowed):
-                add("tool.not_allowed", (Action.BLOCK, False), f"not in agents.{event.agent_id}.tools")
+                add("tool.not_allowed", (Action.BLOCK, False), f"not in {where}")
             mine = [r for r in rules if _glob(name, [str(r.get("tool", ""))])]
             if mine:
                 hits = [r for r in mine if when_holds(r.get("when"), tc.arguments)]

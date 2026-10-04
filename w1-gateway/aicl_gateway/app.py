@@ -27,6 +27,7 @@ from .budget import (DEFAULT_PRICES, BudgetLedger, LoopGuard, estimate_split, la
 from .bus import EventBus
 from .config import merge_config, route
 from .console_api import ConsoleStore, make_console_router
+from .passthrough import Passthrough
 
 
 def stub_decide(event: Event) -> Decision:
@@ -138,8 +139,30 @@ def create_app(decide: Callable[[Event], Any] | None = None, config: dict | None
 
     app.include_router(make_console_router(store, playground_view, remote=bool(ccfg.get("remote"))))
 
+    def live_policy() -> dict | None:
+        p = ccfg.get("policy")
+        return p() if callable(p) else p
+
+    # v4 passthrough PEP (research/14): requests for an intercepted provider host (or /anthropic, /openai,
+    # /v1/messages on our own host) go to the provider through decide(); everything else is the managed gateway.
+    # Test seam: upstreams entries other than local / external are provider clients (e.g. "anthropic").
+    passthrough = Passthrough(policy=live_policy, run_decide=lambda e: run_decide(e), audit=audit, ledger=ledger,
+                              timeout=cfg["upstream_timeout"],
+                              clients={k: v for k, v in (upstreams or {}).items() if k not in ("local", "external")})
+    app.state.passthrough = passthrough
+
+    @app.middleware("http")
+    async def pep_passthrough(request: Request, call_next):
+        hit = passthrough.route(request)
+        if hit is None:
+            return await call_next(request)
+        if cfg.get("before_auth"):          # apply a reloaded policy (budgets) before the request is metered
+            cfg["before_auth"]()
+        return await passthrough.handle(request, *hit)
+
     @app.on_event("shutdown")
     async def _close():
+        await passthrough.aclose()
         for c in owned:
             await c.aclose()
         bus.close()

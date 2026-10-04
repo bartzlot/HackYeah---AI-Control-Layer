@@ -51,7 +51,9 @@ class Audit:
             agent_id=event.agent_id, session_id=event.session_id, model=event.model, destination=event.destination,
             tool=event.tool_calls[0].name if event.tool_calls else None, findings=d.findings,
             redaction_count=len(d.redactions), policy_version=d.policy_version, usage=event.usage,
-            latency_us=d.latency_us, degraded=d.degraded, explain=d.explain))
+            latency_us=d.latency_us, degraded=d.degraded, explain=d.explain, protocol=event.protocol,
+            upstream_host=event.upstream_host, client_ip=event.client_ip, credential_hash=event.credential_hash,
+            user_agent=event.user_agent))
 
     def denied(self, event: Event, reason: str, event_type_: str = "MODEL_DENIED",
                findings: list[Finding] | None = None) -> AuditRecord:

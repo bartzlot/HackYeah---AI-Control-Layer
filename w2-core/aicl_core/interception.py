@@ -62,7 +62,7 @@ KEYS = {
     "unknown_client": {"action", "principal", "profile"},
     "dns": {"listen", "gateway_ip", "upstream", "doh_sinkhole", "log_queries"},
     "tls": {"ca_cert", "ca_key", "leaf_days"},
-    "client": {"match", "principal", "team", "profile", "models"},
+    "client": {"match", "principal", "team", "profile", "models", "tools"},
 }
 PROFILES = ("strict", "balanced", "permissive")
 _HEX = re.compile(r"^[0-9a-f]{1,8}$")
@@ -181,6 +181,8 @@ def validate(raw: dict) -> None:
             raise ValueError(f"{where}.match.user_agent must be a non-empty glob")
         if "models" in c and c["models"] is not None and not _str_list(c["models"]):
             raise ValueError(f"{where}.models must be a list of model globs")
+        if "tools" in c and c["tools"] is not None and not _str_list(c["tools"]):
+            raise ValueError(f"{where}.tools must be a list of tool-name globs")
 
 
 def normalize_host(host: str | None) -> str:
@@ -260,10 +262,10 @@ def client_for(raw: dict, client_ip: str | None, credential_hash: str | None,
             ok = m["any"] is True
         if ok:
             return {"principal": c["principal"], "team": c.get("team"), "profile": c.get("profile"),
-                    "models": c.get("models"), "matched": True}
+                    "models": c.get("models"), "tools": c.get("tools"), "matched": True}
     uc = interception_cfg(raw)["unknown_client"]
     return {"principal": str(uc.get("principal") or "unknown-client"), "team": None, "profile": uc.get("profile"),
-            "models": None, "matched": False, "action": str(uc.get("action", "ALLOW")).upper()}
+            "models": None, "tools": None, "matched": False, "action": str(uc.get("action", "ALLOW")).upper()}
 
 
 def model_allowed(models: list[str] | None, model: str) -> bool:
