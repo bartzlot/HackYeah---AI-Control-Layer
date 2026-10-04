@@ -14,9 +14,10 @@
 #   test_explain.py    T-119 explain drawer: per-request decide() timeline, stage Server-Timing, spans as hashes
 #   test_demo_batch.py T-123 demo batch (11 presets, each caught by a different control, offline: fake Ollama + judge),
 #                      control / rule display names, detection_layer (deterministic / ai), console batch endpoint + page
+#   test_toasts.py     T-132 live event toasts: a demo batch reaches the live stream, page has the toast panel
 set -euo pipefail
 cd "$(dirname "$0")/.."
-required="test_cloud_sim.py test_gateway.py test_console.py test_budget.py test_judge.py test_skeleton.py test_cases.py test_runtime_status.py test_explain.py test_demo_batch.py"
+required="test_cloud_sim.py test_gateway.py test_console.py test_budget.py test_judge.py test_skeleton.py test_cases.py test_runtime_status.py test_explain.py test_demo_batch.py test_toasts.py"
 for f in $required; do
   [ -f "w1-gateway/tests/$f" ] || { echo "missing w1-gateway/tests/$f" >&2; exit 1; }
 done
