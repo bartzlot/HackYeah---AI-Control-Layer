@@ -225,3 +225,17 @@ T-[0-9]{3}
 head
 -n
 1
+- [ ] T-903 [any] (T1) docs v4: README quick start for mode A and mode C, CA install per OS, reference egress firewall rules (nftables + Windows Firewall: provider ranges only from the gateway, DNS only to AICL, 853 dropped), PDF criteria -> where we show it table; keep research/14 in sync with what landed [14 s.1, s.9] | deps: OK add [lead] (T1) compose transparent demo: internal network (no route out) with dns (static ip) + gateway (static ip, :443, second network with egress) + demo-client container (Node + Claude Code CLI, resolver = AICL DNS, CA via NODE_EXTRA_CA_CERTS + OS store); make ca, make demo-transparent; .env.example documents ANTHROPIC_API_KEY for the live demo only (never in tests); tests/test_transparent_compose.py [14 s.1, s.9] by lead/Przemyslaw_Raczynski@przemek-pc
+1
+/
+tail
+-n
+1
+/
+grep
+-o
+T-[0-9]{3}
+/
+head
+-n
+1
