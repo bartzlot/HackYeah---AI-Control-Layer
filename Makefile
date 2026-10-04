@@ -66,3 +66,8 @@ demo-local:
 # public demo on Cloud Run (T-012): GCP_PROJECT=<project> make cloudrun
 cloudrun:
 	bash scripts/cloudrun-deploy.sh
+
+# diagram set: docs/diagrams/*.mmd -> *.light.svg + *.dark.svg with mermaid-cli (T-906); needs Node + a Chromium/Edge/Chrome
+.PHONY: diagrams
+diagrams:
+	bash docs/diagrams/render.sh

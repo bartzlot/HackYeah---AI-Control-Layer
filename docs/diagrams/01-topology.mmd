@@ -1,0 +1,29 @@
+flowchart TB
+  subgraph corp["Corporate network"]
+    direction TB
+    dev["Developer laptop / devbox 10.77.0.10<br/>Claude Code, Codex, SDK<br/>nothing configured in the tool<br/>AICL root CA in the OS store"]
+    dhcp["DHCP<br/>option 6 = AICL DNS 10.77.0.2"]
+  end
+  fw{{"Egress firewall (network team)<br/>DNS only to AICL, DoT 853 dropped<br/>443 to provider ranges only from the gateway"}}
+  subgraph aicl["AICL host 10.77.0.2"]
+    direction TB
+    dns["AICL DNS :53 (UDP + TCP)<br/>AI hosts answer = gateway IP, no AAAA<br/>DoH hosts get NXDOMAIN + NET-01<br/>every query audited"]
+    gw["AICL gateway :443<br/>TLS leaf signed by the AICL CA<br/>adapters + decide() + budgets"]
+    con["Console :18080<br/>host-only, denied for corp clients"]
+    dns -. "NET-01: lookup without request" .-> gw
+  end
+  subgraph ext["Outside"]
+    direction TB
+    prov["AI providers<br/>api.anthropic.com, api.openai.com"]
+    pub["Public resolvers 1.1.1.1, 9.9.9.9<br/>interception.dns.upstream"]
+  end
+  oll["Ollama on CPU<br/>local judge INJ-04"]
+  dhcp -. "lease" .-> dev
+  dev -- "1 DNS query" --> fw
+  dev -- "2 HTTPS to the gateway IP" --> fw
+  fw -- "DNS" --> dns
+  fw -- "TLS :443" --> gw
+  dns -- "other names forwarded" --> pub
+  gw -- "client's own credential" --> prov
+  gw -- "gray band" --> oll
+  dev -. "direct 443 to provider: dropped" .-x fw

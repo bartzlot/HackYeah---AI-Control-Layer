@@ -1,0 +1,31 @@
+sequenceDiagram
+  autonumber
+  participant C as Client (Claude Code / Codex)
+  participant D as AICL DNS :53
+  participant G as AICL gateway :443
+  participant E as decide() + budget ledger
+  participant P as Real provider
+  C->>D: A api.anthropic.com ?
+  D-->>C: A = gateway IP, no AAAA, query audited
+  C->>G: TLS ClientHello, SNI api.anthropic.com
+  G-->>C: leaf cert (SAN = all intercepted hosts) signed by the AICL CA
+  C->>G: POST /v1/messages (stream, client's own key)
+  Note over C,E: router by Host, adapter parses the parts<br/>identity from clients: IP, key hash, user agent
+  G->>E: decide(Event stage=prompt)
+  E-->>G: Decision ALLOW / REDACT / BLOCK
+  alt BLOCK on the request
+    G-->>C: native 400 invalid_request_error "[AICL] ..." (402 when the budget is spent)
+  else ALLOW or REDACT
+    Note over C,E: budget reserve, REDACT spans rewritten in place
+    G->>P: request, client's own Authorization / x-api-key unchanged
+    P-->>G: SSE answer (buffered before the first byte is released)
+    G->>E: decide(Event stage=response) on the text
+    G->>E: decide(Event stage=tool_args) on tool_use blocks
+    E-->>G: Decision
+    Note over C,E: budget settled from usage, audit written
+    alt answer or tool call blocked
+      G-->>C: HTTP 200 assistant text "[AICL] ... blocked", tool call dropped
+    else clean or redacted
+      G-->>C: native answer, byte-identical when nothing changed
+    end
+  end

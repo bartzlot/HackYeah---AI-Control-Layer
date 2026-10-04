@@ -1,0 +1,32 @@
+flowchart TB
+  ev["Event<br/>stage: prompt, tool_result, response, tool_args, dns<br/>parts, tool_calls, client_ip, protocol, upstream_host"]
+  pre["PEP before decide()<br/>identity (clients:), model allowlist, budget reserve"]
+  prof["Engine: profile for the agent<br/>destination resolved: internal, external or unknown"]
+  subgraph ctl["Controls for this stage"]
+    direction LR
+    k["KILL-01<br/>kill switch"]
+    a["ACCESS-01<br/>agent, model, client"]
+    s["DLP-01 secrets<br/>DLP-02 PII"]
+    dd["DLP-05<br/>data class x destination"]
+    i3["INJ-03<br/>signatures EN + PL"]
+    i4["INJ-04<br/>local judge, gray band"]
+    t["TOOL-01<br/>tool firewall"]
+    k ~~~ a ~~~ s ~~~ dd ~~~ i3 ~~~ i4 ~~~ t
+  end
+  mode["Per control in policy.yaml: mode off, shadow or enforce<br/>a control error follows its fail mode, default closed"]
+  find["Findings: enforced ones count, shadow ones only fill would_action<br/>final action = max over enforced findings"]
+  subgraph lat["Lattice, ascending severity"]
+    direction LR
+    l0["ALLOW"] --> l1["LOG"] --> l2["WARN"] --> l3["REDACT"] --> l4["BLOCK"]
+  end
+  chk{"REDACT with spans that<br/>can be rewritten in place?"}
+  blk["action = BLOCK"]
+  out["Decision<br/>action, would_action, findings, redactions<br/>explain, latency_us, decision_id, policy_version"]
+  aud["PEP: native answer or native block, audit JSONL + live bus"]
+  err["Engine exception<br/>BLOCK, degraded = true"]
+  ev --> pre --> prof --> ctl --> find --> lat --> chk
+  mode -.-> ctl
+  chk -- "no" --> blk --> out
+  chk -- "yes, or action is not REDACT" --> out
+  err -. "fail closed" .-> out
+  out --> aud

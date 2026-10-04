@@ -39,26 +39,39 @@ Requirements: Python 3.13 with [uv](https://docs.astral.sh/uv/), Docker. No paid
 
 ## How it works
 
-```mermaid
-flowchart LR
-  subgraph laptop[Developer laptop / agent container]
-    CC[Claude Code / Codex / SDK]
-  end
-  DHCP[(DHCP: DNS = AICL)] -.-> CC
-  CC -- "1 DNS api.anthropic.com?" --> DNS[AICL DNS :53<br/>AI hosts -> gateway<br/>DoH sinkholed, NET-01]
-  CC -- "2 TLS, SNI api.anthropic.com<br/>AICL CA leaf" --> GW
-  subgraph aicl[AICL, one process]
-    GW[Gateway :443<br/>native adapters<br/>Anthropic Messages, OpenAI Responses / Chat] --> D{"decide()<br/>identity, budget, DLP,<br/>signatures, judge, tool firewall,<br/>destination matrix"}
-    D --> GW
-    POL[(policy.yaml + rules/*.yaml<br/>live reload, last good)] --> D
-    J[Ollama local judge] <--> D
-    D --> AUD[(audit JSONL + SSE)]
-    DNS --> AUD
-    AUD --> UI[Console :18080/console]
-  end
-  GW -- "3 allowed, client's own key" --> API[(api.anthropic.com<br/>api.openai.com)]
-  FW[[Egress firewall: provider IPs only from the gateway,<br/>DNS only to AICL, DoT/DoH blocked]] -.-> laptop
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/01-topology.dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/diagrams/01-topology.light.svg">
+  <img src="docs/diagrams/01-topology.light.svg" alt="Deployment: developer laptop, DHCP and egress firewall, AICL DNS, gateway and console, AI providers and the Ollama judge">
+</picture>
+
+**Topology.** DHCP points the laptop at the AICL resolver, the egress firewall lets only AICL talk to DNS and the providers, and the gateway sends the gray band to a local Ollama judge.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/02-sequence.dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/diagrams/02-sequence.light.svg">
+  <img src="docs/diagrams/02-sequence.light.svg" alt="Sequence of one request: DNS, TLS with the AICL CA leaf, decide() on the request, upstream call, decide() on the response, native answer or block">
+</picture>
+
+**One request.** DNS and TLS land on the gateway, `decide()` checks the request, the upstream call uses the client's own credential, `decide()` checks the response, and the client gets a native answer or a native block.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/03-decide.dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/diagrams/03-decide.light.svg">
+  <img src="docs/diagrams/03-decide.light.svg" alt="The decide() pipeline: event, identity and budget, controls, findings, severity lattice, decision and audit">
+</picture>
+
+**The `decide()` pipeline.** Each control runs in its policy mode, enforced findings are combined on the ALLOW < LOG < WARN < REDACT < BLOCK lattice, and any engine error fails closed.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/04-bypass.dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="docs/diagrams/04-bypass.light.svg">
+  <img src="docs/diagrams/04-bypass.light.svg" alt="Bypass attempts, the network control that stops each one, and what NET-01 shows">
+</picture>
+
+**Bypass.** Each way around the gateway is stopped by the egress firewall, DNS sinkholing or a failed TLS handshake, and the resolver raises NET-01 when a name is looked up without a request.
+
+Detail and measurements: [`research/14-transparent-interception.md`](research/14-transparent-interception.md). Sources and regeneration: [`docs/diagrams/`](docs/diagrams/README.md).
 
 There are three ways traffic can reach AICL, and all of them share one gateway and one `decide()`:
 - **Transparent** (main mode): DHCP hands out the AICL resolver and the AICL root CA is trusted through MDM or GPO. Nothing is configured in the tool.
@@ -66,6 +79,10 @@ There are three ways traffic can reach AICL, and all of them share one gateway a
 - **Base URL**: `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL`, useful where DNS cannot be controlled.
 
 Bypass is stopped by the egress firewall ([reference rules](deploy/firewall/)) and detected by the resolver. Design and measurements: [`research/14-transparent-interception.md`](research/14-transparent-interception.md).
+
+### Transparent mode on a host machine (macOS / Linux / Windows)
+
+The demo runs the corp network in containers. To point a real machine at it, `scripts/demo-transparent.sh` PRINTS the resolver and CA trust commands for macOS, Linux and Windows and never runs them: they need admin rights and change the whole machine, so you copy and run them yourself (each has an undo). Set `AICL_TRANSPARENT_HTTP_PORT` (default 18080) to move the console host port so the stack runs next to the base-URL compose and a local serve. With `AICL_OFFLINE=1` the script ends with a smoke check: a devbox `claude -p` through the mock must answer and add exactly one audit record.
 
 **Native contract** (measured on Claude Code 2.1.289 and Codex CLI 0.160):
 
