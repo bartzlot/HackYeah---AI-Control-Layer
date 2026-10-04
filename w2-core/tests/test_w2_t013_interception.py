@@ -118,7 +118,8 @@ clients:
     ("interception: {credentials: steal}", "interception.credentials"),
     ("interception: {providers: {x: {hosts: [], protocol: anthropic_messages}}}", "hosts"),
     ("interception: {providers: {x: {hosts: [a.example], protocol: grpc}}}", "protocol"),
-    ("interception: {providers: {x: {hosts: [api.anthropic.com], protocol: openai_chat}}}", "already belongs"),
+    ("interception: {providers: {x: {hosts: [api.anthropic.com], protocol: openai_chat, inspect: [/v1/x]}}}",
+     "already belongs"),
     ("interception: {block_style: {anthropic_messages: {hard: http_403}}}", "block_style"),
     ("interception: {dns: {gateway_ip: not-an-ip}}", "gateway_ip"),
     ("interception: {max_body_kb: 0}", "max_body_kb"),
@@ -148,3 +149,53 @@ def test_policy_without_interception_block_means_off(pdir):
     pol = load_policy(_with(pdir, "interception: null\nclients: null\n"))
     assert pol.interception()["mode"] == "off" and I.intercepted_hosts(pol.interception()) == []
     assert Engine(pdir / "policy.yaml").policy.version
+
+
+# ---- review findings (fresh-session review of T-013) --------------------------------------------
+
+@pytest.mark.parametrize("bad, msg", [
+    ("interception: {proxy_other_path: false}", "unknown key"),
+    ("interception: {unknown_client: {actoin: BLOCK}}", "unknown key"),
+    ("interception: {providers: {anthropic: {inspct: [/v1/messages]}}}", "unknown key"),
+    ("interception: {providers: {anthropic: {inspect: []}}}", "inspect"),
+    ("interception: {providers: {anthropic: {inspect: ['/v1//messages']}}}", "plain absolute path"),
+    ("interception: {dns: {log_queries: maybe}}", "log_queries"),
+    ("clients: [{match: {any: 'no'}, principal: x}]", "any"),
+    ("clients: [{match: {key_sha256_prefix: ''}, principal: x}]", "key_sha256_prefix"),
+    ("clients: [{match: {key_sha256_prefix: 1234567}, principal: x}]", "key_sha256_prefix"),
+    ("clients: [{match: {key_sha256_prefix: '0123456789'}, principal: x}]", "key_sha256_prefix"),
+    ("clients: [{match: {any: true}, principal: x, model: [claude-*]}]", "unknown key"),
+    ("clients: [{match: {any: true}, principal: x, profile: yolo}]", "profile"),
+])
+def test_review_typos_and_weak_shapes_fail_the_load(pdir, bad, msg):
+    with pytest.raises(PolicyError, match=msg):
+        load_policy(_with(pdir, bad))
+
+
+def test_ipv4_mapped_client_address_matches_its_cidr():
+    raw = load_policy(POLICY).raw
+    assert I.client_for(raw, "::ffff:10.77.0.5", None, None)["principal"] == "demo-dev"
+
+
+def test_key_prefix_is_case_insensitive(pdir):
+    pol = load_policy(_with(pdir, "clients: [{match: {key_sha256_prefix: 'AB12'}, principal: alice}]"))
+    assert I.client_for(pol.raw, None, "AB12CD34", None)["principal"] == "alice"
+
+
+@pytest.mark.parametrize("path", ["/v1//messages", "/v1/%6Dessages", "/v1/./messages", "/v1/messages;x",
+                                  "/v1/x/../messages", "/v1/messages/"])
+def test_non_canonical_spellings_are_still_inspected_and_flagged(path):
+    prov = I.provider_for_host(load_policy(POLICY).interception(), "api.anthropic.com")[1]
+    assert I.is_inspected(prov, path)
+    assert I.is_canonical(path) == (path == "/v1/messages/")
+
+
+def test_current_opus_models_are_priced():
+    models = load_policy(POLICY).raw["destinations"]["models"]
+    for v in ("claude-opus-4-7", "claude-opus-4-6", "claude-opus-4-5"):
+        assert models[v]["price"] == {"in_usd_per_mtok": 5.0, "out_usd_per_mtok": 25.0}
+
+
+def test_null_block_in_the_main_file_is_a_validation_error_not_a_crash():
+    with pytest.raises(ValueError, match="block_style"):
+        I.validate({"interception": {"block_style": None}})

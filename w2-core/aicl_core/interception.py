@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import fnmatch
 import ipaddress
+import re
 from typing import Any
 
 from aicl_contracts import PROTOCOLS
@@ -54,11 +55,46 @@ def _str_list(v: Any) -> bool:
     return isinstance(v, list) and all(isinstance(x, str) and x for x in v)
 
 
+KEYS = {
+    "interception": {"mode", "credentials", "providers", "proxy_other_paths", "max_body_kb", "unknown_client", "dns",
+                     "tls", "block_style"},
+    "provider": {"hosts", "protocol", "upstream", "inspect"},
+    "unknown_client": {"action", "principal", "profile"},
+    "dns": {"listen", "gateway_ip", "upstream", "doh_sinkhole", "log_queries"},
+    "tls": {"ca_cert", "ca_key", "leaf_days"},
+    "client": {"match", "principal", "team", "profile", "models"},
+}
+PROFILES = ("strict", "balanced", "permissive")
+_HEX = re.compile(r"^[0-9a-f]{1,8}$")
+
+
+def _keys(d: dict, kind: str, where: str) -> None:
+    """A misspelt key must fail the load: it would otherwise fall back to a weaker default silently."""
+    bad = sorted(set(map(str, d)) - KEYS[kind])
+    if bad:
+        raise ValueError(f"{where}: unknown key(s) {', '.join(bad)}; allowed: {', '.join(sorted(KEYS[kind]))}")
+
+
+def _profile(v: Any, where: str) -> None:
+    if v is not None and v not in PROFILES:
+        raise ValueError(f"{where}.profile must be {'|'.join(PROFILES)}")
+
+
 def validate(raw: dict) -> None:
     """Shape checks for interception: and clients:. A typo must fail the load, never weaken interception."""
     block = raw.get("interception")
     if block is not None and not isinstance(block, dict):
         raise ValueError("interception must be a mapping")
+    if isinstance(block, dict):
+        _keys(block, "interception", "interception")
+        for k, kind in (("unknown_client", "unknown_client"), ("dns", "dns"), ("tls", "tls")):
+            if k in block and not isinstance(block[k], dict):
+                raise ValueError(f"interception.{k} must be a mapping")
+            if isinstance(block.get(k), dict):
+                _keys(block[k], kind, f"interception.{k}")
+        for k in ("providers", "block_style"):
+            if k in block and not isinstance(block[k], dict):
+                raise ValueError(f"interception.{k} must be a mapping")
     cfg = interception_cfg(raw)
     if cfg["mode"] not in MODES:
         raise ValueError(f"interception.mode must be {'|'.join(MODES)}")
@@ -70,19 +106,21 @@ def validate(raw: dict) -> None:
     if isinstance(kb, bool) or not isinstance(kb, int) or kb <= 0:
         raise ValueError("interception.max_body_kb must be a positive integer")
     provs = cfg["providers"]
-    if not isinstance(provs, dict):
-        raise ValueError("interception.providers must be a mapping")
     seen: dict[str, str] = {}
     for name, p in provs.items():
         where = f"interception.providers.{name}"
         if not isinstance(p, dict):
             raise ValueError(f"{where} must be a mapping")
+        _keys(p, "provider", where)
         if not _str_list(p.get("hosts")) or not p["hosts"]:
             raise ValueError(f"{where}.hosts must be a non-empty list of host names")
         if p.get("protocol") not in PROTOCOLS:
             raise ValueError(f"{where}.protocol must be {'|'.join(PROTOCOLS)}")
-        if "inspect" in p and not _str_list(p["inspect"]):
-            raise ValueError(f"{where}.inspect must be a list of paths")
+        if not _str_list(p.get("inspect")) or not p["inspect"]:      # nothing inspected = everything unchecked
+            raise ValueError(f"{where}.inspect must be a non-empty list of paths")
+        for x in p["inspect"]:
+            if not x.startswith("/") or canonical_path(x) != x.rstrip("/"):
+                raise ValueError(f"{where}.inspect: {x!r} must be a plain absolute path")
         if "upstream" in p and not (isinstance(p["upstream"], str) and p["upstream"].startswith(("http://", "https://"))):
             raise ValueError(f"{where}.upstream must be an http(s) URL")
         for h in p["hosts"]:
@@ -91,26 +129,26 @@ def validate(raw: dict) -> None:
                 raise ValueError(f"{where}: host {h} already belongs to provider {seen[h]}")
             seen[h] = str(name)
     uc = cfg["unknown_client"]
-    if not isinstance(uc, dict) or str(uc.get("action", "ALLOW")).upper() not in ("ALLOW", "LOG", "WARN", "BLOCK"):
+    if str(uc.get("action", "ALLOW")).upper() not in ("ALLOW", "LOG", "WARN", "BLOCK"):
         raise ValueError("interception.unknown_client.action must be ALLOW|LOG|WARN|BLOCK")
+    _profile(uc.get("profile"), "interception.unknown_client")
     dns = cfg["dns"]
-    if not isinstance(dns, dict):
-        raise ValueError("interception.dns must be a mapping")
     try:
         ipaddress.ip_address(str(dns.get("gateway_ip")))
     except ValueError as e:
         raise ValueError(f"interception.dns.gateway_ip: {e}") from e
     if not _str_list(dns.get("upstream")) or not dns["upstream"]:
         raise ValueError("interception.dns.upstream must be a non-empty list of resolver addresses")
-    for k in ("doh_sinkhole",):
-        if not isinstance(dns.get(k), list) or not all(isinstance(x, str) for x in dns[k]):
-            raise ValueError(f"interception.dns.{k} must be a list of host names")
+    if not isinstance(dns.get("doh_sinkhole"), list) or not all(isinstance(x, str) for x in dns["doh_sinkhole"]):
+        raise ValueError("interception.dns.doh_sinkhole must be a list of host names")
+    if not isinstance(dns.get("log_queries"), bool):
+        raise ValueError("interception.dns.log_queries must be true or false")
     tls = cfg["tls"]
-    if not isinstance(tls, dict) or not all(isinstance(tls.get(k), str) for k in ("ca_cert", "ca_key")):
+    if not all(isinstance(tls.get(k), str) for k in ("ca_cert", "ca_key")):
         raise ValueError("interception.tls needs ca_cert and ca_key paths")
     for proto, styles in cfg["block_style"].items():
         if proto not in PROTOCOLS or not isinstance(styles, dict):
-            raise ValueError(f"interception.block_style.{proto}: unknown protocol")
+            raise ValueError(f"interception.block_style.{proto}: unknown protocol or not a mapping")
         for kind, style in styles.items():
             if kind not in BLOCK_KINDS or style not in BLOCK_STYLES:
                 raise ValueError(f"interception.block_style.{proto}.{kind}: {style!r} is not one of "
@@ -124,6 +162,8 @@ def validate(raw: dict) -> None:
         where = f"clients[{i}]"
         if not isinstance(c, dict) or not isinstance(c.get("principal"), str) or not c["principal"]:
             raise ValueError(f"{where} needs a principal")
+        _keys(c, "client", where)
+        _profile(c.get("profile"), where)
         m = c.get("match")
         if not isinstance(m, dict) or not m or any(k not in MATCH_KEYS for k in m):
             raise ValueError(f"{where}.match must use {'|'.join(MATCH_KEYS)}")
@@ -132,7 +172,14 @@ def validate(raw: dict) -> None:
                 ipaddress.ip_network(str(m["cidr"]), strict=False)
             except ValueError as e:
                 raise ValueError(f"{where}.match.cidr: {e}") from e
-        if "models" in c and not _str_list(c["models"]):
+        if "any" in m and not isinstance(m["any"], bool):
+            raise ValueError(f"{where}.match.any must be true or false")
+        if "key_sha256_prefix" in m and not (isinstance(m["key_sha256_prefix"], str)
+                                             and _HEX.match(m["key_sha256_prefix"].lower())):
+            raise ValueError(f"{where}.match.key_sha256_prefix must be a quoted hex string of 1-8 characters")
+        if "user_agent" in m and not (isinstance(m["user_agent"], str) and m["user_agent"]):
+            raise ValueError(f"{where}.match.user_agent must be a non-empty glob")
+        if "models" in c and c["models"] is not None and not _str_list(c["models"]):
             raise ValueError(f"{where}.models must be a list of model globs")
 
 
@@ -159,10 +206,34 @@ def intercepted_hosts(cfg: dict) -> list[str]:
     return sorted({h.lower().rstrip(".") for p in (cfg.get("providers") or {}).values() for h in p.get("hosts") or []})
 
 
+def canonical_path(path: str) -> str:
+    """Path without query, percent-decoded, `;params` dropped, `//` collapsed, `.` / `..` resolved, no trailing /.
+    The gateway refuses a request whose path is not already canonical (research/14 s.3), so `/v1//messages` or
+    `/v1/%6Dessages` can never slip past inspection to a lenient upstream."""
+    from urllib.parse import unquote
+    p = unquote(path.split("?", 1)[0])
+    out: list[str] = []
+    for seg in p.split("/"):
+        seg = seg.split(";", 1)[0]
+        if seg in ("", "."):
+            continue
+        if seg == "..":
+            if out:
+                out.pop()
+            continue
+        out.append(seg)
+    return "/" + "/".join(out)
+
+
+def is_canonical(path: str) -> bool:
+    raw = path.split("?", 1)[0]
+    return raw == canonical_path(raw) or raw == canonical_path(raw) + "/"
+
+
 def is_inspected(provider: dict, path: str) -> bool:
     """True when the request path (query string ignored) is one the adapter parses and decides on."""
-    p = path.split("?", 1)[0].rstrip("/") or "/"
-    return any(p == x.rstrip("/") for x in provider.get("inspect") or [])
+    p = canonical_path(path)
+    return any(p == canonical_path(x) for x in provider.get("inspect") or [])
 
 
 def client_for(raw: dict, client_ip: str | None, credential_hash: str | None,
@@ -174,16 +245,19 @@ def client_for(raw: dict, client_ip: str | None, credential_hash: str | None,
         ok = True
         if "cidr" in m:
             try:
-                ok = client_ip is not None and ipaddress.ip_address(client_ip) in ipaddress.ip_network(
-                    str(m["cidr"]), strict=False)
+                ip = ipaddress.ip_address(client_ip) if client_ip else None
+                if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:   # dual-stack listener
+                    ip = ip.ipv4_mapped
+                ok = ip is not None and ip in ipaddress.ip_network(str(m["cidr"]), strict=False)
             except ValueError:
                 ok = False
         if ok and "key_sha256_prefix" in m:
-            ok = bool(credential_hash) and str(credential_hash).startswith(str(m["key_sha256_prefix"]).lower())
+            pre = str(m["key_sha256_prefix"]).lower()
+            ok = bool(credential_hash) and bool(pre) and str(credential_hash).lower().startswith(pre)
         if ok and "user_agent" in m:
             ok = bool(user_agent) and fnmatch.fnmatchcase(user_agent.lower(), str(m["user_agent"]).lower())
         if ok and "any" in m:
-            ok = bool(m["any"])
+            ok = m["any"] is True
         if ok:
             return {"principal": c["principal"], "team": c.get("team"), "profile": c.get("profile"),
                     "models": c.get("models"), "matched": True}
