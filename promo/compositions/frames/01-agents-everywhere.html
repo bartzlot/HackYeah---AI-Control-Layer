@@ -1,0 +1,310 @@
+<template>
+  <style>
+    @font-face { font-family: "Inter"; font-style: normal; font-weight: 400 900; font-display: block; src: url("fonts/Inter-latin.woff2") format("woff2"); }
+    @font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 100 800; font-display: block; src: url("fonts/JetBrainsMono-latin.woff2") format("woff2"); }
+
+    #root {
+      position: absolute;
+      inset: 0;
+      width: 1920px;
+      height: 1080px;
+      overflow: hidden;
+      color: #f1f5f9;
+      font-family: "Inter", sans-serif;
+    }
+
+    .a01-bg {
+      position: absolute;
+      inset: 0;
+      background: #0a1726;
+    }
+
+    .a01-stage {
+      position: absolute;
+      inset: 0;
+      transform-origin: 46% 44%;
+    }
+
+    /* ---------- left column (60%) ---------- */
+    .a01-left {
+      position: absolute;
+      left: 106px;
+      top: 196px;
+      width: 1000px;
+    }
+    .a01-rule {
+      width: 36px;
+      height: 2px;
+      background: #11b9e4;
+      margin-bottom: 22px;
+      transform-origin: 0 50%;
+    }
+    .a01-kicker {
+      font-family: "JetBrains Mono", monospace;
+      font-weight: 500;
+      font-size: 18px;
+      letter-spacing: 0.14em;
+      color: #11b9e4;
+      white-space: pre;
+      margin-bottom: 30px;
+    }
+    .a01-h1 {
+      font-family: "Inter", sans-serif;
+      font-weight: 800;
+      font-size: 84px;
+      line-height: 0.98;
+      letter-spacing: -0.03em;
+      color: #f1f5f9;
+    }
+    .a01-h1-line {
+      display: block;
+      white-space: nowrap;
+    }
+    .a01-word {
+      display: inline-block;
+      margin-right: 0.22em;
+    }
+    .a01-token-wrap {
+      position: relative;
+      margin-top: 40px;
+      height: 150px;
+    }
+    .a01-token {
+      position: absolute;
+      left: -6px;
+      top: 0;
+      font-family: "Inter", sans-serif;
+      font-weight: 900;
+      font-size: 144px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+      color: #11b9e4;
+      white-space: nowrap;
+    }
+
+    /* ---------- right column (40%): terminal stack ---------- */
+    .a01-term {
+      position: absolute;
+      background: #0f2236;
+      border: 1px solid #1d3550;
+      border-radius: 14px;
+      overflow: hidden;
+      transform-origin: 50% 50%;
+    }
+    .a01-term-1 { left: 1130px; top: 176px; width: 640px; }
+    .a01-term-2 { left: 1170px; top: 362px; width: 640px; }
+    .a01-term-3 { left: 1214px; top: 548px; width: 576px; }
+
+    .a01-term-bar {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      padding: 0 22px;
+      border-bottom: 1px solid #1d3550;
+      font-family: "JetBrains Mono", monospace;
+      font-weight: 500;
+      font-size: 14px;
+      letter-spacing: 0.14em;
+      color: #8fa3b8;
+    }
+    .a01-term-body {
+      padding: 18px 24px 20px;
+      font-family: "JetBrains Mono", monospace;
+      font-weight: 400;
+      font-size: 19px;
+      line-height: 1.6;
+    }
+    .a01-term-3 .a01-term-body { font-size: 17px; padding: 16px 22px 18px; }
+    .a01-term-3 .a01-term-bar { height: 40px; font-size: 13px; }
+
+    .a01-line {
+      position: relative;
+      display: block;
+      white-space: pre;
+      height: 1.6em;
+    }
+    .a01-caret {
+      position: absolute;
+      left: 0;
+      top: 0.22em;
+      width: 1ch;
+      height: 1.16em;
+      background: #11b9e4;
+      opacity: 0;
+    }
+    .a01-ch { opacity: 0; }
+    .a01-prompt { color: #11b9e4; }
+    .a01-cmd { color: #f1f5f9; }
+    .a01-verb { color: #f1f5f9; font-weight: 600; }
+    .a01-url { color: #8fa3b8; }
+    .a01-status { color: #f1f5f9; }
+  </style>
+
+  <div data-hf-id="hf-kpib" id="root" data-composition-id="01-agents-everywhere" data-start="0" data-duration="6.351" data-width="1920" data-height="1080">
+    <div data-hf-id="hf-z6an" class="a01-bg clip" data-start="0" data-duration="6.351" data-track-index="0"></div>
+
+    <div data-hf-id="hf-ogw9" class="a01-stage">
+      <!-- left: kicker + h1 + token slot -->
+      <div data-hf-id="hf-doc2" class="a01-left">
+        <div data-hf-id="hf-gdg3" class="a01-rule"></div>
+        <div data-hf-id="hf-xoyr" class="a01-kicker">AI AGENTS / IN YOUR ENGINEERING TEAM</div>
+        <div data-hf-id="hf-myk4" class="a01-h1">
+          <span data-hf-id="hf-1jrk" class="a01-h1-line"><span data-hf-id="hf-5odn" class="a01-word">your</span><span data-hf-id="hf-u3pv" class="a01-word">developers</span></span>
+          <span data-hf-id="hf-v8dk" class="a01-h1-line"><span data-hf-id="hf-29f0" class="a01-word">already</span><span data-hf-id="hf-dpad" class="a01-word">code</span><span data-hf-id="hf-aap4" class="a01-word">with</span></span>
+          <span data-hf-id="hf-u1gh" class="a01-h1-line"><span data-hf-id="hf-l55q" class="a01-word">AI</span><span data-hf-id="hf-pj2w" class="a01-word">agents.</span></span>
+        </div>
+        <div data-hf-id="hf-oqd5" class="a01-token-wrap">
+          <div data-hf-id="hf-0rdh" class="a01-token a01-token-1">claude code.</div>
+          <div data-hf-id="hf-pztq" class="a01-token a01-token-2">codex.</div>
+          <div data-hf-id="hf-r2dj" class="a01-token a01-token-3">every sdk.</div>
+        </div>
+      </div>
+
+      <!-- right: terminal stack -->
+      <div data-hf-id="hf-699g" class="a01-term a01-term-1">
+        <div data-hf-id="hf-rwhq" class="a01-term-bar">CLAUDE CODE</div>
+        <div data-hf-id="hf-uux0" class="a01-term-body">
+          <div data-hf-id="hf-dxal" class="a01-line a01-line-1a"><span data-hf-id="hf-wmfi" class="a01-seg a01-prompt">$ </span><span data-hf-id="hf-ymli" class="a01-seg a01-cmd">claude</span><span data-hf-id="hf-9o79" class="a01-caret"></span></div>
+          <div data-hf-id="hf-hvem" class="a01-line a01-line-1b"><span data-hf-id="hf-xp25" class="a01-seg a01-verb">POST </span><span data-hf-id="hf-k2fg" class="a01-seg a01-url">https://api.anthropic.com/v1/messages</span><span data-hf-id="hf-d8e0" class="a01-seg a01-status">  200</span><span data-hf-id="hf-0avt" class="a01-caret"></span></div>
+        </div>
+      </div>
+
+      <div data-hf-id="hf-h4r3" class="a01-term a01-term-2">
+        <div data-hf-id="hf-13m2" class="a01-term-bar">CODEX</div>
+        <div data-hf-id="hf-44e4" class="a01-term-body">
+          <div data-hf-id="hf-3z64" class="a01-line a01-line-2a"><span data-hf-id="hf-xrbm" class="a01-seg a01-prompt">$ </span><span data-hf-id="hf-p4v4" class="a01-seg a01-cmd">codex exec</span><span data-hf-id="hf-1hsw" class="a01-caret"></span></div>
+          <div data-hf-id="hf-eunr" class="a01-line a01-line-2b"><span data-hf-id="hf-13ch" class="a01-seg a01-verb">POST </span><span data-hf-id="hf-fcj2" class="a01-seg a01-url">https://api.openai.com/v1/responses</span><span data-hf-id="hf-861c" class="a01-seg a01-status">  200</span><span data-hf-id="hf-13hv" class="a01-caret"></span></div>
+        </div>
+      </div>
+
+      <div data-hf-id="hf-d6n2" class="a01-term a01-term-3">
+        <div data-hf-id="hf-y7p8" class="a01-term-bar">SDK SCRIPT</div>
+        <div data-hf-id="hf-2xh1" class="a01-term-body">
+          <div data-hf-id="hf-orvv" class="a01-line a01-line-3a"><span data-hf-id="hf-8dxs" class="a01-seg a01-cmd">python agent.py</span><span data-hf-id="hf-z3yq" class="a01-caret"></span></div>
+          <div data-hf-id="hf-g400" class="a01-line a01-line-3b"><span data-hf-id="hf-2a9k" class="a01-seg a01-verb">POST </span><span data-hf-id="hf-28h0" class="a01-seg a01-url">https://api.anthropic.com/v1/messages</span><span data-hf-id="hf-6z49" class="a01-seg a01-status">  200</span><span data-hf-id="hf-ypnp" class="a01-caret"></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <script>
+    (function () {
+      var FID = "01-agents-everywhere";
+      var DUR = 5.851;
+      var root = document.querySelector('[data-composition-id="' + FID + '"]');
+      function one(cls) { return root.getElementsByClassName(cls)[0]; }
+      function all(cls) { return Array.prototype.slice.call(root.getElementsByClassName(cls)); }
+
+      var tl = gsap.timeline({ paused: true });
+
+      // Macro camera: slow push on the whole stage underneath every beat.
+      tl.fromTo(one("a01-stage"), { scale: 1 }, { scale: 1.03, duration: DUR, ease: "none" }, 0);
+
+      // ---------- Scene 1 (0.0-2.6s): kicker + per-word h1 build on the VO ----------
+      tl.fromTo(one("a01-rule"), { scaleX: 0 }, { scaleX: 1, duration: 0.35, ease: "power3.out" }, 0.02);
+      tl.fromTo(one("a01-kicker"), { opacity: 0, x: -16 }, { opacity: 1, x: 0, duration: 0.4, ease: "power3.out" }, 0.06);
+
+      var words = all("a01-word");
+      var wordTimes = [0.28, 0.45, 0.93, 1.30, 1.58, 1.71, 2.03];
+      words.forEach(function (w, i) {
+        tl.fromTo(
+          w,
+          { opacity: 0, y: 34, filter: "blur(10px)" },
+          { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.38, ease: "power3.out" },
+          wordTimes[i]
+        );
+      });
+
+      // ---------- typing engine (discrete per-char state, seek-safe) ----------
+      function splitLine(lineEl) {
+        var chars = [];
+        Array.prototype.slice.call(lineEl.getElementsByClassName("a01-seg")).forEach(function (seg) {
+          var text = seg.textContent;
+          seg.textContent = "";
+          for (var i = 0; i < text.length; i++) {
+            var s = document.createElement("span");
+            s.className = "a01-ch";
+            s.textContent = text.charAt(i);
+            seg.appendChild(s);
+            chars.push(s);
+          }
+        });
+        return chars;
+      }
+      function typeLine(lineCls, t0, dt) {
+        var lineEl = one(lineCls);
+        var caret = lineEl.getElementsByClassName("a01-caret")[0];
+        var chars = splitLine(lineEl);
+        tl.set(caret, { opacity: 1, xPercent: 0 }, t0);
+        chars.forEach(function (c, i) {
+          var t = t0 + i * dt;
+          tl.set(c, { opacity: 1 }, t);
+          tl.set(caret, { xPercent: (i + 1) * 100 }, t);
+        });
+        return { caret: caret, end: t0 + chars.length * dt };
+      }
+      function hideCaret(c, t) { tl.set(c, { opacity: 0 }, t); }
+      function blink(c, from, to) {
+        var on = true;
+        for (var t = from + 0.4; t < to; t += 0.4) {
+          on = !on;
+          tl.set(c, { opacity: on ? 1 : 0 }, t);
+        }
+      }
+      function springIn(el, t) {
+        tl.fromTo(
+          el,
+          { opacity: 0, y: 40, scale: 0.92 },
+          { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "back.out(1.7)" },
+          t
+        );
+      }
+      function recede(el, t, op, sc) {
+        tl.to(el, { opacity: op, scale: sc, duration: 0.4, ease: "power2.out" }, t);
+      }
+
+      var h1 = one("a01-h1");
+      var tok1 = one("a01-token-1"), tok2 = one("a01-token-2"), tok3 = one("a01-token-3");
+      var term1 = one("a01-term-1"), term2 = one("a01-term-2"), term3 = one("a01-term-3");
+
+      // tokens start hidden (hard-cut swaps below)
+      tl.fromTo([tok1, tok2, tok3], { autoAlpha: 0 }, { autoAlpha: 0, duration: 0.001 }, 0);
+      // terminals start hidden (they spring in on their cues)
+      tl.fromTo([term1, term2, term3], { opacity: 0 }, { opacity: 0, duration: 0.001 }, 0);
+
+      // ---------- Scene 2 (2.84s "Claude Code"): token hard-cut + terminal 1 ----------
+      tl.set(tok1, { autoAlpha: 1 }, 2.84);
+      tl.to(h1, { color: "#8fa3b8", duration: 0.35, ease: "power2.out" }, 2.84);
+      springIn(term1, 2.84);
+      var c1a = typeLine("a01-line-1a", 2.98, 0.03);
+      hideCaret(c1a.caret, 3.22);
+      var c1b = typeLine("a01-line-1b", 3.22, 0.012);
+
+      // ---------- Scene 3 (3.90s "Codex"): token swap + terminal 2 stacks ----------
+      tl.set(tok1, { autoAlpha: 0 }, 3.90);
+      tl.set(tok2, { autoAlpha: 1 }, 3.90);
+      hideCaret(c1b.caret, 3.90);
+      recede(term1, 3.90, 0.62, 0.97);
+      springIn(term2, 3.90);
+      var c2a = typeLine("a01-line-2a", 4.02, 0.02);
+      hideCaret(c2a.caret, 4.28);
+      var c2b = typeLine("a01-line-2b", 4.28, 0.009);
+
+      // ---------- Scene 4 (4.71s "Every SDK"): token swap + smaller terminal 3, hold ----------
+      tl.set(tok2, { autoAlpha: 0 }, 4.71);
+      tl.set(tok3, { autoAlpha: 1 }, 4.71);
+      hideCaret(c2b.caret, 4.71);
+      recede(term1, 4.71, 0.45, 0.94);
+      recede(term2, 4.71, 0.62, 0.97);
+      springIn(term3, 4.71);
+      var c3a = typeLine("a01-line-3a", 4.82, 0.015);
+      hideCaret(c3a.caret, 5.06);
+      var c3b = typeLine("a01-line-3b", 5.06, 0.01);
+      blink(c3b.caret, c3b.end, DUR);
+
+      window.__timelines = window.__timelines || {};
+      window.__timelines[FID] = tl;
+    })();
+  </script>
+</template>
