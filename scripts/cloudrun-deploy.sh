@@ -9,7 +9,8 @@ cd "$(dirname "$0")/.."
 : "${GCP_PROJECT:?set GCP_PROJECT}"
 REGION="${GCP_REGION:-europe-central2}"
 REPO="${AICL_AR_REPO:-aicl}"
-MODEL="${AICL_OLLAMA_MODEL:-qwen3.5:2b-q4_K_M}"
+MODEL="${AICL_OLLAMA_MODEL:-qwen3.5:0.8b}"          # Ollama tag baked into the sidecar (small: CPU only)
+POLICY_MODEL="qwen3.5:2b-q4_K_M"                   # the policy's local model tag; the gateway renames it to $MODEL
 command -v gcloud >/dev/null || { echo "gcloud CLI not found" >&2; exit 1; }
 
 gcloud config set project "$GCP_PROJECT" >/dev/null
@@ -21,9 +22,9 @@ gcloud builds submit --config deploy/cloudrun/cloudbuild.yaml \
 
 export AICL_KEY_DEMO="aicl_$(openssl rand -hex 16)"
 export AICL_ADMIN_TOKEN="$(openssl rand -hex 24)"
-export REGION PROJECT="$GCP_PROJECT" REPO
+export REGION PROJECT="$GCP_PROJECT" REPO AICL_OLLAMA_MODEL="$MODEL"
 tmp="$(mktemp)"
-envsubst '${REGION} ${PROJECT} ${REPO} ${AICL_KEY_DEMO} ${AICL_ADMIN_TOKEN}' < deploy/cloudrun/service.yaml > "$tmp"
+envsubst '${REGION} ${PROJECT} ${REPO} ${AICL_KEY_DEMO} ${AICL_ADMIN_TOKEN} ${AICL_OLLAMA_MODEL}' < deploy/cloudrun/service.yaml > "$tmp"
 gcloud run services replace "$tmp" --region "$REGION"
 rm -f "$tmp"
 gcloud run services add-iam-policy-binding aicl --region "$REGION" --member allUsers --role roles/run.invoker >/dev/null
@@ -31,7 +32,7 @@ gcloud run services add-iam-policy-binding aicl --region "$REGION" --member allU
 URL="$(gcloud run services describe aicl --region "$REGION" --format 'value(status.url)')"
 for i in $(seq 1 60); do curl -fsS -m 5 "$URL/healthz" >/dev/null 2>&1 && break; sleep 5; done
 curl -fsS -m 300 "$URL/v1/chat/completions" -H "Authorization: Bearer $AICL_KEY_DEMO" -H 'Content-Type: application/json' \
-  -d "{\"model\": \"$MODEL\", \"messages\": [{\"role\": \"user\", \"content\": \"warm up\"}], \"max_tokens\": 8}" >/dev/null || true
+  -d "{\"model\": \"$POLICY_MODEL\", \"messages\": [{\"role\": \"user\", \"content\": \"warm up\"}], \"max_tokens\": 8}" >/dev/null || true
 
 cat <<EOT
 
