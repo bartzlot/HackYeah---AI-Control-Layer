@@ -137,7 +137,8 @@ def main() -> None:     # python -m aicl_gateway.mock_providers [port]: offline 
     import sys
 
     import uvicorn
-    uvicorn.run(anthropic_app(), host="127.0.0.1", port=int(sys.argv[1]) if len(sys.argv) > 1 else 18210)
+    uvicorn.run(anthropic_app(), host=sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1",
+                port=int(sys.argv[1]) if len(sys.argv) > 1 else 18210)
 
 
 if __name__ == "__main__":

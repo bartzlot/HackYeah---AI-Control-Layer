@@ -1,0 +1,86 @@
+# AICL transparent interception demo (research/14 s.1, s.9): the organization network in miniature.
+#
+#   corp  (internal: NO route to the internet)   devbox 10.77.0.10  --DNS-->  aicl 10.77.0.2 :53
+#                                                 devbox  --TLS api.anthropic.com-->  aicl :443 (AICL CA leaf)
+#   egress (normal bridge)                       aicl  --> real api.anthropic.com (client's own credential)
+#                                                 aicl  --> ollama (local judge)
+#
+# The devbox has Claude Code installed and is configured exactly like a managed laptop: DNS = AICL (what DHCP
+# would hand out), the AICL root CA trusted by the OS and by Node; ANTHROPIC_BASE_URL is NOT set. Its only
+# network is `corp`, so the egress firewall is enforced by construction: no route around the gateway.
+#
+#   make demo-transparent                 build + up (live: needs CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)
+#   AICL_OFFLINE=1 make demo-transparent  same, provider = local Anthropic mock (no network, no tokens)
+#   docker compose -f docker-compose.transparent.yml exec devbox claude -p "hello"
+# Console: http://127.0.0.1:18080/console (host-only).
+name: aicl-transparent
+
+networks:
+  corp:
+    internal: true
+    ipam: {config: [{subnet: 10.77.0.0/24}]}
+  egress: {}
+
+volumes:
+  aicl-data: {}
+  aicl-ca-public: {}                     # the root certificate only; the CA key stays in aicl-data
+  ollama-models: {external: true, name: aicl-ollama-models}
+
+services:
+  aicl:
+    build: {context: ., dockerfile: w1-gateway/Dockerfile}
+    image: aicl:local
+    command: ["python", "-m", "aicl_gateway.serve"]
+    environment:
+      AICL_BIND: 0.0.0.0
+      AICL_HTTP_PORT: "18080"
+      AICL_TLS_PORT: "443"
+      AICL_DNS_LISTEN: 0.0.0.0:53
+      AICL_CA_ROOT: /app
+      AICL_CA_PUBLISH: /app/ca-public
+      AICL_CONSOLE_REMOTE: "1"           # the browser arrives from the bridge; the port below is host-only
+      AICL_OLLAMA_URL: http://ollama:11434
+      AICL_UPSTREAM_ANTHROPIC: ${AICL_UPSTREAM_ANTHROPIC:-}   # set by AICL_OFFLINE=1 to the mock
+      AICL_KEY_DEMO: ${AICL_KEY_DEMO:-aicl_transparent_demo_key}
+    sysctls: {net.ipv4.ip_unprivileged_port_start: "0"}      # non-root user binds 53 and 443
+    volumes:
+      - ./policy:/app/policy:ro          # edit on the host: reload in ~1 s
+      - aicl-data:/app/data              # audit, budgets, CA key (never mounted anywhere else)
+      - aicl-ca-public:/app/ca-public    # root certificate for the devbox
+    networks:
+      corp: {ipv4_address: 10.77.0.2}
+      egress: {}
+    ports: ["127.0.0.1:18080:18080"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:18080/healthz', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  devbox:
+    build: {context: deploy/devbox}
+    image: aicl-devbox:local
+    depends_on: {aicl: {condition: service_healthy}}
+    dns: [10.77.0.2]                     # what DHCP option 6 hands out in the organization
+    environment:
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+      NODE_EXTRA_CA_CERTS: /aicl-ca/aicl-ca.pem
+    volumes:
+      - aicl-ca-public:/aicl-ca:ro
+    networks:
+      corp: {ipv4_address: 10.77.0.10}
+    command: ["sleep", "infinity"]
+
+  ollama:
+    image: ollama/ollama:latest
+    environment: {OLLAMA_KEEP_ALIVE: 24h, OLLAMA_NUM_PARALLEL: "2"}
+    volumes: [ollama-models:/root/.ollama]
+    networks: [egress]
+
+  mock-anthropic:                        # offline provider (AICL_OFFLINE=1)
+    image: aicl:local
+    command: ["python", "-m", "aicl_gateway.mock_providers", "18210", "0.0.0.0"]
+    networks: [egress]
+    profiles: [offline]

@@ -19,7 +19,7 @@ COPY w1-gateway w1-gateway
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-editable
 
 FROM python:3.13-slim
-RUN useradd --create-home --uid 10001 aicl && mkdir -p /app/data && chown aicl /app/data
+RUN useradd --create-home --uid 10001 aicl && mkdir -p /app/data /app/ca-public && chown aicl /app/data /app/ca-public
 COPY --from=build /app/.venv /app/.venv
 COPY policy /app/policy
 ENV PATH=/app/.venv/bin:$PATH PYTHONUNBUFFERED=1 \
@@ -28,7 +28,7 @@ ENV PATH=/app/.venv/bin:$PATH PYTHONUNBUFFERED=1 \
     AICL_CLOUDSIM_HOST=0.0.0.0
 WORKDIR /app
 USER aicl
-EXPOSE 18080 18200
+EXPOSE 18080 18200 443 53/udp 53/tcp
 # policy-driven gateway: agents, models, budgets and the INJ-04 judge come from AICL_POLICY + AICL_* env.
 # One worker only: budget reservations live in process memory.
 CMD ["uvicorn", "--factory", "aicl_gateway.main:create_app_from_env", "--host", "0.0.0.0", "--port", "18080"]
