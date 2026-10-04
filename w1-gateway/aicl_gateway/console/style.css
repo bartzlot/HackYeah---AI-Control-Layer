@@ -41,7 +41,7 @@ main{padding:22px 28px 48px;max-width:1440px;width:100%}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow)}
 .card h2{font-size:13px;margin:0 0 12px;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:8px}
 .card h2 .hint{margin-left:auto;font-weight:400;font-size:12px}
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-bottom:16px}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:14px;margin-bottom:16px}
 .tile{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow);position:relative;overflow:hidden}
 .tile::before{content:"";position:absolute;inset:0 auto 0 0;width:3px;background:var(--accent);opacity:.8}
 .tile.ok::before{background:var(--ok)}.tile.bad::before{background:var(--red)}.tile.warn::before{background:var(--warn)}.tile.violet::before{background:var(--violet)}
@@ -51,7 +51,7 @@ main{padding:22px 28px 48px;max-width:1440px;width:100%}
 .tile .s{color:var(--muted);font-size:12px}
 .bar{height:6px;background:var(--line);border-radius:6px;margin-top:8px;overflow:hidden}.bar i{display:block;height:100%;background:var(--accent);border-radius:6px;transition:width .4s}
 .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(380px,100%),1fr));gap:14px;margin-bottom:14px}
-.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:14px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));gap:14px;margin-bottom:14px}
 .chartbox{position:relative;height:250px}.fallback{display:none}
 .chartbox.nochart canvas{display:none}.chartbox.nochart .fallback{display:block}
 .fb-row{display:flex;align-items:center;gap:8px;margin:6px 0}.fb-row span{width:120px;color:var(--muted)}.fb-row i{display:block;height:10px;background:var(--accent);border-radius:4px}
@@ -163,3 +163,15 @@ a.rulelink{color:var(--accent);font-family:var(--mono);text-decoration:none}a.ru
 .lat.on{font-weight:700;border-color:currentColor;background:color-mix(in srgb,currentColor 12%,transparent)}
 mark.hit{background:color-mix(in srgb,var(--warn) 30%,transparent);color:inherit;border-radius:3px}
 .tl-f.shadow{opacity:.75}
+/* overview (T-117): nine tiles = 3 x 3, never an orphan row; chart empty states keep the box height */
+#tiles{grid-template-columns:repeat(3,minmax(0,1fr))}
+@media(max-width:860px){.app{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:760px){#tiles{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}}
+.tile .s .mono{color:var(--fg);overflow-wrap:anywhere}
+.chart-empty{display:none}
+.chartbox.empty canvas,.chartbox.empty .fallback{display:none}
+.chartbox.empty .chart-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:0 16px;color:var(--muted);font-size:13px;border:1px dashed var(--line);border-radius:10px;background:var(--panel2)}
+.chart-empty b{color:var(--fg);font-size:14px}
+.chart-empty .btn{font-size:12px;padding:4px 10px;color:var(--accent);margin-top:2px}
+#top-rules th,#top-rules td{padding:9px 8px}#top-rules td.wrap{min-width:0;word-break:normal;overflow-wrap:break-word}
+#top-rules td.empty{white-space:normal}

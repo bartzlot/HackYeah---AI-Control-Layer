@@ -1,6 +1,6 @@
 # 14 - Transparent interception: AICL in front of Claude Code, Codex and any API client
 
-Status: scope proposal v4, 2026-10-04 ~01:00 (confirm at SYNC). Extends `13-architecture.md`; where they disagree on ingress, this file wins.
+Status: scope v4, 2026-10-04 ~01:00; v5 update ~09:30 (section 12: explicit proxy is the main mode, INJ-04 classifier cascade). Extends `13-architecture.md`; where they disagree on ingress, this file wins.
 Markers: [SPIKE] measured today, [DOC] vendor documentation from memory (verify before relying on it), [INFERENCE] reasoning, not measured.
 
 ## 0. Decision in one paragraph
@@ -14,8 +14,8 @@ Three modes, one gateway, one `decide()`; they differ only in how traffic reache
 | Mode | Client side | Bypassable by the user? | Where it runs |
 |---|---|---|---|
 | A base URL | `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` points at the gateway | yes: unset the variable | anywhere, incl. Cloud Run (T-012) |
-| B explicit proxy | `HTTPS_PROXY` + trust the AICL CA | yes: unset the proxy | LAN / laptop |
-| C transparent (main) | nothing; DHCP hands out our DNS, the AICL CA is in the OS store (MDM / GPO) | only if the network allows direct egress, see below | LAN / laptop / compose demo |
+| B explicit proxy (main since v5) | `HTTPS_PROXY` or a PAC URL + trust the AICL CA, pushed by MDM / GPO | only if the firewall lets the device out directly, see section 12 | LAN / laptop / any managed device |
+| C transparent | nothing; DHCP hands out our DNS, the AICL CA is in the OS store (MDM / GPO) | only if the network allows direct egress, see below | LAN / laptop / compose demo |
 
 Why mode A or B alone is not enough: a user can change the base URL or the proxy and we stop seeing the traffic. Mode C removes the per-tool switch, but DNS by itself is still bypassable. The enforcement is the network:
 
@@ -165,3 +165,14 @@ Live provider calls need our own Claude / OpenAI credentials (the PDF provides n
 ## 11. Cut order if late
 
 DNS NET-01 bypass detection -> Codex adapter (keep Anthropic) -> name constraints on the CA -> dashboard Clients view (events table is enough) -> mode C itself (fall back to mode A with the same adapters; the native contract work is never wasted).
+
+## 12. v5: explicit proxy as the main mode, classifier-first INJ-04 (2026-10-04 ~09:30, owner decision)
+
+**Why proxy first.** An explicit forward proxy is how corporate egress already works: device management (MDM profile, GPO, PAC / WPAD) sets one proxy and installs one root CA, on any network (office, home, hotel), without owning DHCP or DNS. Transparent DNS + TLS needs control of the network the laptop sits on, so it stays as the zero-config path for unmanaged devices and the lab demo. Both modes run the same passthrough PEP and the same `decide()`.
+
+**How it works.** The gateway listens for HTTP `CONNECT` on :3128. `CONNECT api.anthropic.com:443` (any host in `interception.providers`) is answered `200`, the gateway terminates TLS with the AICL CA leaf for that host, parses the request in the provider's contract and runs it exactly like mode C. Other hosts follow `interception.proxy.other_hosts`: `tunnel` (bytes relayed, CONNECT audited) or `deny` (403 on CONNECT). `/proxy.pac` returns a PAC that sends only the AI hosts to AICL, for sites that do not want a full proxy. Optional `Proxy-Authorization` maps to a principal through `clients:`.
+
+**Bypass model.** Unsetting the proxy only helps if the device can reach the provider directly. The reference firewall rule is the classic proxy rule: TCP 443 to the internet only from the proxy; NET-01 adds a WARN when a managed client resolves an intercepted host but no CONNECT for it arrives (the device tried to go direct).
+
+**INJ-04 cascade.** Stage 1, a local ONNX classifier (DeBERTa-v3 prompt-injection, Apache-2.0) scores every user and untrusted part on 256-token windows run in parallel, cached by window hash, so a conversation that re-sends its history pays only for new text. Measured: about 75 ms per window on the demo CPU, fp32 only (int8 collapses the scores), English-centric (benign Polish can score 1.0). Stage 2, a multilingual embedder (e5-small, int8) finds the k nearest labelled examples (EN + PL, attacks and benign coding-agent traffic) and gives an independent score. Both high -> BLOCK; a very close match to a known attack -> BLOCK; both low -> pass; disagreement -> the local LLM judge if enabled, else WARN. Every finding carries the stage, model, score and threshold; scores are deterministic (same text, same score).
+

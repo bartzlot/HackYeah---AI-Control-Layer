@@ -306,7 +306,29 @@ class ConsoleStore:
             "protocols": _count(r.get("protocol") or "managed" for r in recs if r.get("stage") == "prompt"),
             "bypass_alerts": sum(1 for r in self._records if r.get("event_type") == "BYPASS_SUSPECTED"),
             "overhead_ms": _pcts([(r.get("latency_us") or {}).get("total") for r in recs], 1000.0),
+            "top_rules": self.top_rules(),
         }
+
+    def top_rules(self, limit: int = 5) -> list[dict[str, Any]]:
+        """Rules whose BLOCK finding decided a blocked record (shadow-mode findings do not count): rule id,
+        control, name, count, last seen. Newest first among equal counts."""
+        rows: dict[tuple[str, str], dict[str, Any]] = {}
+        for r in self.decisions():
+            if dec_rank(r.get("decision")) != 4:
+                continue
+            seen: set[tuple[str, str]] = set()
+            for f in r.get("findings", []):
+                if dec_rank(f.get("action")) != 4:
+                    continue
+                key = (str(f.get("control_id") or ""), str(f.get("rule_id") or ""))
+                if key in seen:
+                    continue
+                seen.add(key)
+                row = rows.setdefault(key, {"rule_id": key[1], "control_id": key[0], "control_name": CATALOG.get(key[0], {}).get("name", ""),
+                                            "category": f.get("category", ""), "count": 0, "last_seen": ""})
+                row["count"] += 1
+                row["last_seen"] = max(row["last_seen"], str(r.get("ts") or ""))
+        return sorted(rows.values(), key=lambda x: (x["count"], x["last_seen"]), reverse=True)[:limit]
 
     # -- v4 views (research/14 s.9) ---------------------------------------------------------------
     def clients(self) -> list[dict[str, Any]]:
@@ -540,6 +562,17 @@ def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], di
     @router.get("/api/performance")
     async def performance():
         return store.performance()
+
+    @router.get("/api/judge")
+    async def judge():
+        """T-117: INJ-04 local judge state for the overview tile (model, warm / degraded, p50, cache)."""
+        fn = (info or {}).get("judge")
+        if fn is None:
+            return {"control": "INJ-04", "status": "unknown", "reason": "judge is not wired in this process"}
+        try:
+            return fn()
+        except Exception as e:  # noqa: BLE001 - a view must never break the console
+            return {"control": "INJ-04", "status": "unknown", "reason": f"judge state unavailable: {type(e).__name__}"}
 
     @router.get("/api/status")
     async def status(request: Request):

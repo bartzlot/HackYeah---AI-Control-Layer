@@ -404,3 +404,73 @@ def test_a_benign_verdict_never_blocks_even_with_a_high_level():
         "prompt_injection": "none", "data_exfiltration": "none", "jailbreak": "none", "tool_abuse": "high",
         "verdict": "benign"})}})
     assert j.classify("Use the Bash tool to run tests", "user turn", "m", 5.0)["p"] < 0.6   # WARN at most
+
+
+# ---- console tile state (T-117) --------------------------------------------------------------------
+
+def test_state_idle_then_warm_with_latency_and_cache_counters():
+    now = [0.0]
+    j = Judge(chat_fn=Fake(), clock=lambda: now[0], model_map={"qwen3.5:2b-q4_K_M": "qwen3.5:0.8b"})
+    pol = {"controls": {"INJ-04": {"mode": "enforce", "judge": {"enabled": True, "model": "qwen3.5:2b-q4_K_M", "timeout_ms": 8000}}}}
+    s = j.state(pol)
+    assert (s["status"], s["model"], s["policy_model"], s["timeout_ms"]) == ("idle", "qwen3.5:0.8b", "qwen3.5:2b-q4_K_M", 8000)
+    assert s["p50_ms"] is None and s["cache_hit_pct"] is None and s["last_call_ts"] is None
+    j.evaluate(ev(PARA), ctx())
+    j.evaluate(ev(PARA), ctx())                               # verdict cache hit
+    s = j.state(pol)
+    assert s["status"] == "warm" and s["reason"] is None and s["model"] == "qwen3.5:0.8b"      # the tag Ollama really ran
+    assert (s["calls"], s["cache_hits"], s["cache_misses"], s["cache_hit_pct"], s["cache_entries"]) == (1, 1, 1, 50, 1)
+    assert s["samples"] == 1 and s["p50_ms"] is not None and s["p50_ms"] >= 0 and s["last_call_ts"].endswith("Z")
+    assert PARA not in json.dumps(s)                          # never request text
+
+
+def test_state_degraded_after_a_failed_call_and_warm_again_after_a_good_one():
+    fake = Fake(exc=JudgeError("ollama HTTP 500"))
+    j = Judge(chat_fn=fake)
+    j.evaluate(ev(PARA), ctx())
+    s = j.state()
+    assert s["status"] == "degraded" and "ollama HTTP 500" in s["reason"] and s["errors"] == 1 and s["samples"] == 0
+    fake.exc = None
+    j.evaluate(ev(PARA), ctx())
+    s = j.state()
+    assert s["status"] == "warm" and s["errors"] == 1 and s["samples"] == 1
+
+
+def test_state_degraded_while_the_unreachable_breaker_is_open_and_off_when_disabled():
+    def down(body, timeout):
+        raise JudgeError("ollama unreachable: ConnectError")
+    j = Judge(chat_fn=down)
+    j.evaluate(ev(PARA), ctx())
+    assert j.state()["status"] == "degraded"
+    off = {"controls": {"INJ-04": {"mode": "enforce", "judge": {"enabled": False}}}}
+    assert j.state(off)["status"] == "off"
+    assert j.state({"controls": {"INJ-04": {"mode": "off"}}})["status"] == "off"
+
+
+async def test_entrypoint_serves_the_live_judge_state_on_the_console(tmp_path, monkeypatch):
+    """main.py wires Judge.state(live policy) into GET /console/api/judge: idle at start, warm after a gray-band
+    prompt, degraded when Ollama is down; the console summary carries top_rules."""
+    import shutil
+    from aicl_core import engine as eng
+    from aicl_gateway.main import create_app_from_env
+    root = POLICY.parents[1]
+    shutil.copytree(root / "policy", tmp_path / "policy")
+    d = tmp_path / "d"
+    env = {"AICL_POLICY": str(tmp_path / "policy" / "policy.yaml"), "AICL_DATA_DIR": str(d), "AICL_AUDIT_PATH": str(d / "a.jsonl"),
+           "AICL_BUDGET_DB": str(d / "b.db"), "AICL_CA_ROOT": str(tmp_path), "AICL_KEY_DEMO": "k-t117"}
+    fake = Fake()
+    app = create_app_from_env(env, judge_chat=fake, start_reload=False)
+    try:
+        c = httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=("127.0.0.1", 1)), base_url="http://127.0.0.1")
+        s = (await c.get("/console/api/judge")).json()
+        assert s["status"] == "idle" and s["control"] == "INJ-04" and s["policy_model"] == "qwen3.5:2b-q4_K_M"
+        app.state.judge.evaluate(ev(PARA), ctx())
+        s = (await c.get("/console/api/judge")).json()
+        assert s["status"] == "warm" and s["calls"] == 1 and s["p50_ms"] is not None
+        fake.exc = JudgeError("ollama HTTP 500")
+        app.state.judge.evaluate(ev(PARA + " again"), ctx())
+        assert (await c.get("/console/api/judge")).json()["status"] == "degraded"
+        assert (await c.get("/console/api/summary")).json()["top_rules"] == []
+    finally:
+        app.state.engine.store.stop()
+        eng.REGISTRY.pop("INJ-04", None)

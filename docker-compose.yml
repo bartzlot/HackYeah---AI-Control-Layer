@@ -32,6 +32,7 @@ services:
       AICL_BUDGET_DB: /app/data/budget.db
     volumes:
       - ./policy:/app/policy        # edit on the host or from the console; the gateway polls and reloads
+      - ./models:/app/models:ro     # INJ-04 classifier + kNN embedder (make models-onnx); empty = judge-only cascade
       - gateway-data:/app/data      # audit JSONL + budget SQLite survive restarts
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:18080/healthz', timeout=2)"]

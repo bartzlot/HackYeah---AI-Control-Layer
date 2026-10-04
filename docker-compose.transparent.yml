@@ -47,6 +47,7 @@ services:
     sysctls: {net.ipv4.ip_unprivileged_port_start: "0"}      # non-root user binds 53 and 443
     volumes:
       - ./policy:/app/policy             # edit on the host or from the console: reload in ~1 s
+      - ./models:/app/models:ro          # INJ-04 classifier + kNN embedder (make models-onnx)
       - aicl-data:/app/data              # audit, budgets, CA key (never mounted anywhere else)
       - aicl-ca-public:/app/ca-public    # root certificate for the devbox
     networks:

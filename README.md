@@ -74,8 +74,8 @@ Requirements: Python 3.13 with [uv](https://docs.astral.sh/uv/), Docker. No paid
 Detail and measurements: [`research/14-transparent-interception.md`](research/14-transparent-interception.md). Sources and regeneration: [`docs/diagrams/`](docs/diagrams/README.md).
 
 There are three ways traffic can reach AICL, and all of them share one gateway and one `decide()`:
-- **Transparent** (main mode): DHCP hands out the AICL resolver and the AICL root CA is trusted through MDM or GPO. Nothing is configured in the tool.
-- **Explicit proxy**: `HTTPS_PROXY` plus the CA.
+- **Explicit proxy** (main mode): device management (MDM, GPO or a PAC URL) sets `HTTPS_PROXY` to AICL and trusts the AICL root CA. Works on any network; AI hosts are inspected, other hosts are tunnelled or denied by policy.
+- **Transparent**: DHCP hands out the AICL resolver and the AICL root CA is trusted. Nothing is configured in the tool; for devices that cannot be managed.
 - **Base URL**: `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL`, useful where DNS cannot be controlled.
 
 Bypass is stopped by the egress firewall ([reference rules](deploy/firewall/)) and detected by the resolver. Design and measurements: [`research/14-transparent-interception.md`](research/14-transparent-interception.md).
@@ -99,7 +99,7 @@ The demo runs the corp network in containers. To point a real machine at it, `sc
 1. Identity: client address, key fingerprint and tool are mapped to a principal through `clients:`.
 2. Model allowlist and a budget reservation.
 3. Deterministic controls: secrets (DLP-01), PII with checksums including PESEL, IBAN and cards (DLP-02), the destination matrix that puts data class against local / external / unknown (DLP-05), and signature rules with inline tests: injection EN + PL, historical exploits, coding-agent rules.
-4. The local judge (INJ-04) on untrusted tool results and in the gray band.
+4. The local semantic cascade (INJ-04) on user turns and untrusted tool results: an ONNX prompt-injection classifier on CPU, a multilingual kNN over labelled EN + PL examples as the second opinion, and the local LLM judge only where the two disagree.
 5. The tool firewall (TOOL-01) on every tool call the model wants to run.
 6. The final action is the maximum on the lattice ALLOW < LOG < WARN < REDACT < BLOCK. Redaction and audit follow.
 

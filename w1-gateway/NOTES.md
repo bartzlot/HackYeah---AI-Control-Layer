@@ -45,3 +45,9 @@
 ## Network page diagram (T-118)
 - `GET /console/api/network` carries `last_request`: the newest request (max decision over its records) with `dns_seen` (an intercepted DNS_QUERY of the same client and host stored before it), `decision`, `outcome` (`upstream` | `block` | `response_block` = the provider was reached, its answer was blocked), host, tool, client. `null` before any request.
 - The diagram is one self-contained `<svg id="flow">` in index.html. `app.js paintFlow()` only toggles classes (`on`, `dim`, `ok`, `warn`, `bad`) on its `data-node` (laptop, dns, gateway, upstream, block, firewall) and `data-edge` (dns, tls, upstream, block) groups. A replacement SVG (T-908) keeps those hooks and nothing else needs to change.
+
+## Console overview (T-117)
+- The overview judge tile reads `GET /console/api/judge` = `Judge.state(live policy)`: status idle (not called yet) / warm (last
+  model call answered) / degraded (last call failed or the unreachable breaker is open) / off (disabled in policy), model (the
+  tag Ollama really runs), p50 / p95 of the model-call wall time, verdict-cache hits. Counters are per process and reset on restart.
+- `summary.top_rules` lists the rules whose BLOCK finding decided a blocked record (shadow-mode findings do not count).

@@ -15,6 +15,7 @@ aicl-gateway = { workspace = true }
 
 [dependency-groups]
 dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+models = ["onnx>=1.17"]      # scripts/fetch_models.py only: int8 quantization at fetch time, not a runtime dependency
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "contracts/tests", "w2-core/tests", "w1-gateway/tests"]

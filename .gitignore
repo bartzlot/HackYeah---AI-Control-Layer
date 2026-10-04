@@ -12,3 +12,5 @@ data-codex/
 data-edit/
 policy/rules/feed.yaml
 policy/rules/feed.state.json
+models/*
+!models/.gitkeep

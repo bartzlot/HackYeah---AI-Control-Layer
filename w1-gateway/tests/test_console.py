@@ -368,3 +368,51 @@ def test_t118_console_assets_carry_the_diagram_hooks():
     for edge in ("dns", "tls", "upstream", "block"):
         assert f'data-edge="{edge}"' in html
     assert 'id="flow"' in html and "paintFlow" in js and "raw_paths" in js
+
+
+def _rec(i, rid, decision, findings, ts):
+    return {"event_id": f"e{i}", "request_id": rid, "ts": ts, "stage": "prompt", "event_type": "X", "decision": decision,
+            "findings": findings}
+
+
+def _f(control, rule, action, category="secrets"):
+    return {"control_id": control, "rule_id": rule, "category": category, "action": action}
+
+
+def test_t117_top_rules_count_blocking_findings_only():
+    s = ConsoleStore()
+    s.append(_rec(1, "r1", 4, [_f("DLP-01", "secrets.aws_key", 4), _f("DLP-02", "pii.email", 3)], "2026-10-04T08:00:00Z"))
+    s.append(_rec(2, "r2", 4, [_f("DLP-01", "secrets.aws_key", 4)], "2026-10-04T08:05:00Z"))
+    s.append(_rec(3, "r3", 4, [_f("INJ-03", "inj.ignore_previous", 4, "injection")], "2026-10-04T08:03:00Z"))
+    s.append(_rec(4, "r4", 3, [_f("DLP-01", "secrets.aws_key", 4)], "2026-10-04T08:09:00Z"))     # shadow: decision not BLOCK
+    s.append(_rec(5, "r5", 0, [], "2026-10-04T08:10:00Z"))
+    top = s.summary()["top_rules"]
+    assert [(t["control_id"], t["rule_id"], t["count"], t["last_seen"]) for t in top] == [
+        ("DLP-01", "secrets.aws_key", 2, "2026-10-04T08:05:00Z"), ("INJ-03", "inj.ignore_previous", 1, "2026-10-04T08:03:00Z")]
+    assert top[0]["control_name"] and top[1]["category"] == "injection"
+    assert ConsoleStore().summary()["top_rules"] == []
+
+
+def test_t117_top_rules_limit_and_fixtures():
+    s = ConsoleStore()
+    for i in range(8):
+        s.append(_rec(i, f"r{i}", 4, [_f("DLP-01", f"rule.{i}", 4)], f"2026-10-04T08:0{i}:00Z"))
+    assert len(s.summary()["top_rules"]) == 5 and s.summary()["top_rules"][0]["rule_id"] == "rule.7"   # tie: newest first
+    fx = store_with_fixtures().summary()["top_rules"]
+    assert fx and all({"rule_id", "control_id", "count", "last_seen"} <= set(t) for t in fx)
+
+
+async def test_t117_judge_endpoint_follows_the_wired_state_and_never_breaks_the_console():
+    def serve(info):
+        app = FastAPI()
+        app.include_router(make_console_router(ConsoleStore(), info=info))
+        return httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://c")
+    assert (await serve(None).get("/console/api/judge")).json()["status"] == "unknown"
+    st = {"control": "INJ-04", "status": "warm", "model": "qwen3.5:2b-q4_K_M", "p50_ms": 412.0, "cache_hits": 3}
+    r = await serve({"judge": lambda: st}).get("/console/api/judge")
+    assert r.status_code == 200 and r.json() == st
+
+    def boom():
+        raise RuntimeError("x")
+    r = await serve({"judge": boom}).get("/console/api/judge")
+    assert r.status_code == 200 and r.json()["status"] == "unknown" and "RuntimeError" in r.json()["reason"]
