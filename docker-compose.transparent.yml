@@ -12,7 +12,7 @@
 #   make demo-transparent                 build + up (live: needs CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY)
 #   AICL_OFFLINE=1 make demo-transparent  same, provider = local Anthropic mock (no network, no tokens)
 #   docker compose -f docker-compose.transparent.yml exec devbox claude -p "hello"
-# Console: http://127.0.0.1:18080/console (host-only).
+# Console: http://127.0.0.1:${AICL_TRANSPARENT_HTTP_PORT:-18080}/console (host-only).
 name: aicl-transparent
 
 networks:
@@ -52,7 +52,7 @@ services:
     networks:
       corp: {ipv4_address: 10.77.0.2}
       egress: {}
-    ports: ["127.0.0.1:18080:18080"]
+    ports: ["127.0.0.1:${AICL_TRANSPARENT_HTTP_PORT:-18080}:18080"]   # host port is configurable: runs next to the base-URL compose / a local serve
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:18080/healthz', timeout=2)"]
       interval: 5s

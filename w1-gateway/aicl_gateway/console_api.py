@@ -473,6 +473,18 @@ def make_console_router(store: ConsoleStore, playground: "dict | Callable[[], di
     async def performance():
         return store.performance()
 
+    @router.get("/api/status")
+    async def status(request: Request):
+        """T-116: the listeners this process really runs (HTTP, TLS, DNS), CA, upstream overrides and the mode
+        they add up to; the header chip shows this instead of the policy's interception.mode."""
+        fn = (info or {}).get("status")
+        if fn is None:
+            return {"mode": "unknown", "warnings": [], "notes": []}
+        try:
+            return fn(request.scope.get("server"))
+        except Exception as e:  # noqa: BLE001 - a view must never break the console
+            return {"mode": "unknown", "warnings": [f"status unavailable: {type(e).__name__}"], "notes": []}
+
     @router.get("/api/policy")
     async def policy():
         """Read-only view of the live policy: version, reload error, interception, files."""
