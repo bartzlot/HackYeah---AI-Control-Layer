@@ -1,8 +1,8 @@
 # AICL - AI Control Layer
 
-**A self-hosted control layer on the network path of every AI API client. Claude Code, Codex, SDKs and agents pass through it without changing a single setting.**
+**A self-hosted control layer on the network path of every AI API client. Claude Code, Codex, SDKs and agents pass through it without the developer changing a single setting.**
 
-AICL answers DNS lookups for the AI API hosts (`api.anthropic.com`, `api.openai.com`) with its own address, terminates TLS with an organization CA, and reads every request in the provider's own API contract. It identifies who is calling, meters spend, and inspects prompts, tool results, tool calls and answers. Fast deterministic checks run first, a local AI judge (Ollama) handles the gray band, and the outcome is allow, warn, redact or block, decided in milliseconds. Allowed traffic goes to the real provider with the user's own credentials. Blocks come back in the provider's native format, so Claude Code and Codex show them as ordinary messages or API errors. One policy file governs everything and reloads live. Every decision is explained, audited and visible on a dashboard. Built for the HackYeah 2026 "AI Control Layer" challenge.
+Managed devices send AI traffic through the AICL proxy (`HTTPS_PROXY` and the AICL root CA, pushed by MDM, GPO or a PAC file). Devices that cannot be managed reach it through the AICL DNS resolver, which answers the AI API hosts (`api.anthropic.com`, `api.openai.com`) with the gateway's address. Either way AICL terminates TLS with the organization CA and reads every request in the provider's own API contract. It identifies who is calling, meters spend, and inspects prompts, tool results, tool calls and answers. Fast deterministic checks run first, a local AI judge (Ollama) handles the gray band, and the outcome is allow, warn, redact or block, decided in milliseconds. Allowed traffic goes to the real provider with the user's own credentials. Blocks come back in the provider's native format, so Claude Code and Codex show them as ordinary messages or API errors. One policy file governs everything and reloads live. Every decision is explained, audited and visible on a dashboard. Built for the HackYeah 2026 "AI Control Layer" challenge.
 
 ```
 $ claude -p "Read notes.txt and summarize it"            # inside the demo laptop, no AICL config at all
@@ -24,7 +24,7 @@ Requirements: Python 3.13 with [uv](https://docs.astral.sh/uv/), Docker. No paid
 | Use the demo laptop | `docker compose -f docker-compose.transparent.yml exec devbox claude -p "hello" --model claude-haiku-4-5` |
 | Dashboard (also the policy, budget, control and AI-domain editor) | http://127.0.0.1:18080/console |
 | Classic demo stack with your own Ollama on the host | `make demo-local` |
-| Public demo on Cloud Run (base-URL mode) | `GCP_PROJECT=<project> make cloudrun` |
+| Public demo on Cloud Run (base-URL mode; the local judge runs `qwen3.5:0.8b` on CPU there) | `GCP_PROJECT=<project> make cloudrun` |
 | Base-URL mode on your own machine | `uv run python -m aicl_gateway.serve`, then `ANTHROPIC_BASE_URL=http://127.0.0.1:18080 claude` |
 | Codex in base-URL mode | `codex -c model_provider=aicl -c 'model_providers.aicl={name="aicl",base_url="http://127.0.0.1:18080/openai/v1",env_key="OPENAI_API_KEY",wire_api="responses"}'` |
 | Live tests with the real CLIs | `make live` (Claude Code, base URL), `make live-transparent` (Claude Code in the demo laptop), `tests/live/test_live_codex.py` (Codex CLI) |
@@ -39,21 +39,30 @@ Requirements: Python 3.13 with [uv](https://docs.astral.sh/uv/), Docker. No paid
 
 ## How it works
 
+There are three ways traffic can reach AICL, and all of them share one gateway and one `decide()`:
+- **Explicit proxy** (main mode): device management (MDM, GPO or a PAC URL) sets `HTTPS_PROXY` to AICL and trusts the AICL root CA. Works on any network; AI hosts are inspected, other hosts are tunnelled or denied by policy. Status: the CONNECT listener is being built (T-125); the runnable demos today are transparent and base URL.
+- **Transparent**: DHCP hands out the AICL resolver and the AICL root CA is trusted. Nothing is configured in the tool; for devices that cannot be managed.
+- **Base URL**: `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL`, useful where neither the device nor DNS can be controlled (also the Cloud Run demo).
+
+Bypass is stopped by the egress firewall ([reference rules](deploy/firewall/)): port 443 to the providers is open only to AICL, so unsetting the proxy or using another resolver leads nowhere.
+
+The diagrams below show the **transparent path**, which the demo stack runs. In proxy mode only the first hop differs: the laptop opens `CONNECT api.anthropic.com:443` to AICL instead of resolving the host through the AICL resolver. From the TLS handshake with the AICL CA leaf onwards it is the same gateway, the same `decide()` and the same native answers.
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/01-topology.dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="docs/diagrams/01-topology.light.svg">
-  <img src="docs/diagrams/01-topology.light.svg" alt="Deployment: developer laptop, DHCP and egress firewall, AICL DNS, gateway and console, AI providers and the Ollama judge">
+  <img src="docs/diagrams/01-topology.light.svg" alt="Deployment (transparent path): developer laptop, DHCP and egress firewall, AICL DNS, gateway and console, AI providers and the Ollama judge">
 </picture>
 
-**Topology.** DHCP points the laptop at the AICL resolver, the egress firewall lets only AICL talk to DNS and the providers, and the gateway sends the gray band to a local Ollama judge.
+**Topology (transparent path).** DHCP points the laptop at the AICL resolver, the egress firewall lets only AICL talk to DNS and the providers, and the gateway sends the gray band to a local Ollama judge. In proxy mode the laptop is pointed at AICL by its proxy setting instead of DHCP; the firewall rule is the same.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/02-sequence.dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="docs/diagrams/02-sequence.light.svg">
-  <img src="docs/diagrams/02-sequence.light.svg" alt="Sequence of one request: DNS, TLS with the AICL CA leaf, decide() on the request, upstream call, decide() on the response, native answer or block">
+  <img src="docs/diagrams/02-sequence.light.svg" alt="Sequence of one request (transparent path): DNS, TLS with the AICL CA leaf, decide() on the request, upstream call, decide() on the response, native answer or block">
 </picture>
 
-**One request.** DNS and TLS land on the gateway, `decide()` checks the request, the upstream call uses the client's own credential, `decide()` checks the response, and the client gets a native answer or a native block.
+**One request.** DNS (proxy mode: CONNECT) and TLS land on the gateway, `decide()` checks the request, the upstream call uses the client's own credential, `decide()` checks the response, and the client gets a native answer or a native block.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/03-decide.dark.svg">
@@ -61,24 +70,17 @@ Requirements: Python 3.13 with [uv](https://docs.astral.sh/uv/), Docker. No paid
   <img src="docs/diagrams/03-decide.light.svg" alt="The decide() pipeline: event, identity and budget, controls, findings, severity lattice, decision and audit">
 </picture>
 
-**The `decide()` pipeline.** Each control runs in its policy mode, enforced findings are combined on the ALLOW < LOG < WARN < REDACT < BLOCK lattice, and any engine error fails closed.
+**The `decide()` pipeline.** The same in every mode. Each control runs in its policy mode, enforced findings are combined on the ALLOW < LOG < WARN < REDACT < BLOCK lattice, and any engine error fails closed.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/diagrams/04-bypass.dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="docs/diagrams/04-bypass.light.svg">
-  <img src="docs/diagrams/04-bypass.light.svg" alt="Bypass attempts, the network control that stops each one, and what NET-01 shows">
+  <img src="docs/diagrams/04-bypass.light.svg" alt="Bypass attempts on the transparent path, the network control that stops each one, and what NET-01 shows">
 </picture>
 
-**Bypass.** Each way around the gateway is stopped by the egress firewall, DNS sinkholing or a failed TLS handshake, and the resolver raises NET-01 when a name is looked up without a request.
+**Bypass (transparent path).** Each way around the gateway is stopped by the egress firewall, DNS sinkholing or a failed TLS handshake, and the resolver raises NET-01 when a name is looked up without a request. In proxy mode the equivalent attempt, unsetting the proxy, fails at the same firewall.
 
-Detail and measurements: [`research/14-transparent-interception.md`](research/14-transparent-interception.md). Sources and regeneration: [`docs/diagrams/`](docs/diagrams/README.md).
-
-There are three ways traffic can reach AICL, and all of them share one gateway and one `decide()`:
-- **Explicit proxy** (main mode): device management (MDM, GPO or a PAC URL) sets `HTTPS_PROXY` to AICL and trusts the AICL root CA. Works on any network; AI hosts are inspected, other hosts are tunnelled or denied by policy.
-- **Transparent**: DHCP hands out the AICL resolver and the AICL root CA is trusted. Nothing is configured in the tool; for devices that cannot be managed.
-- **Base URL**: `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL`, useful where DNS cannot be controlled.
-
-Bypass is stopped by the egress firewall ([reference rules](deploy/firewall/)) and detected by the resolver. Design and measurements: [`research/14-transparent-interception.md`](research/14-transparent-interception.md).
+Detail and measurements: [`research/14-transparent-interception.md`](research/14-transparent-interception.md) (section 12 for proxy mode). Sources and regeneration: [`docs/diagrams/`](docs/diagrams/README.md).
 
 ### Transparent mode on a host machine (macOS / Linux / Windows)
 
@@ -107,7 +109,7 @@ The demo runs the corp network in containers. To point a real machine at it, `sc
 
 | Requirement (CRIETRIA PDF) | Where it is |
 |---|---|
-| 3.1 Control layer that is easy to integrate (agent to model, agent to tools) | Transparent DNS + TLS interception, base URL or proxy; native Anthropic and OpenAI contracts; [demo](docker-compose.transparent.yml) with the real Claude Code; managed OpenAI-compatible gateway for own agents |
+| 3.1 Control layer that is easy to integrate (agent to model, agent to tools) | Explicit proxy (main mode, T-125), transparent DNS + TLS interception or base URL; native Anthropic and OpenAI contracts; [demo](docker-compose.transparent.yml) with the real Claude Code; managed OpenAI-compatible gateway for own agents |
 | 3.1b Architecture diagram | above, plus [`research/14`](research/14-transparent-interception.md) |
 | 3.2 Documented policy with strictness levels and budgets | [`policy/policy.yaml`](policy/policy.yaml) (profiles strict / balanced / permissive, matrix, controls, budgets, interception, clients) + [`policy/README.md`](policy/README.md) |
 | 3.3 Interactive dashboard | Console: posture, blocked threats, spend, clients, network and bypass, performance, policy, live events with explain, playground |
